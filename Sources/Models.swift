@@ -39,55 +39,6 @@ struct ResetHistoryEntry: Codable {
     let detail: String
 }
 
-enum RouteBCapabilityState {
-    case ready
-    case testRequired
-    case blocked
-}
-
-struct RouteBCapability {
-    let label: String
-    let state: RouteBCapabilityState
-}
-
-struct RouteBProviderProfile {
-    let id: String
-    let name: String
-    let provider: String
-    let model: String
-    let summary: String
-    let capabilities: [RouteBCapability]
-}
-
-let routeBProviderProfiles = [
-    RouteBProviderProfile(
-        id: "openrouter-text-helper",
-        name: "Text Helper",
-        provider: "OpenRouter",
-        model: "z-ai/glm-5.2",
-        summary: "Low-risk drafting, summaries, and read-only checks.",
-        capabilities: [
-            RouteBCapability(label: "Chat ready", state: .ready),
-            RouteBCapability(label: "MCP test required", state: .testRequired),
-            RouteBCapability(label: "Browser test required", state: .testRequired),
-            RouteBCapability(label: "Live ops blocked", state: .blocked)
-        ]
-    ),
-    RouteBProviderProfile(
-        id: "openrouter-visual-helper",
-        name: "Visual Helper",
-        provider: "OpenRouter",
-        model: "z-ai/glm-5v-turbo",
-        summary: "Image review and visual context; no account actions.",
-        capabilities: [
-            RouteBCapability(label: "Chat ready", state: .ready),
-            RouteBCapability(label: "Vision ready", state: .ready),
-            RouteBCapability(label: "MCP blocked", state: .blocked),
-            RouteBCapability(label: "Live ops blocked", state: .blocked)
-        ]
-    )
-]
-
 struct ApiUsageSnapshot: Equatable {
     let usedTokens: Int
     let limitTokens: Int
@@ -159,11 +110,6 @@ enum UsageDisplayMode: String {
     case weekly
 }
 
-enum ToolbarDisplayStyle: String {
-    case detailed
-    case compact
-}
-
 enum AutoSwitchMode: String {
     case off
     case ask
@@ -171,29 +117,18 @@ enum AutoSwitchMode: String {
     case zero
 }
 
-enum AutoResumeMode: String {
-    case off
-    case ask
-    case idle5
-    case idle10
-    case always
-}
-
 enum AccountPanelMode {
     case usage
     case settings
     case api
-    case routeB
     case resets
 }
 
 enum SettingsPanelAction: String {
     case usageView
     case settingsView
-    case routeBView
     case resetCreditsView
     case addAccount
-    case addDeviceAccount
     case apiView
     case setupApiMode
     case switchApiMode
@@ -204,15 +139,12 @@ enum SettingsPanelAction: String {
     case removeAccount
     case usageWeekly
     case usageFiveHour
-    case styleDetailed
-    case styleCompact
     case toggleLaunchAtLogin
     case toggleUsageReminder
     case toggleCreditExpiryNotifications
     case editUsageReminder
     case toggleAutoSwitch
     case editAutoSwitch
-    case editAutoResume
     case toggleConfirmSwitch
     case toggleProtectCodex
     case editRefresh

@@ -279,7 +279,6 @@ final class AccountSwitcherPanelView: NSView {
     private let autoSwitchEnabled: Bool
     private let autoSwitchThreshold: Int
     private let autoSwitchMode: AutoSwitchMode
-    private let autoResumeMode: AutoResumeMode
     private let confirmBeforeSwitching: Bool
     private let armedSwitchEmail: String?
     private let protectFrontmostCodex: Bool
@@ -289,10 +288,7 @@ final class AccountSwitcherPanelView: NSView {
     private let apiUsage: ApiUsageSnapshot
     private let resetCreditsByEmail: [String: ResetCreditsSnapshot]
     private let healthStatuses: [HealthStatus]
-    private let routeBProfiles: [RouteBProviderProfile]
-    private let selectedRouteBProfileID: String?
     private let usageMode: UsageDisplayMode
-    private let toolbarDisplayStyle: ToolbarDisplayStyle
     private let activeRefreshInterval: Int
     private let idleRefreshInterval: Int
     private let labelForAccount: (CodexAccount) -> String
@@ -304,7 +300,6 @@ final class AccountSwitcherPanelView: NSView {
     private let editAccountLabel: (String) -> Void
     private let showResetCredits: () -> Void
     private let redeemResetCredit: (String, String) -> Void
-    private let selectRouteBProfile: (String) -> Void
     private let performSettingsAction: (SettingsPanelAction) -> Void
     private let close: () -> Void
     private let toggleLaunchAtLogin: () -> Void
@@ -334,7 +329,6 @@ final class AccountSwitcherPanelView: NSView {
         autoSwitchEnabled: Bool,
         autoSwitchThreshold: Int,
         autoSwitchMode: AutoSwitchMode,
-        autoResumeMode: AutoResumeMode,
         confirmBeforeSwitching: Bool,
         armedSwitchEmail: String?,
         protectFrontmostCodex: Bool,
@@ -344,10 +338,7 @@ final class AccountSwitcherPanelView: NSView {
         apiUsage: ApiUsageSnapshot,
         resetCreditsByEmail: [String: ResetCreditsSnapshot],
         healthStatuses: [HealthStatus],
-        routeBProfiles: [RouteBProviderProfile],
-        selectedRouteBProfileID: String?,
         usageMode: UsageDisplayMode,
-        toolbarDisplayStyle: ToolbarDisplayStyle,
         activeRefreshInterval: Int,
         idleRefreshInterval: Int,
         labelForAccount: @escaping (CodexAccount) -> String,
@@ -359,7 +350,6 @@ final class AccountSwitcherPanelView: NSView {
         editAccountLabel: @escaping (String) -> Void,
         showResetCredits: @escaping () -> Void,
         redeemResetCredit: @escaping (String, String) -> Void,
-        selectRouteBProfile: @escaping (String) -> Void,
         performSettingsAction: @escaping (SettingsPanelAction) -> Void,
         close: @escaping () -> Void,
         toggleLaunchAtLogin: @escaping () -> Void,
@@ -379,7 +369,6 @@ final class AccountSwitcherPanelView: NSView {
         self.autoSwitchEnabled = autoSwitchEnabled
         self.autoSwitchThreshold = autoSwitchThreshold
         self.autoSwitchMode = autoSwitchMode
-        self.autoResumeMode = autoResumeMode
         self.confirmBeforeSwitching = confirmBeforeSwitching
         self.armedSwitchEmail = armedSwitchEmail
         self.protectFrontmostCodex = protectFrontmostCodex
@@ -389,10 +378,7 @@ final class AccountSwitcherPanelView: NSView {
         self.apiUsage = apiUsage
         self.resetCreditsByEmail = resetCreditsByEmail
         self.healthStatuses = healthStatuses
-        self.routeBProfiles = routeBProfiles
-        self.selectedRouteBProfileID = selectedRouteBProfileID
         self.usageMode = usageMode
-        self.toolbarDisplayStyle = toolbarDisplayStyle
         self.activeRefreshInterval = activeRefreshInterval
         self.idleRefreshInterval = idleRefreshInterval
         self.labelForAccount = labelForAccount
@@ -404,7 +390,6 @@ final class AccountSwitcherPanelView: NSView {
         self.editAccountLabel = editAccountLabel
         self.showResetCredits = showResetCredits
         self.redeemResetCredit = redeemResetCredit
-        self.selectRouteBProfile = selectRouteBProfile
         self.performSettingsAction = performSettingsAction
         self.close = close
         self.toggleLaunchAtLogin = toggleLaunchAtLogin
@@ -441,10 +426,7 @@ final class AccountSwitcherPanelView: NSView {
             return NSSize(width: 424, height: 424 + AccountPanelLayout.resetChanceTopGap + AccountPanelLayout.resetChanceHeight)
         }
         if mode == .settings {
-            return NSSize(width: 432, height: 686)
-        }
-        if mode == .routeB {
-            return NSSize(width: 468, height: 600)
+            return NSSize(width: 432, height: 592)
         }
         if mode == .resets && accountCount >= 3 {
             return NSSize(width: 468, height: 640)
@@ -464,8 +446,6 @@ final class AccountSwitcherPanelView: NSView {
             buildSettingsContent()
         case .api:
             buildApiContent()
-        case .routeB:
-            buildRouteBContent()
         case .resets:
             buildResetCreditsContent()
         }
@@ -551,41 +531,23 @@ final class AccountSwitcherPanelView: NSView {
         let contentWidth = bounds.width - (outerInset * 2)
         addSubview(settingsHeader(frame: NSRect(x: outerInset, y: outerInset, width: contentWidth, height: 54)))
 
-        let displaySection = settingsSection(frame: NSRect(x: outerInset, y: 84, width: contentWidth, height: 104), title: "Display")
+        let displaySection = settingsSection(frame: NSRect(x: outerInset, y: 84, width: contentWidth, height: 70), title: "Display")
         displaySection.addSubview(segmentedRow(label: "Menu bar", frame: NSRect(x: 16, y: 38, width: contentWidth - 32, height: 24), options: [
             ("Weekly", usageMode == .weekly, SettingsPanelAction.usageWeekly),
             ("5H", usageMode == .fiveHour, SettingsPanelAction.usageFiveHour)
         ]))
-        displaySection.addSubview(segmentedRow(label: "Density", frame: NSRect(x: 16, y: 70, width: contentWidth - 32, height: 24), options: [
-            ("Large", toolbarDisplayStyle == .detailed, SettingsPanelAction.styleDetailed),
-            ("Small", toolbarDisplayStyle == .compact, SettingsPanelAction.styleCompact)
-        ]))
         addSubview(displaySection)
 
-        let automationSection = settingsSection(frame: NSRect(x: outerInset, y: 200, width: contentWidth, height: 256), title: "Automation")
+        let automationSection = settingsSection(frame: NSRect(x: outerInset, y: 158, width: contentWidth, height: 220), title: "Automation")
         automationSection.addSubview(settingToggleRow(title: "Follow Codex / ChatGPT", detail: "Show only while either app is open", isOn: launchAtLoginEnabled, action: .toggleLaunchAtLogin, frame: NSRect(x: 16, y: 34, width: contentWidth - 32, height: 34)))
         automationSection.addSubview(settingToggleRow(title: "Usage reminder", detail: "Alert at \(reminderThreshold)%", isOn: remindersEnabled, action: .toggleUsageReminder, frame: NSRect(x: 16, y: 70, width: contentWidth - 32, height: 34)))
         automationSection.addSubview(settingToggleRow(title: "Credit expiry", detail: "Alert 3 days before reset credits expire", isOn: creditExpiryNotificationsEnabled, action: .toggleCreditExpiryNotifications, frame: NSRect(x: 16, y: 106, width: contentWidth - 32, height: 34)))
         automationSection.addSubview(settingToggleRow(title: "Auto switch", detail: autoSwitchDetailText(), isOn: autoSwitchEnabled, action: .editAutoSwitch, frame: NSRect(x: 16, y: 142, width: contentWidth - 32, height: 34)))
-        automationSection.addSubview(settingToggleRow(title: "Auto resume", detail: autoResumeDetailText(), isOn: autoResumeMode != .off, action: .editAutoResume, frame: NSRect(x: 16, y: 178, width: contentWidth - 32, height: 34)))
-        automationSection.addSubview(settingToggleRow(title: "Confirm before switching", detail: "Arm the account card before relaunch", isOn: confirmBeforeSwitching, action: .toggleConfirmSwitch, frame: NSRect(x: 16, y: 214, width: contentWidth - 32, height: 34)))
+        automationSection.addSubview(settingToggleRow(title: "Confirm before switching", detail: "Arm the account card before relaunch", isOn: confirmBeforeSwitching, action: .toggleConfirmSwitch, frame: NSRect(x: 16, y: 178, width: contentWidth - 32, height: 34)))
         addSubview(automationSection)
 
-        addSubview(healthSection(frame: NSRect(x: outerInset, y: 468, width: contentWidth, height: 104)))
-        addSubview(settingsFooter(frame: NSRect(x: outerInset, y: 592, width: contentWidth, height: 76)))
-    }
-
-    private func buildRouteBContent() {
-        let contentWidth = bounds.width - (outerInset * 2)
-        addSubview(routeBHeader(frame: NSRect(x: outerInset, y: outerInset, width: contentWidth, height: 44)))
-        addSubview(routeBSafetyBanner(frame: NSRect(x: outerInset, y: 72, width: contentWidth, height: 62)))
-
-        for (index, profile) in routeBProfiles.prefix(2).enumerated() {
-            let y = 146 + CGFloat(index) * 142
-            addSubview(routeBProfileCard(profile, frame: NSRect(x: outerInset, y: y, width: contentWidth, height: 130)))
-        }
-
-        addSubview(routeBFooter(frame: NSRect(x: outerInset, y: bounds.height - outerInset - bottomBarHeight, width: contentWidth, height: bottomBarHeight)))
+        addSubview(healthSection(frame: NSRect(x: outerInset, y: 386, width: contentWidth, height: 104)))
+        addSubview(settingsFooter(frame: NSRect(x: outerInset, y: 498, width: contentWidth, height: 76)))
     }
 
     private func buildResetCreditsContent() {
@@ -811,105 +773,6 @@ final class AccountSwitcherPanelView: NSView {
         return .systemGreen
     }
 
-    private func routeBHeader(frame: NSRect) -> NSView {
-        let header = FlippedContainerView(frame: frame)
-        header.addSubview(label("OpenRouter", frame: NSRect(x: 2, y: 1, width: 190, height: 26), size: 22, weight: .semibold, color: theme.primaryText))
-        header.addSubview(label("Route B · secondary profiles", frame: NSRect(x: 2, y: 28, width: 220, height: 14), size: 10.5, weight: .medium, color: theme.secondaryText))
-
-        let back = SettingsActionButton(frame: NSRect(x: frame.width - 78, y: 4, width: 78, height: 28), title: "Usage", color: theme.inactiveButtonFill, textColor: theme.primaryText)
-        back.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.usageView.rawValue)
-        back.target = self
-        back.action = #selector(settingsActionPressed(_:))
-        header.addSubview(back)
-        return header
-    }
-
-    private func routeBSafetyBanner(frame: NSRect) -> NSView {
-        let banner = RoundedPanelView(
-            frame: frame,
-            fillColor: NSColor.systemIndigo.withAlphaComponent(theme.isDark ? 0.16 : 0.09),
-            borderColor: NSColor.systemIndigo.withAlphaComponent(0.32),
-            cornerRadius: 14
-        )
-        banner.addSubview(label("SECONDARY LANE ONLY", frame: NSRect(x: 14, y: 10, width: frame.width - 28, height: 15), size: 10.5, weight: .bold, color: NSColor.systemIndigo))
-        banner.addSubview(label("No requests or keys in this prototype. Native Codex stays the default", frame: NSRect(x: 14, y: 27, width: frame.width - 28, height: 14), size: 10, weight: .medium, color: theme.secondaryText))
-        banner.addSubview(label("for sends, uploads, accounts, and other live operations.", frame: NSRect(x: 14, y: 41, width: frame.width - 28, height: 14), size: 10, weight: .medium, color: theme.secondaryText))
-        return banner
-    }
-
-    private func routeBProfileCard(_ profile: RouteBProviderProfile, frame: NSRect) -> NSView {
-        let isSelected = profile.id == selectedRouteBProfileID
-        let card = RoundedPanelView(
-            frame: frame,
-            fillColor: cardFillColor(isActive: isSelected),
-            borderColor: isSelected ? NSColor.systemGreen.withAlphaComponent(0.48) : cardBorderColor(isActive: false),
-            cornerRadius: 16
-        )
-        card.addSubview(label(profile.name, frame: NSRect(x: 16, y: 13, width: frame.width - 112, height: 20), size: 15, weight: .semibold, color: theme.primaryText))
-        card.addSubview(label("\(profile.provider) · \(profile.model)", frame: NSRect(x: 16, y: 34, width: frame.width - 32, height: 16), size: 10.5, weight: .medium, color: theme.secondaryText))
-        card.addSubview(label(profile.summary, frame: NSRect(x: 16, y: 53, width: frame.width - 32, height: 16), size: 10.5, weight: .medium, color: theme.valueText))
-
-        let button = SettingsActionButton(
-            frame: NSRect(x: frame.width - 88, y: 12, width: 72, height: 24),
-            title: isSelected ? "Selected" : "Switch",
-            color: isSelected ? NSColor.systemGreen : theme.inactiveButtonFill,
-            textColor: isSelected ? .white : theme.primaryText
-        )
-        button.identifier = NSUserInterfaceItemIdentifier("routeBSelect|\(profile.id)")
-        button.target = self
-        button.action = #selector(settingsActionPressed(_:))
-        button.isEnabled = !isSelected
-        card.addSubview(button)
-
-        var x: CGFloat = 16
-        var y: CGFloat = 82
-        for capability in profile.capabilities {
-            let width = routeBCapabilityWidth(capability.label)
-            if x + width > frame.width - 16 {
-                x = 16
-                y += 27
-            }
-            card.addSubview(routeBCapabilityBadge(capability, frame: NSRect(x: x, y: y, width: width, height: 21)))
-            x += width + 8
-        }
-        return card
-    }
-
-    private func routeBCapabilityBadge(_ capability: RouteBCapability, frame: NSRect) -> NSView {
-        let color: NSColor
-        let symbol: String
-        switch capability.state {
-        case .ready:
-            color = .systemGreen
-            symbol = "✓"
-        case .testRequired:
-            color = .systemOrange
-            symbol = "!"
-        case .blocked:
-            color = .systemRed
-            symbol = "×"
-        }
-
-        let badge = RoundedPanelView(frame: frame, fillColor: color.withAlphaComponent(theme.isDark ? 0.16 : 0.10), borderColor: color.withAlphaComponent(0.34), cornerRadius: 10)
-        badge.addSubview(label("\(symbol)  \(capability.label)", frame: NSRect(x: 8, y: 3, width: frame.width - 16, height: 15), size: 9.5, weight: .semibold, color: color))
-        return badge
-    }
-
-    private func routeBCapabilityWidth(_ text: String) -> CGFloat {
-        max(100, min(180, CGFloat(text.count) * 6.4 + 36))
-    }
-
-    private func routeBFooter(frame: NSRect) -> NSView {
-        let footer = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 14)
-        footer.addSubview(label("Profile selection only · execution disabled", frame: NSRect(x: 14, y: 12, width: frame.width - 110, height: 18), size: 10.5, weight: .semibold, color: theme.secondaryText))
-        let settings = SettingsActionButton(frame: NSRect(x: frame.width - 88, y: 8, width: 76, height: 26), title: "Settings", color: theme.inactiveButtonFill, textColor: theme.primaryText)
-        settings.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.settingsView.rawValue)
-        settings.target = self
-        settings.action = #selector(settingsActionPressed(_:))
-        footer.addSubview(settings)
-        return footer
-    }
-
     private func autoSwitchDetailText() -> String {
         switch autoSwitchMode {
         case .off:
@@ -923,21 +786,6 @@ final class AccountSwitcherPanelView: NSView {
         }
     }
 
-    private func autoResumeDetailText() -> String {
-        switch autoResumeMode {
-        case .off:
-            return "Off"
-        case .ask:
-            return "Ask first"
-        case .idle5:
-            return "Idle 5s"
-        case .idle10:
-            return "Idle 10s"
-        case .always:
-            return "Always"
-        }
-    }
-
     private func buildApiContent() {
         let contentWidth = bounds.width - (outerInset * 2)
         addSubview(apiHeader(frame: NSRect(x: outerInset, y: outerInset, width: contentWidth, height: 44)))
@@ -948,16 +796,8 @@ final class AccountSwitcherPanelView: NSView {
 
     private func settingsHeader(frame: NSRect) -> NSView {
         let header = FlippedContainerView(frame: frame)
-        header.addSubview(label("CONTROL ROOM", frame: NSRect(x: 2, y: 0, width: 130, height: 14), size: 9.5, weight: .bold, color: theme.tertiaryText))
         header.addSubview(label("Settings", frame: NSRect(x: 2, y: 14, width: 160, height: 28), size: 24, weight: .bold, color: theme.primaryText))
-        header.addSubview(label("Display, automation and switcher health", frame: NSRect(x: 2, y: 41, width: 240, height: 14), size: 10.5, weight: .medium, color: theme.secondaryText))
-        let openRouter = SettingsActionButton(frame: NSRect(x: frame.width - 176, y: 13, width: 82, height: 30), title: "Route B", color: NSColor.systemIndigo.withAlphaComponent(0.78), textColor: .white)
-        openRouter.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.routeBView.rawValue)
-        openRouter.target = self
-        openRouter.action = #selector(settingsActionPressed(_:))
-        header.addSubview(openRouter)
-
-        let back = SettingsActionButton(frame: NSRect(x: frame.width - 86, y: 13, width: 86, height: 30), title: "Accounts", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        let back = SettingsActionButton(frame: NSRect(x: frame.width - 86, y: 13, width: 86, height: 30), title: "Back", color: theme.inactiveButtonFill, textColor: theme.primaryText)
         back.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.usageView.rawValue)
         back.target = self
         back.action = #selector(settingsActionPressed(_:))
@@ -1136,7 +976,6 @@ final class AccountSwitcherPanelView: NSView {
         let footer = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 18, shadowOpacity: 0.06)
         let actions: [(String, SettingsPanelAction)] = [
             ("Add account", .addAccount),
-            ("Device login", .addDeviceAccount),
             ("Reminder", .editUsageReminder),
             ("Refresh rate", .editRefresh),
             ("Check update", .checkUpdates),
@@ -1735,7 +1574,10 @@ final class AccountSwitcherPanelView: NSView {
         let settingsButton = iconButton(symbol: "gearshape", frame: NSRect(x: toolbarInset, y: iconY, width: iconSize, height: iconSize), action: #selector(settingsPressed(_:)), toolTip: "Open settings")
         bar.addSubview(settingsButton)
 
-        let leftDivider = NSView(frame: NSRect(x: toolbarInset + iconSize + 14, y: 10, width: 1, height: frame.height - 20))
+        let addButton = iconButton(symbol: "plus", frame: NSRect(x: toolbarInset + iconSize + 10, y: iconY, width: iconSize, height: iconSize), action: #selector(addAccountPressed(_:)), toolTip: "Add account")
+        bar.addSubview(addButton)
+
+        let leftDivider = NSView(frame: NSRect(x: toolbarInset + iconSize * 2 + 24, y: 10, width: 1, height: frame.height - 20))
         leftDivider.wantsLayer = true
         leftDivider.layer?.backgroundColor = theme.divider.cgColor
         bar.addSubview(leftDivider)
@@ -1744,7 +1586,7 @@ final class AccountSwitcherPanelView: NSView {
         let refreshX = closeX - toolbarGap - iconSize - 10
         let resetWidth: CGFloat = frame.width >= 370 ? 82 : 74
         let resetX = refreshX - resetWidth - 12
-        let clockX = toolbarInset + iconSize + toolbarGap + 12
+        let clockX = toolbarInset + iconSize * 2 + 38
         let clock = SymbolIconView(frame: NSRect(x: clockX, y: clockY, width: clockSize, height: clockSize), symbol: "clock", color: theme.iconTint)
         bar.addSubview(clock)
         let updatedX = clockX + clockSize + 6
@@ -1977,6 +1819,10 @@ final class AccountSwitcherPanelView: NSView {
         showSettings()
     }
 
+    @objc private func addAccountPressed(_ sender: NSButton) {
+        performSettingsAction(.addAccount)
+    }
+
     @objc private func apiPressed(_ sender: NSButton) {
         performSettingsAction(.apiView)
     }
@@ -2000,12 +1846,6 @@ final class AccountSwitcherPanelView: NSView {
 
     @objc private func settingsActionPressed(_ sender: NSControl) {
         guard let rawValue = sender.identifier?.rawValue else { return }
-        if rawValue.hasPrefix("routeBSelect|") {
-            let profileID = String(rawValue.dropFirst("routeBSelect|".count))
-            guard !profileID.isEmpty else { return }
-            selectRouteBProfile(profileID)
-            return
-        }
         guard let action = SettingsPanelAction(rawValue: rawValue) else { return }
         performSettingsAction(action)
     }
@@ -2047,14 +1887,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let autoSwitchEnabledDefaultsKey = "autoSwitchEnabled"
     private let autoSwitchThresholdDefaultsKey = "autoSwitchThreshold"
     private let autoSwitchModeDefaultsKey = "autoSwitchMode"
-    private let autoResumeModeDefaultsKey = "autoResumeMode"
-    private let autoResumePromptDefaultsKey = "autoResumePrompt"
     private let confirmBeforeSwitchingDefaultsKey = "confirmBeforeSwitching"
     private let refreshIntervalDefaultsKey = "refreshIntervalSeconds"
     private let idleRefreshIntervalDefaultsKey = "idleRefreshIntervalSeconds"
     private let protectFrontmostCodexDefaultsKey = "protectFrontmostCodex"
-    private let toolbarDisplayStyleDefaultsKey = "toolbarDisplayStyle"
-    private let selectedRouteBProfileDefaultsKey = "selectedRouteBProfileID"
+    private let resetHistoryDefaultsKey = "resetHistoryV1"
     private let apiDailyLimitDefaultsKey = "apiDailyLimitTokens"
     private let apiWarningPercentDefaultsKey = "apiWarningPercent"
     private let apiUsageNotificationDefaultsKey = "apiUsageNotificationEnabled"
@@ -2063,14 +1900,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let apiCodexKeyAccount = "codex-api-key"
     private let apiUsageKeyAccount = "usage-api-key"
     private let autoSwitchNotificationCategory = "AUTO_SWITCH_CONFIRM"
-    private let resumeNotificationCategory = "AUTO_RESUME_CONFIRM"
     private let switchNowActionIdentifier = "SWITCH_NOW"
-    private let resumeNowActionIdentifier = "RESUME_NOW"
-    private let cancelResumeActionIdentifier = "CANCEL_RESUME"
-    private let autoResumeCodexReadyDelay: TimeInterval = 3.0
     private let launchAgentIdentifier = "com.mohamedfuad.codexaccountswitcher"
     private let switchHistoryDefaultsKey = "switchHistoryV1"
-    private let resetHistoryDefaultsKey = "resetHistoryV1"
     private let lastSwitchDateDefaultsKey = "lastSuccessfulSwitchDate"
     private let switchCooldown: TimeInterval = 90
     private let resetCreditsRefreshInterval: TimeInterval = 300
@@ -2118,8 +1950,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var notifiedLowUsageKeys = Set<String>()
     private var notifiedAutoSwitchPauseKeys = Set<String>()
     private var notifiedApiUsageKeys = Set<String>()
-    private var pendingResumeWorkItems: [String: DispatchWorkItem] = [:]
-    private var savedClipboardString: String?
     private var settingsMenu = NSMenu()
     private weak var accountLabelDialogField: NSTextField?
     private weak var accountLabelDialogPopup: NSPopUpButton?
@@ -2200,26 +2030,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             UserDefaults.standard.set(max(1, min(99, newValue)), forKey: autoSwitchThresholdDefaultsKey)
         }
     }
-    private var autoResumeMode: AutoResumeMode {
-        get {
-            AutoResumeMode(rawValue: UserDefaults.standard.string(forKey: autoResumeModeDefaultsKey) ?? "") ?? .off
-        }
-        set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: autoResumeModeDefaultsKey)
-        }
-    }
-    private var autoResumePrompt: String {
-        get {
-            let stored = UserDefaults.standard.string(forKey: autoResumePromptDefaultsKey) ?? ""
-            return stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? "Carry on working from where you left off."
-                : stored
-        }
-        set {
-            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            UserDefaults.standard.set(trimmed.isEmpty ? "Carry on working from where you left off." : trimmed, forKey: autoResumePromptDefaultsKey)
-        }
-    }
     private var confirmBeforeSwitching: Bool {
         get {
             UserDefaults.standard.bool(forKey: confirmBeforeSwitchingDefaultsKey)
@@ -2263,14 +2073,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: "usageDisplayMode")
-        }
-    }
-    private var toolbarDisplayStyle: ToolbarDisplayStyle {
-        get {
-            ToolbarDisplayStyle(rawValue: UserDefaults.standard.string(forKey: toolbarDisplayStyleDefaultsKey) ?? "") ?? .detailed
-        }
-        set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: toolbarDisplayStyleDefaultsKey)
         }
     }
     private var apiDailyLimit: Int {
@@ -2322,9 +2124,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var showSettingsOnLaunch: Bool {
         ProcessInfo.processInfo.environment["CODEX_ACCOUNT_SWITCHER_SHOW_SETTINGS"] == "1"
     }
-    private var showRouteBOnLaunch: Bool {
-        ProcessInfo.processInfo.environment["CODEX_ACCOUNT_SWITCHER_SHOW_ROUTE_B"] == "1"
-    }
     private var showResetsOnLaunch: Bool {
         ProcessInfo.processInfo.environment["CODEX_ACCOUNT_SWITCHER_SHOW_RESETS"] == "1"
     }
@@ -2371,10 +2170,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if showResetsOnLaunch {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                     self?.showResetCreditsPanel()
-                }
-            } else if showRouteBOnLaunch {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                    self?.showRouteBPanel()
                 }
             } else if showSettingsOnLaunch {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
@@ -2459,19 +2254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             intentIdentifiers: [],
             options: []
         )
-        let resumeNow = UNNotificationAction(
-            identifier: resumeNowActionIdentifier,
-            title: "Resume Now",
-            options: [.foreground]
-        )
-        let cancelResume = UNNotificationAction(identifier: cancelResumeActionIdentifier, title: "Cancel", options: [])
-        let resumeCategory = UNNotificationCategory(
-            identifier: resumeNotificationCategory,
-            actions: [resumeNow, cancelResume],
-            intentIdentifiers: [],
-            options: []
-        )
-        center.setNotificationCategories([switchCategory, resumeCategory])
+        center.setNotificationCategories([switchCategory])
         center.requestAuthorization(options: [.alert, .sound]) { [weak self] _, _ in
             self?.refreshNotificationHealth(rebuildVisiblePanel: true)
         }
@@ -2796,12 +2579,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         addAccount.isEnabled = !isSwitching
         menu.addItem(addAccount)
 
-        let addDevice = NSMenuItem(title: "Add Account with Device Code...", action: #selector(addAccountDeviceCode), keyEquivalent: "")
-        addDevice.target = self
-        addDevice.isEnabled = !isSwitching
-        addDevice.toolTip = "Opens Terminal so the device code remains visible while login waits."
-        menu.addItem(addDevice)
-
         if !accounts.isEmpty {
             let labelsItem = NSMenuItem(title: "Account Display Labels", action: #selector(showAccountDisplayLabelsDialog), keyEquivalent: "")
             labelsItem.target = self
@@ -2939,17 +2716,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.makeKey()
     }
 
-    private func showRouteBPanel() {
-        accountPanelMode = .routeB
-        let panel = accountPanel ?? makeAccountPanel()
-        accountPanel = panel
-        refreshAccountPanelContent()
-        positionAccountPanel()
-        NSApp.activate(ignoringOtherApps: true)
-        panel.orderFrontRegardless()
-        panel.makeKey()
-    }
-
     @objc private func showApiModePanel() {
         showAccountPanel()
     }
@@ -2997,7 +2763,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             autoSwitchEnabled: autoSwitchEnabled,
             autoSwitchThreshold: autoSwitchThreshold,
             autoSwitchMode: autoSwitchMode,
-            autoResumeMode: autoResumeMode,
             confirmBeforeSwitching: confirmBeforeSwitching,
             armedSwitchEmail: armedSwitchEmail,
             protectFrontmostCodex: protectFrontmostCodex,
@@ -3007,10 +2772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             apiUsage: apiUsageSnapshot(),
             resetCreditsByEmail: resetCreditsByEmail,
             healthStatuses: healthStatusRows(),
-            routeBProfiles: routeBProviderProfiles,
-            selectedRouteBProfileID: UserDefaults.standard.string(forKey: selectedRouteBProfileDefaultsKey),
             usageMode: usageMode,
-            toolbarDisplayStyle: toolbarDisplayStyle,
             activeRefreshInterval: activeRefreshInterval,
             idleRefreshInterval: idleRefreshInterval,
             labelForAccount: { [weak self] account in
@@ -3039,9 +2801,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             redeemResetCredit: { [weak self] email, creditID in
                 self?.redeemResetCreditFromPanel(email: email, creditID: creditID)
-            },
-            selectRouteBProfile: { [weak self] profileID in
-                self?.selectRouteBProfile(profileID)
             },
             performSettingsAction: { [weak self] action in
                 self?.handleSettingsPanelAction(action)
@@ -3108,7 +2867,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return [
             HealthStatus(title: "Auth", value: codexAuthOK ? "OK" : "Missing", color: codexAuthOK ? .systemGreen : .systemRed),
             HealthStatus(title: "Codex", value: codexAppOK ? "Found" : "Missing", color: codexAppOK ? .systemGreen : .systemRed),
-            HealthStatus(title: "Mode", value: "ChatGPT", color: .systemGreen),
             HealthStatus(title: "Refresh", value: lastUpdatedText(), color: refreshHealthColor()),
             HealthStatus(title: "Notify", value: notificationHealthTitle, color: notificationHealthColor),
             HealthStatus(title: "Update", value: updateHealthTitle, color: updateHealthColor)
@@ -3163,8 +2921,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             accountPanelMode = .usage
         case .settingsView:
             accountPanelMode = .settings
-        case .routeBView:
-            accountPanelMode = .routeB
         case .resetCreditsView:
             accountPanelMode = .resets
             refreshResetCreditsIfNeeded(force: false)
@@ -3172,8 +2928,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             accountPanelMode = .usage
         case .addAccount:
             addAccountBrowser()
-        case .addDeviceAccount:
-            addAccountDeviceCode()
         case .setupApiMode:
             disableApiMode()
             showAlert(title: "API mode removed", message: "This build only switches between saved ChatGPT accounts.")
@@ -3196,12 +2950,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .usageFiveHour:
             usageMode = .fiveHour
             rebuildMenu()
-        case .styleDetailed:
-            toolbarDisplayStyle = .detailed
-            rebuildMenu()
-        case .styleCompact:
-            toolbarDisplayStyle = .compact
-            rebuildMenu()
         case .toggleLaunchAtLogin:
             toggleLaunchAtLogin()
         case .toggleUsageReminder:
@@ -3214,8 +2962,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             toggleAutoSwitch()
         case .editAutoSwitch:
             showAutoSwitchDialog()
-        case .editAutoResume:
-            showAutoResumeDialog()
         case .toggleConfirmSwitch:
             toggleConfirmBeforeSwitching()
         case .toggleProtectCodex:
@@ -3233,14 +2979,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .quit:
             NSApp.terminate(nil)
         }
-        if accountPanel?.isVisible == true {
-            refreshAccountPanelContentIfVisible()
-        }
-    }
-
-    private func selectRouteBProfile(_ profileID: String) {
-        guard routeBProviderProfiles.contains(where: { $0.id == profileID }) else { return }
-        UserDefaults.standard.set(profileID, forKey: selectedRouteBProfileDefaultsKey)
         if accountPanel?.isVisible == true {
             refreshAccountPanelContentIfVisible()
         }
@@ -3871,8 +3609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 account.isActive ? "active" : "inactive",
                 accountNeedsLogin(account) ? "login" : "ok",
                 "\(toolbarUsagePercent(for: account) ?? -1)",
-                usageMode.rawValue,
-                toolbarDisplayStyle.rawValue
+                usageMode.rawValue
             ].joined(separator: "|")
         }.joined(separator: "||")
     }
@@ -3890,22 +3627,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func toolbarStatusText(for account: CodexAccount) -> String {
         let label = toolbarLabel(for: account)
         let percent = toolbarUsagePercent(for: account)
-        switch toolbarDisplayStyle {
-        case .detailed:
-            return ToolbarStatusFormatter.text(
-                label: label,
-                usage: remainingPercentText(fromUsed: percent)
-            )
-        case .compact:
-            return ToolbarStatusFormatter.text(
-                label: label,
-                usage: remainingPercentNumberText(fromUsed: percent)
-            )
-        }
+        return ToolbarStatusFormatter.text(
+            label: label,
+            usage: remainingPercentText(fromUsed: percent)
+        )
     }
 
     private func toolbarTitleAttributes(for account: CodexAccount?) -> [NSAttributedString.Key: Any] {
-        let size: CGFloat = toolbarDisplayStyle == .detailed ? 12.5 : 10.5
+        let size: CGFloat = 12.5
         let color: NSColor
         if let account, accountNeedsLogin(account) {
             color = .systemRed
@@ -4030,25 +3759,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return "\(max(0, min(100, used)))%"
     }
 
-    private func remainingPercentNumberText(fromUsed used: Int?) -> String {
-        guard let used else { return "--" }
-        return "\(max(0, min(100, used)))"
-    }
-
     private func usageModeItem(title: String, percent: String, reset: String, mode: UsageDisplayMode) -> NSMenuItem {
         let item = NSMenuItem(title: "", action: #selector(setUsageMode(_:)), keyEquivalent: "")
         item.target = self
         item.representedObject = mode.rawValue
         item.state = usageMode == mode ? .on : .off
         item.attributedTitle = usageAttributedTitle(title: title, percent: percent, reset: reset)
-        return item
-    }
-
-    private func toolbarDisplayStyleItem(title: String, style: ToolbarDisplayStyle) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: #selector(setToolbarDisplayStyle(_:)), keyEquivalent: "")
-        item.target = self
-        item.representedObject = style.rawValue
-        item.state = toolbarDisplayStyle == style ? .on : .off
         return item
     }
 
@@ -4383,13 +4099,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         rebuildMenu()
     }
 
-    @objc private func setToolbarDisplayStyle(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let style = ToolbarDisplayStyle(rawValue: rawValue) else { return }
-        toolbarDisplayStyle = style
-        rebuildMenu()
-    }
-
     @objc private func showAccountDisplayLabelsDialog() {
         showAccountDisplayLabelsDialogForAccount(nil)
     }
@@ -4461,30 +4170,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         addPopupItem(to: usagePopup, title: "5-hour usage left", representedObject: UsageDisplayMode.fiveHour.rawValue)
         usagePopup.selectItem(withTitle: usageMode == .weekly ? "Weekly usage left" : "5-hour usage left")
 
-        let stylePopup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 280, height: 26), pullsDown: false)
-        addPopupItem(to: stylePopup, title: "Large with Percentage", representedObject: ToolbarDisplayStyle.detailed.rawValue)
-        addPopupItem(to: stylePopup, title: "Small Number Only", representedObject: ToolbarDisplayStyle.compact.rawValue)
-        stylePopup.selectItem(withTitle: toolbarDisplayStyle == .detailed ? "Large with Percentage" : "Small Number Only")
-
-        let stack = NSStackView(views: [usagePopup, stylePopup])
-        stack.orientation = .vertical
-        stack.spacing = 8
-        stack.frame = NSRect(x: 0, y: 0, width: 280, height: 58)
-
         let alert = NSAlert()
         alert.messageText = "Menu bar display"
         alert.informativeText = "Choose which usage appears in the menu bar. The account panel keeps 5-hour as the main ring and weekly as the top bar."
-        alert.accessoryView = stack
+        alert.accessoryView = usagePopup
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
 
         if alert.runModal() == .alertFirstButtonReturn,
            let usageRawValue = usagePopup.selectedItem?.representedObject as? String,
-           let selectedUsageMode = UsageDisplayMode(rawValue: usageRawValue),
-           let styleRawValue = stylePopup.selectedItem?.representedObject as? String,
-           let style = ToolbarDisplayStyle(rawValue: styleRawValue) {
+           let selectedUsageMode = UsageDisplayMode(rawValue: usageRawValue) {
             usageMode = selectedUsageMode
-            toolbarDisplayStyle = style
             updateStatusTitle()
             rebuildMenu()
             DispatchQueue.main.async { [weak self] in
@@ -4600,45 +4296,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if autoSwitchEnabled {
             configureNotifications()
             checkAutoSwitch()
-        }
-        rebuildMenu()
-    }
-
-    @objc private func showAutoResumeDialog() {
-        let modePopup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 240, height: 26), pullsDown: false)
-        addPopupItem(to: modePopup, title: "Off", representedObject: AutoResumeMode.off.rawValue)
-        addPopupItem(to: modePopup, title: "Ask first", representedObject: AutoResumeMode.ask.rawValue)
-        addPopupItem(to: modePopup, title: "Auto after 5s idle", representedObject: AutoResumeMode.idle5.rawValue)
-        addPopupItem(to: modePopup, title: "Auto after 10s idle", representedObject: AutoResumeMode.idle10.rawValue)
-        addPopupItem(to: modePopup, title: "Always auto-resume", representedObject: AutoResumeMode.always.rawValue)
-        selectPopupItem(modePopup, representedObject: autoResumeMode.rawValue)
-
-        let promptField = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        promptField.stringValue = autoResumePrompt
-
-        let stack = NSStackView(views: [
-            settingsRow(label: "Mode", control: modePopup),
-            settingsRow(label: "Prompt", control: promptField)
-        ])
-        stack.orientation = .vertical
-        stack.spacing = 8
-        stack.frame = NSRect(x: 0, y: 0, width: 380, height: 62)
-
-        let alert = NSAlert()
-        alert.messageText = "Auto resume"
-        alert.informativeText = "After a successful account switch, the app can copy or paste a short prompt into Codex. Automatic paste requires Accessibility permission and only runs when Codex is frontmost."
-        alert.accessoryView = stack
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        if let rawValue = modePopup.selectedItem?.representedObject as? String,
-           let mode = AutoResumeMode(rawValue: rawValue) {
-            autoResumeMode = mode
-        }
-        autoResumePrompt = promptField.stringValue
-        if autoResumeMode != .off {
-            configureNotifications()
         }
         rebuildMenu()
     }
@@ -4775,26 +4432,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc private func addAccountBrowser() {
         runAccountMaintenance(title: "Adding account", args: ["login"], restartAfterSuccess: true)
-    }
-
-    @objc private func addAccountDeviceCode() {
-        let path = codexAuthPath() ?? "codex-auth"
-        let home = NSHomeDirectory()
-        let restartPath = "\(home)/.codex/skills/codex-account-switcher/scripts/codex_account_switch.sh"
-        let setupCommand = shellEnvironmentSetupCommand()
-        let script = """
-        tell application "Terminal"
-          activate
-          do script "\(setupCommand); \(shellEscaped(path)) login --device-auth && \(shellEscaped(restartPath)) restart-app; echo; echo 'Codex account login finished and Codex App was relaunched. You can close this window.'"
-        end tell
-        """
-        let result = run("/usr/bin/osascript", ["-e", script])
-        if result.status != 0 {
-            showAlert(title: "Device-code login failed", message: result.output)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-            self?.refreshAccounts(force: true)
-        }
     }
 
     @objc private func toggleUsageReminder() {
@@ -4992,24 +4629,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private func switchTo(query: String, allowAutoResume: Bool = false) {
+    private func switchTo(query: String, automatic: Bool = false) {
         guard !isSwitching else { return }
         clearArmedSwitch()
         let target = accounts.first(where: { $0.email == query || $0.selector == query })
         if let target, accountNeedsLogin(target) {
             showAlert(
                 title: "Account needs login",
-                message: "Account \(displayLabel(for: target)) has an expired Codex session. Re-login it with Add Account with Device Code, then refresh."
+                message: "Account \(displayLabel(for: target)) has an expired Codex session. Re-login it with Add Account, then refresh."
             )
             refreshAccounts(force: true)
             return
         }
-        if let target, !target.isActive, !allowAutoResume, !confirmBeforeSwitching, !confirmSwitchPreview(for: target) {
+        if let target, !target.isActive, !automatic, !confirmBeforeSwitching, !confirmSwitchPreview(for: target) {
             return
         }
         isSwitching = true
         let previous = accounts.first(where: { $0.isActive })
-        let automatic = allowAutoResume
         let switchStatusAnimationGeneration = beginStatusAnimation(title: "Switching")
         refreshAccountPanelContentIfVisible()
 
@@ -5074,9 +4710,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 } else {
                     UserDefaults.standard.set(Date(), forKey: self.lastSwitchDateDefaultsKey)
                     self.recordSwitch(from: previous, to: target, automatic: automatic, reason: automatic ? "automatic best account" : "manual", result: "verified")
-                    if allowAutoResume {
-                        self.handleAutoResumeAfterSwitch(to: target)
-                    }
                 }
                 self.refreshAccounts(force: true)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -5177,7 +4810,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if mode == .ask || mode == .zero {
             sendAutoSwitchPrompt(active: active, target: target, activeFiveHour: activeFiveHour)
         } else {
-            switchTo(query: target.email, allowAutoResume: true)
+            switchTo(query: target.email, automatic: true)
         }
     }
 
@@ -5460,173 +5093,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case switchNowActionIdentifier:
             guard let targetEmail = response.notification.request.content.userInfo["targetEmail"] as? String else { return }
             DispatchQueue.main.async { [weak self] in
-                self?.switchTo(query: targetEmail, allowAutoResume: true)
-            }
-        case resumeNowActionIdentifier:
-            let token = response.notification.request.content.userInfo["resumeToken"] as? String
-            DispatchQueue.main.async { [weak self] in
-                self?.cancelPendingResume(token: token)
-                self?.resumeCodexTask(submit: true, promptForPermission: true)
-            }
-        case cancelResumeActionIdentifier:
-            let token = response.notification.request.content.userInfo["resumeToken"] as? String
-            DispatchQueue.main.async { [weak self] in
-                self?.cancelPendingResume(token: token)
+                self?.switchTo(query: targetEmail, automatic: true)
             }
         default:
             return
         }
     }
 
-    private func handleAutoResumeAfterSwitch(to target: CodexAccount?) {
-        let mode = autoResumeMode
-        guard mode != .off else { return }
-        let label = target.map(displayLabel(for:)) ?? "new account"
-        let token = UUID().uuidString
-        switch mode {
-        case .off:
-            return
-        case .ask:
-            sendResumePromptNotification(label: label, token: token, body: "Switch complete. Paste the resume prompt into Codex?")
-        case .idle5:
-            sendResumePromptNotification(label: label, token: token, body: "Switch complete. Resume will run after 5 seconds if the Mac is idle.")
-            scheduleAutoResume(token: token, delay: 5, requireIdle: true)
-        case .idle10:
-            sendResumePromptNotification(label: label, token: token, body: "Switch complete. Resume will run after 10 seconds if the Mac is idle.")
-            scheduleAutoResume(token: token, delay: 10, requireIdle: true)
-        case .always:
-            sendResumePromptNotification(label: label, token: token, body: "Switch complete. Resume prompt is being sent to Codex.")
-            scheduleAutoResume(token: token, delay: 1, requireIdle: false)
-        }
-    }
-
-    private func sendResumePromptNotification(label: String, token: String, body: String) {
-        sendNotification(
-            title: "Resume Codex task?",
-            subtitle: "Active: \(label)",
-            body: body,
-            categoryIdentifier: resumeNotificationCategory,
-            userInfo: ["resumeToken": token]
-        )
-    }
-
-    private func scheduleAutoResume(token: String, delay: TimeInterval, requireIdle: Bool) {
-        cancelPendingResume(token: token)
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.pendingResumeWorkItems[token] = nil
-            if requireIdle, self.systemIdleSeconds() < delay {
-                self.copyResumePromptToClipboard()
-                self.sendNotification(
-                    title: "Resume prompt copied",
-                    subtitle: "Codex Account Switcher",
-                    body: "The Mac was active, so the prompt was copied instead of pasted."
-                )
-                return
-            }
-            self.resumeCodexTask(submit: true, promptForPermission: true)
-        }
-        pendingResumeWorkItems[token] = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-    }
-
-    private func cancelPendingResume(token: String?) {
-        if let token {
-            pendingResumeWorkItems[token]?.cancel()
-            pendingResumeWorkItems[token] = nil
-        } else {
-            pendingResumeWorkItems.values.forEach { $0.cancel() }
-            pendingResumeWorkItems.removeAll()
-        }
-    }
-
-    private func resumeCodexTask(submit: Bool, promptForPermission: Bool) {
-        savedClipboardString = NSPasteboard.general.string(forType: .string)
-        copyResumePromptToClipboard()
-        guard accessibilityTrusted(prompt: promptForPermission) else {
-            sendNotification(
-                title: "Resume prompt copied",
-                subtitle: "Accessibility needed",
-                body: "Allow Accessibility for Codex Account Switcher, then paste the prompt into Codex."
-            )
-            return
-        }
-        activateCodex()
-        DispatchQueue.main.asyncAfter(deadline: .now() + autoResumeCodexReadyDelay) { [weak self] in
-            guard let self else { return }
-            guard self.codexIsFrontmost() else {
-                self.sendNotification(
-                    title: "Resume prompt copied",
-                    subtitle: "Codex is not frontmost",
-                    body: "The app copied the prompt instead of pasting into another window."
-                )
-                return
-            }
-            self.sendPasteKeystroke()
-            if submit {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    self.sendReturnKeystroke()
-                }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-                self?.restoreClipboardAfterResume()
-            }
-        }
-    }
-
-    private func copyResumePromptToClipboard() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(autoResumePrompt, forType: .string)
-    }
-
-    private func restoreClipboardAfterResume() {
-        guard let savedClipboardString else { return }
-        if NSPasteboard.general.string(forType: .string) == autoResumePrompt {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(savedClipboardString, forType: .string)
-        }
-        self.savedClipboardString = nil
-    }
-
-    private func accessibilityTrusted(prompt: Bool) -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
-        return AXIsProcessTrustedWithOptions(options)
-    }
-
-    private func activateCodex() {
-        if let app = NSWorkspace.shared.runningApplications.first(where: isCodexDesktopApplication) {
-            app.activate(options: [.activateAllWindows])
-        } else {
-            NSWorkspace.shared.openApplication(
-                at: URL(fileURLWithPath: codexDesktopAppPath),
-                configuration: NSWorkspace.OpenConfiguration()
-            )
-        }
-    }
-
-    private func sendPasteKeystroke() {
-        sendKey(code: 9, flags: .maskCommand)
-    }
-
-    private func sendReturnKeystroke() {
-        sendKey(code: 36, flags: .maskControl)
-    }
-
-    private func sendKey(code: CGKeyCode, flags: CGEventFlags) {
-        guard let source = CGEventSource(stateID: .hidSystemState),
-              let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false) else {
-            return
-        }
-        down.flags = flags
-        up.flags = flags
-        down.post(tap: .cghidEventTap)
-        up.post(tap: .cghidEventTap)
-    }
-
-    private func systemIdleSeconds() -> TimeInterval {
-        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: UInt32.max)!)
-    }
 
     private func syncActiveAuthSnapshot() -> String? {
         let home = NSHomeDirectory()
@@ -6824,7 +6297,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "desktop: \(desktop)",
             "saved accounts: \(accounts.count)",
             "auto switch: \(autoSwitchMode.rawValue)",
-            "auto resume: \(autoResumeMode.rawValue)",
             "refresh: \(lastUpdatedText())",
             "switch history:"
         ] + (entries.isEmpty ? ["none"] : entries) + [
