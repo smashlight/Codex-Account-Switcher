@@ -728,6 +728,56 @@ enum WeekCurveBuilder {
     }
 }
 
+// MARK: - Daily pool aggregation
+
+/// One point per calendar day: the minimum pool average observed that day,
+/// the last sample of the day (for tooltips), and the sample count.
+struct DailyPoolPoint: Equatable {
+    let date: Date
+    let value: Double
+    let endValue: Double
+    let sampleCount: Int
+}
+
+/// Builds day bars from the raw sample history: groups samples by local
+/// calendar day, keeps only the last `dayCount` days including today, and
+/// drops days without samples entirely — a missing day must not render as a
+/// zero bar, which would look like the pool ran out.
+enum DailyPoolAggregator {
+    static let defaultDayCount = 14
+
+    static func dailyPoints(
+        from samples: [PoolHistorySample],
+        dayCount: Int = Self.defaultDayCount,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [DailyPoolPoint] {
+        guard dayCount >= 1, !samples.isEmpty else { return [] }
+        let today = calendar.startOfDay(for: now)
+        guard let windowStart = calendar.date(byAdding: .day, value: -(dayCount - 1), to: today) else { return [] }
+
+        var grouped: [Date: [(ts: Date, value: Double)]] = [:]
+        for sample in samples {
+            let day = calendar.startOfDay(for: sample.ts)
+            guard day >= windowStart, day <= today else { continue }
+            grouped[day, default: []].append((
+                ts: sample.ts,
+                value: min(100, max(0, PoolHistoryStore.poolAverage(n: sample.n, poolTotal: sample.poolTotal)))
+            ))
+        }
+        return grouped.keys.sorted().compactMap { day in
+            guard let samplesByDay = grouped[day], let first = samplesByDay.first else { return nil }
+            let ordered = samplesByDay.sorted { $0.ts < $1.ts }
+            return DailyPoolPoint(
+                date: day,
+                value: ordered.map(\.value).min() ?? first.value,
+                endValue: ordered.last?.value ?? first.value,
+                sampleCount: ordered.count
+            )
+        }
+    }
+}
+
 // MARK: - Pool pace forecast
 
 /// Forecasts when the pool average reaches 0%, following the CodexBar

@@ -22,6 +22,7 @@ struct InfrastructureTests {
         try testCodexAuthTokenWriter()
         try testPoolHistoryStore()
         testWeekCurveBuilder()
+        testDailyPoolAggregator()
         testPaceEstimatorForecast()
         testPoolVerdict()
         testPoolHistorySampleResetsAtCoding()
@@ -544,6 +545,50 @@ struct InfrastructureTests {
         let middle = WeekCurveBuilder.interpolate(curve: firstCurve, at: 0.5)
         expect(abs(middle - 87.5) < 0.6, "halfway through a 25pt/week burn should sit near 87.5")
         expect(WeekCurveBuilder.interpolate(curve: firstCurve, at: 0) == firstCurve[0], "interpolate at zero should return the start value")
+    }
+
+    private static func testDailyPoolAggregator() {
+        let calendar = utcCalendar
+        let day0 = Date(timeIntervalSince1970: 1_752_000_000)
+        let day1 = day0.addingTimeInterval(24 * 3600)
+        let day2 = day1.addingTimeInterval(24 * 3600)
+        let day3 = day2.addingTimeInterval(24 * 3600)
+
+        func poolSample(_ ts: Date, total: Double) -> PoolHistorySample {
+            PoolHistorySample(ts: ts, n: 1, poolTotal: total, accounts: [])
+        }
+
+        let history = [
+            poolSample(day0.addingTimeInterval(60 * 60), total: 90),
+            poolSample(day0.addingTimeInterval(2 * 60 * 60), total: 80), // day 0: min 80, end 80
+            poolSample(day1.addingTimeInterval(60 * 60), total: 65),
+            poolSample(day1.addingTimeInterval(2 * 60 * 60), total: 70), // day 1: min 65, end 70 (refill)
+            // day 2 has no samples at all
+            poolSample(day3.addingTimeInterval(60 * 60), total: 60) // day 3
+        ]
+
+        let points = DailyPoolAggregator.dailyPoints(
+            from: history,
+            dayCount: 4,
+            now: day3.addingTimeInterval(2 * 3600),
+            calendar: calendar
+        )
+        expect(points.count == 3, "the window should keep days 0, 1 and 3 and skip the empty day 2")
+        expect(points.first?.value == 80, "the day value should be the day minimum")
+        expect(points.first?.endValue == 80, "endValue should be the last sample of the day")
+        expect(points.first?.sampleCount == 2, "sampleCount should count the day's samples")
+        expect(points[1].value == 65, "a refill within a day should keep the minimum as the value")
+        expect(points[1].endValue == 70, "endValue should be the newest sample, not the day minimum")
+        expect(points[1].sampleCount == 2, "two samples in one day should be counted")
+        expect(points.last?.value == 60, "the final day should keep its single sample value")
+        expect(points.last?.sampleCount == 1, "a single-sample day counts one sample")
+
+        let later = day3.addingTimeInterval(10 * 24 * 3600)
+        let outside = DailyPoolAggregator.dailyPoints(from: history, dayCount: 3, now: later, calendar: calendar)
+        expect(outside.isEmpty, "samples older than the window must be excluded")
+
+        let empty = DailyPoolAggregator.dailyPoints(from: [], dayCount: 3, now: day3, calendar: calendar)
+        expect(empty.isEmpty, "empty history should produce no points")
     }
 
     private static func testPaceEstimatorForecast() {

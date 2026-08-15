@@ -193,41 +193,6 @@ final class SymbolIconView: NSView {
     }
 }
 
-final class PanelMarkView: NSView {
-    private let color: NSColor
-
-    init(frame: NSRect, color: NSColor) {
-        self.color = color
-        super.init(frame: frame)
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let plate = bounds.insetBy(dx: 1, dy: 1)
-        color.withAlphaComponent(0.12).setFill()
-        plate.roundedPath(radius: 12).fill()
-        color.withAlphaComponent(0.34).setStroke()
-        let outline = plate.roundedPath(radius: 12)
-        outline.lineWidth = 1
-        outline.stroke()
-
-        let bars: [NSRect] = [
-            NSRect(x: 11, y: 11, width: 20, height: 3),
-            NSRect(x: 11, y: 19, width: 14, height: 3),
-            NSRect(x: 11, y: 27, width: 20, height: 3)
-        ]
-        color.withAlphaComponent(0.96).setFill()
-        for (index, bar) in bars.enumerated() {
-            let shifted = index == 1 ? bar.offsetBy(dx: 6, dy: 0) : bar
-            shifted.roundedPath(radius: 1.5).fill()
-        }
-    }
-}
-
 final class AccentRailView: NSView {
     private let color: NSColor
 
