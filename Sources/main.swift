@@ -9,8 +9,6 @@ import UserNotifications
 
 private enum AccountPanelLayout {
     static let usageInset: CGFloat = 14
-    static let usageHeaderHeight: CGFloat = 66
-    static let usageHeaderGap: CGFloat = 10
     static let bottomBarTopGap: CGFloat = 10
     static let bottomBarHeight: CGFloat = 44
     static let maxVisibleRows = 10
@@ -29,14 +27,24 @@ private enum AccountPanelLayout {
 
 // MARK: - Pool pace chart (Swift Charts inside the AppKit panel)
 
+/// How the chart should interpret `history`: one bar per raw sample (default)
+/// or one bar per calendar day (daily aggregation via `DailyPoolAggregator`).
+enum PoolResolution {
+    case samples
+    case daily
+}
+
 struct PoolPacePoint: Identifiable {
     let date: Date
     let value: Double
+    var endValue: Double?
+    var sampleCount: Int = 1
     var id: Date { date }
 }
 
 struct PoolPaceChartData {
     let history: [PoolPacePoint]
+    let resolution: PoolResolution
     let tint: Color
     let gridLine: Color
     let labelText: Color
@@ -47,6 +55,7 @@ struct PoolPaceChartData {
     static func empty() -> PoolPaceChartData {
         PoolPaceChartData(
             history: [],
+            resolution: .samples,
             tint: .secondary,
             gridLine: .secondary,
             labelText: .secondary,
@@ -66,19 +75,33 @@ struct PoolPaceChartView: View {
         let index: Int
         let date: Date
         let value: Double
+        let endValue: Double?
+        let sampleCount: Int
+        let isToday: Bool
         var id: Int { index }
     }
 
     let data: PoolPaceChartData
     @State private var hoveredIndex: Int?
 
-    private static let maxBars = 30
+    private static let maxSampleBars = 30
+    private static let maxDailyBars = 14
     private static let maxAxisLabels = 4
-    private static let barWidth: CGFloat = 6
+    private static let sampleBarWidth: CGFloat = 6
+    private static let dailyBarWidth: CGFloat = 10
 
     private var bars: [Bar] {
-        Array(data.history.suffix(Self.maxBars)).enumerated().map { offset, point in
-            Bar(index: offset, date: point.date, value: point.value)
+        let maxBars = data.resolution == .daily ? Self.maxDailyBars : Self.maxSampleBars
+        let calendar = Calendar.current
+        return Array(data.history.suffix(maxBars)).enumerated().map { offset, point in
+            Bar(
+                index: offset,
+                date: point.date,
+                value: point.value,
+                endValue: point.endValue,
+                sampleCount: point.sampleCount,
+                isToday: calendar.isDateInToday(point.date)
+            )
         }
     }
 
@@ -114,13 +137,14 @@ struct PoolPaceChartView: View {
     }
 
     private var chart: some View {
-        Chart {
+        let barWidth = data.resolution == .daily ? Self.dailyBarWidth : Self.sampleBarWidth
+        return Chart {
             ForEach(bars) { bar in
                 BarMark(
                     x: .value("Index", Double(bar.index)),
                     yStart: .value("Base", 0),
                     yEnd: .value("Capacity", 100),
-                    width: .fixed(Self.barWidth)
+                    width: .fixed(barWidth)
                 )
                 .foregroundStyle(data.gridLine.opacity(0.45))
 
@@ -128,7 +152,7 @@ struct PoolPaceChartView: View {
                     x: .value("Index", Double(bar.index)),
                     yStart: .value("Base", 0),
                     yEnd: .value("Pool", bar.value),
-                    width: .fixed(Self.barWidth)
+                    width: .fixed(barWidth)
                 )
                 .foregroundStyle(barColor(for: bar.value))
             }
@@ -214,7 +238,19 @@ struct PoolPaceChartView: View {
             return data.forecastText
         }
         let bar = bars[hoveredIndex]
-        return "\(bar.date.formatted(.dateTime.month().day().hour().minute())) · \(Int(bar.value.rounded()))% left"
+        switch data.resolution {
+        case .daily:
+            var text = "\(bar.date.formatted(.dateTime.month(.abbreviated).day())) · low \(Int(bar.value.rounded()))%"
+            if let endValue = bar.endValue {
+                text += " · end \(Int(endValue.rounded()))%"
+            }
+            if bar.isToday {
+                text += " · today"
+            }
+            return text
+        case .samples:
+            return "\(bar.date.formatted(.dateTime.month().day().hour().minute())) · \(Int(bar.value.rounded()))% left"
+        }
     }
 }
 struct PaceDisplayState {
@@ -274,10 +310,8 @@ final class AccountSwitcherPanelView: NSView {
     private let cardGap: CGFloat = 12
     private let bottomBarTopGap: CGFloat = 10
     private let bottomBarHeight: CGFloat = 44
-    private let usageHeaderHeight: CGFloat = 66
-    private let usageHeaderGap: CGFloat = 10
     private var accountCardHeight: CGFloat {
-        bounds.height - (AccountPanelLayout.usageInset * 2) - AccountPanelLayout.usageHeaderHeight - AccountPanelLayout.usageHeaderGap - AccountPanelLayout.bottomBarTopGap - AccountPanelLayout.bottomBarHeight
+        bounds.height - (AccountPanelLayout.usageInset * 2) - AccountPanelLayout.bottomBarTopGap - AccountPanelLayout.bottomBarHeight
     }
 
     init(
@@ -385,7 +419,7 @@ final class AccountSwitcherPanelView: NSView {
     static func preferredSize(mode: AccountPanelMode, accountCount: Int) -> NSSize {
         if mode == .usage && accountCount >= 3 {
             let rows = min(accountCount, AccountPanelLayout.maxVisibleRows)
-            var height = AccountPanelLayout.usageInset * 2 + AccountPanelLayout.usageHeaderHeight + AccountPanelLayout.usageHeaderGap
+            var height = AccountPanelLayout.usageInset * 2
                 + CGFloat(rows) * AccountPanelLayout.rowHeight + CGFloat(rows - 1) * AccountPanelLayout.rowGap
                 + AccountPanelLayout.bottomBarTopGap + AccountPanelLayout.bottomBarHeight
             height += AccountPanelLayout.paceTopGap + AccountPanelLayout.paceSectionHeight
@@ -395,7 +429,7 @@ final class AccountSwitcherPanelView: NSView {
             return NSSize(width: 448, height: height)
         }
         if mode == .usage {
-            return NSSize(width: 424, height: 500)
+            return NSSize(width: 424, height: 424)
         }
         if mode == .settings {
             return NSSize(width: 432, height: 686)
@@ -429,8 +463,7 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func buildUsageContent() {
-        addSubview(usageHeader(frame: NSRect(x: usageInset, y: usageInset, width: bounds.width - (usageInset * 2), height: usageHeaderHeight)))
-        let cardsY = usageInset + usageHeaderHeight + usageHeaderGap
+        let cardsY = usageInset
 
         if accounts.isEmpty {
             let empty = emptyStateCard()
@@ -475,7 +508,7 @@ final class AccountSwitcherPanelView: NSView {
         }
 
         let contentWidth = bounds.width - (usageInset * 2)
-        let cardsY = usageInset + usageHeaderHeight + usageHeaderGap
+        let cardsY = usageInset
         let visibleCount = min(orderedAccounts.count, AccountPanelLayout.maxVisibleRows)
 
         for index in 0..<visibleCount {
@@ -1140,40 +1173,6 @@ final class AccountSwitcherPanelView: NSView {
         return view
     }
 
-    private func usageHeader(frame: NSRect) -> NSView {
-        let header = RoundedPanelView(
-            frame: frame,
-            fillColor: theme.bottomBarFill,
-            borderColor: theme.inactiveCardBorder,
-            cornerRadius: 18,
-            shadowOpacity: 0.08,
-            shadowRadius: 12
-        )
-
-        let signalColor = activeAccount.map { usageColor(for: $0.fiveHourUsedPercent) } ?? NSColor.systemOrange
-        header.addSubview(PanelMarkView(frame: NSRect(x: 14, y: 12, width: 42, height: 42), color: signalColor))
-        header.addSubview(label("CODEX ACCOUNT ROUTER", frame: NSRect(x: 68, y: 9, width: frame.width - 190, height: 15), size: 9.5, weight: .bold, color: theme.tertiaryText))
-
-        let activeTitle = activeAccount.map { "Account \(labelForAccount($0)) is live" } ?? "No active account"
-        header.addSubview(label(activeTitle, frame: NSRect(x: 68, y: 24, width: frame.width - 190, height: 24), size: 17.5, weight: .semibold, color: theme.primaryText))
-
-        let detail: String
-        if let activeAccount {
-            let plan = activeAccount.plan.isEmpty ? "ChatGPT" : activeAccount.plan.capitalized
-            detail = "\(plan)  ·  weekly \(percentText(activeAccount.weeklyUsedPercent))"
-        } else {
-            detail = lastError ?? "Open settings to add or repair an account"
-        }
-        header.addSubview(label(detail, frame: NSRect(x: 68, y: 47, width: frame.width - 184, height: 15), size: 10.5, weight: .medium, color: theme.secondaryText))
-
-        let stateFill = signalColor.withAlphaComponent(theme.isDark ? 0.13 : 0.10)
-        let state = RoundedPanelView(frame: NSRect(x: frame.width - 118, y: 17, width: 104, height: 32), fillColor: stateFill, borderColor: signalColor.withAlphaComponent(0.28), cornerRadius: 10, shadowOpacity: 0)
-        state.addSubview(DotView(frame: NSRect(x: 13, y: 13, width: 6, height: 6), color: signalColor))
-        state.addSubview(CenteredTextView(frame: NSRect(x: 0, y: 5, width: 104, height: 22), text: activeAccount == nil ? "OFFLINE" : "CONNECTED", size: 9.2, weight: .bold, color: signalColor, alignment: .center))
-        header.addSubview(state)
-        return header
-    }
-
     private func accountListRow(_ account: CodexAccount, frame: NSRect) -> NSView {
         let weeklyPercent = account.weeklyUsedPercent
         let usedPercent = weeklyPercent.map { 100 - $0 }
@@ -1542,13 +1541,29 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func paceChartData(_ state: PaceDisplayState) -> PoolPaceChartData {
-        PoolPaceChartData(
-            history: state.history.map {
+        let dailyPoints = DailyPoolAggregator.dailyPoints(from: state.history)
+        let resolution: PoolResolution = dailyPoints.count >= 2 ? .daily : .samples
+        let history: [PoolPacePoint]
+        if resolution == .daily {
+            history = dailyPoints.map {
+                PoolPacePoint(
+                    date: $0.date,
+                    value: $0.value,
+                    endValue: $0.endValue,
+                    sampleCount: $0.sampleCount
+                )
+            }
+        } else {
+            history = state.history.map {
                 PoolPacePoint(
                     date: $0.ts,
                     value: min(100, max(0, PoolHistoryStore.poolAverage(n: $0.n, poolTotal: $0.poolTotal)))
                 )
-            },
+            }
+        }
+        return PoolPaceChartData(
+            history: history,
+            resolution: resolution,
             tint: paceTint(for: state),
             gridLine: Color(theme.divider),
             labelText: Color(theme.secondaryText),
