@@ -23,6 +23,11 @@ private enum AccountPanelLayout {
     static var paceSectionHeight: CGFloat {
         paceChartHeight + paceChartToRowGap + paceRowHeight
     }
+    static let resetChanceTopGap: CGFloat = 8
+    static let resetChanceHeight: CGFloat = 44
+    static var resetChanceSectionHeight: CGFloat {
+        resetChanceTopGap + resetChanceHeight
+    }
 }
 
 // MARK: - Pool pace chart (Swift Charts inside the AppKit panel)
@@ -304,6 +309,7 @@ final class AccountSwitcherPanelView: NSView {
     private let close: () -> Void
     private let toggleLaunchAtLogin: () -> Void
     private let pace: PaceDisplayState?
+    private let resetChance: ResetChanceForecast?
     private var theme: PanelTheme { PanelTheme.current(for: effectiveAppearance) }
     private let outerInset: CGFloat = 18
     private let usageInset: CGFloat = 14
@@ -357,7 +363,8 @@ final class AccountSwitcherPanelView: NSView {
         performSettingsAction: @escaping (SettingsPanelAction) -> Void,
         close: @escaping () -> Void,
         toggleLaunchAtLogin: @escaping () -> Void,
-        pace: PaceDisplayState?
+        pace: PaceDisplayState?,
+        resetChance: ResetChanceForecast?
     ) {
         self.accounts = accounts
         self.activeAccount = activeAccount
@@ -402,6 +409,7 @@ final class AccountSwitcherPanelView: NSView {
         self.close = close
         self.toggleLaunchAtLogin = toggleLaunchAtLogin
         self.pace = pace
+        self.resetChance = resetChance
         let panelSize = AccountSwitcherPanelView.preferredSize(mode: mode, accountCount: accounts.count)
         super.init(frame: NSRect(origin: .zero, size: panelSize))
         wantsLayer = true
@@ -423,13 +431,14 @@ final class AccountSwitcherPanelView: NSView {
                 + CGFloat(rows) * AccountPanelLayout.rowHeight + CGFloat(rows - 1) * AccountPanelLayout.rowGap
                 + AccountPanelLayout.bottomBarTopGap + AccountPanelLayout.bottomBarHeight
             height += AccountPanelLayout.paceTopGap + AccountPanelLayout.paceSectionHeight
+            height += AccountPanelLayout.resetChanceTopGap + AccountPanelLayout.resetChanceHeight
             if accountCount > AccountPanelLayout.maxVisibleRows {
                 height += AccountPanelLayout.overflowCaptionHeight + AccountPanelLayout.overflowCaptionGap
             }
             return NSSize(width: 448, height: height)
         }
         if mode == .usage {
-            return NSSize(width: 424, height: 424)
+            return NSSize(width: 424, height: 424 + AccountPanelLayout.resetChanceTopGap + AccountPanelLayout.resetChanceHeight)
         }
         if mode == .settings {
             return NSSize(width: 432, height: 686)
@@ -491,8 +500,11 @@ final class AccountSwitcherPanelView: NSView {
 
         addSubview(bottomBar(frame: NSRect(x: usageInset, y: bounds.height - usageInset - bottomBarHeight, width: bounds.width - (usageInset * 2), height: bottomBarHeight)))
 
+        let resetChanceY = bounds.height - usageInset - bottomBarHeight - AccountPanelLayout.resetChanceTopGap - AccountPanelLayout.resetChanceHeight
+        addSubview(resetChanceSection(frame: NSRect(x: usageInset, y: resetChanceY, width: bounds.width - (usageInset * 2), height: AccountPanelLayout.resetChanceHeight)))
+
         if accounts.count >= 3, let pace {
-            let paceTop = bounds.height - usageInset - bottomBarHeight - AccountPanelLayout.paceTopGap - AccountPanelLayout.paceSectionHeight
+            let paceTop = resetChanceY - AccountPanelLayout.paceTopGap - AccountPanelLayout.paceSectionHeight
             addSubview(paceSection(pace, frame: NSRect(x: usageInset, y: paceTop, width: bounds.width - (usageInset * 2), height: AccountPanelLayout.paceSectionHeight)))
         }
     }
@@ -1530,6 +1542,32 @@ final class AccountSwitcherPanelView: NSView {
         refresh()
     }
 
+    // MARK: - Reset chance section
+
+    private func resetChanceSection(frame: NSRect) -> NSView {
+        let card = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 16)
+        let iconSize: CGFloat = 16
+        let icon = SymbolIconView(frame: NSRect(x: 14, y: (frame.height - iconSize) / 2, width: iconSize, height: iconSize), symbol: "bolt.fill", color: theme.iconTint)
+        card.addSubview(icon)
+        card.addSubview(label("RESET CHANCE", frame: NSRect(x: 40, y: (frame.height - 17) / 2, width: 140, height: 17), size: 12, weight: .bold, color: theme.primaryText))
+
+        let first = resetChance.map { "24h \($0.rounded24h)%" } ?? "—"
+        let second = resetChance.map { "48h \($0.rounded48h)%" } ?? "—"
+        let secondWidth: CGFloat = 64
+        let secondX = frame.width - 16 - secondWidth
+        let firstWidth: CGFloat = 68
+        let firstX = secondX - 10 - firstWidth
+        let valueY = (frame.height - 17) / 2
+        card.addSubview(label(first, frame: NSRect(x: firstX, y: valueY, width: firstWidth, height: 17), size: 12, weight: .medium, color: theme.secondaryText, alignment: .right))
+        card.addSubview(label(second, frame: NSRect(x: secondX, y: valueY, width: secondWidth, height: 17), size: 12, weight: .semibold, color: theme.primaryText, alignment: .right))
+
+        let divider = NSView(frame: NSRect(x: secondX - 6, y: 10, width: 1, height: frame.height - 20))
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = theme.divider.cgColor
+        card.addSubview(divider)
+        return card
+    }
+
     // MARK: - Pool pace section
 
     private func paceSection(_ state: PaceDisplayState, frame: NSRect) -> NSView {
@@ -2037,6 +2075,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let switchCooldown: TimeInterval = 90
     private let resetCreditsRefreshInterval: TimeInterval = 300
     private let directUsageRefreshInterval: TimeInterval = 30
+    private let resetChanceRefreshInterval: TimeInterval = 15 * 60
     private let poolSamplingInterval: TimeInterval = 30 * 60
     private let loginExpiredCooldownDefaultsKey = "loginExpiredNotificationCooldowns"
     private let loginExpiredNotificationCooldown: TimeInterval = 6 * 60 * 60
@@ -2054,6 +2093,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastRefreshStartedAt: Date?
     private var lastResetCreditsRefreshAt: Date?
     private var lastDirectUsageRefreshAt: Date?
+    private var resetChanceForecast: ResetChanceForecast?
+    private var resetChanceFetchedAt: Date?
+    private var resetChanceTask: Task<Void, Never>?
     private var isRefreshing = false
     private var isRefreshingResetCredits = false
     private var pendingForceRefresh = false
@@ -2840,6 +2882,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func showAccountPanel() {
         accountPanelMode = .usage
+        refreshResetChanceIfNeeded()
         let panel = accountPanel ?? makeAccountPanel()
         accountPanel = panel
         refreshAccountPanelContent()
@@ -2848,6 +2891,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.orderFrontRegardless()
         panel.makeKey()
         refreshAccounts(force: true)
+    }
+
+    /// Fetches the global reset-chance forecast at most once per 15 minutes.
+    /// A successful response replaces the cached forecast; a failure keeps the
+    /// previous cache (or leaves the panel showing "—" when there is none).
+    private func refreshResetChanceIfNeeded() {
+        if let fetchedAt = resetChanceFetchedAt,
+           Date().timeIntervalSince(fetchedAt) < resetChanceRefreshInterval {
+            return
+        }
+        guard resetChanceTask == nil else { return }
+        resetChanceTask = Task { [weak self] in
+            guard let self else { return }
+            let result = await Self.performResetChanceFetch()
+            await MainActor.run {
+                self.resetChanceTask = nil
+                if case .success(let forecast) = result {
+                    self.resetChanceForecast = forecast
+                    self.resetChanceFetchedAt = Date()
+                }
+                if self.accountPanel?.isVisible == true, self.accountPanelMode == .usage {
+                    self.refreshAccountPanelContent()
+                    self.positionAccountPanel()
+                }
+            }
+        }
+    }
+
+    private nonisolated static func performResetChanceFetch() async -> ResetChanceFetchResult {
+        do {
+            let payload = try await CodexHTTPClient.send(ResetChanceClient.makeRequest(), retries: 1)
+            return ResetChanceClient.parseResponse(data: payload.data, statusCode: payload.statusCode)
+        } catch {
+            return .failure(error.localizedDescription)
+        }
     }
 
     private func showSettingsPanel() {
@@ -2974,7 +3052,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             toggleLaunchAtLogin: { [weak self] in
                 self?.toggleLaunchAtLogin()
             },
-            pace: paceState
+            pace: paceState,
+            resetChance: resetChanceForecast
         )
         let controller = NSViewController()
         controller.view = panel

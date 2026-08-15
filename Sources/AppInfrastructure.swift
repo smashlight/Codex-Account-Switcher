@@ -1040,3 +1040,48 @@ enum PoolVerdict: Equatable {
         return .enough(burnPerDay: burnPerDay, limitPerDay: limitPerDay, resetDate: resetDate)
     }
 }
+
+// MARK: - Global reset chance (codex-reset.com)
+
+/// Server-rounded global goodwill-reset probabilities from codex-reset.com.
+/// Rounded values are kept as the single source of truth so the panel never
+/// disagrees with the site's own display.
+struct ResetChanceForecast: Equatable {
+    let rounded24h: Int
+    let rounded48h: Int
+}
+
+enum ResetChanceFetchResult {
+    case success(ResetChanceForecast)
+    case failure(String)
+}
+
+enum ResetChanceClient {
+    static let endpoint = URL(string: "https://codex-reset.com/api/forecast")!
+
+    static func makeRequest(timeout: TimeInterval = 30) -> URLRequest {
+        var request = URLRequest(
+            url: endpoint,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: timeout
+        )
+        request.httpMethod = "GET"
+        return request
+    }
+
+    static func parseResponse(
+        data: Data,
+        statusCode: Int
+    ) -> ResetChanceFetchResult {
+        guard statusCode == 200 else {
+            return .failure("Reset chance HTTP \(statusCode)")
+        }
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let probabilities = json["probabilities"] as? [String: Any],
+              let rounded24h = probabilities["rounded_24h"] as? Int,
+              let rounded48h = probabilities["rounded_48h"] as? Int else {
+            return .failure("Invalid reset chance response")
+        }
+        return .success(ResetChanceForecast(rounded24h: rounded24h, rounded48h: rounded48h))
+    }
+}
