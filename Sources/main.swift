@@ -5188,6 +5188,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             transcript.append("Codex helper processes remained after force quit: \(remaining.joined(separator: ", ")). Opening Codex anyway.")
         }
 
+        if let pluginsMessage = ensureBundledPluginsHealthy() {
+            transcript.append(pluginsMessage)
+        }
+
         if let configMessage = ensureComputerUsePluginConfigured() {
             transcript.append(configMessage)
         }
@@ -5270,6 +5274,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return changed ? "Repaired Computer Use plugin config before Codex launch." : nil
+    }
+
+    private func ensureBundledPluginsHealthy() -> String? {
+        let bundledCodex = "\(codexDesktopResourcesPath)/codex"
+        let outcome = BundledMarketplaceRepairer.repairIfNeeded(
+            homeDirectory: NSHomeDirectory(),
+            appPath: codexDesktopAppPath,
+            codexExecutable: FileManager.default.isExecutableFile(atPath: bundledCodex) ? bundledCodex : nil,
+            pluginRunner: { executable, arguments, _ in
+                self.run(executable, arguments)
+            }
+        )
+        switch outcome {
+        case .ok:
+            return "Bundled plugins verified: \(BundledMarketplaceInspector.expectedPluginIDs().count) expected, all present."
+        case .repairedFromApp:
+            return "Bundled plugins repaired: snapshot restored from ChatGPT.app."
+        case .repairedByStaleMove:
+            return "Bundled plugins repaired: stale snapshot moved aside for regeneration."
+        case .noAppFound:
+            return nil
+        case .failed(let reason):
+            return "Bundled plugins repair failed: \(reason)"
+        }
     }
 
     private func codexAppPIDs() -> [String] {

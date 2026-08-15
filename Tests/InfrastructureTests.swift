@@ -27,6 +27,18 @@ struct InfrastructureTests {
         testPoolVerdict()
         testPoolHistorySampleResetsAtCoding()
         testResetChanceParsing()
+        try testBundledMarketplaceSnapshotOk()
+        try testBundledMarketplaceSnapshotIncomplete()
+        try testBundledMarketplaceSnapshotAbsent()
+        try testBundledMarketplaceSnapshotMissingManifest()
+        try testBundledMarketplaceAppSource()
+        try testBundledMarketplaceRepairNoop()
+        try testBundledMarketplaceRepairFromApp()
+        try testBundledMarketplaceRepairNoApp()
+        try testBundledMarketplaceRepairStaleMove()
+        try testBundledMarketplaceRepairRollback()
+        try testBundledMarketplaceRepairReinstall()
+        try testBundledMarketplaceRepairReinstallFailure()
 
         if failures.isEmpty {
             print("Infrastructure tests passed (\(assertionCount) assertions).")
@@ -709,6 +721,229 @@ struct InfrastructureTests {
 
         if case .failure = ResetChanceClient.parseResponse(data: Data(realFixture), statusCode: 500) {} else {
             expect(false, "a non-200 status should be a failure even with a valid body")
+        }
+    }
+
+    // MARK: - Bundled marketplace fixtures
+
+    private static func makePluginManifest(root: URL, pluginID: String) throws {
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("plugins/\(pluginID)/.codex-plugin"),
+            withIntermediateDirectories: true
+        )
+    }
+
+    private static func makeCompleteMarketplace(root: URL) throws {
+        for id in BundledMarketplaceInspector.expectedPluginIDs() {
+            try makePluginManifest(root: root, pluginID: id)
+        }
+    }
+
+    private static func makeHomeSnapshot(home: URL) throws -> URL {
+        let snapshot = home.appendingPathComponent(".codex/.tmp/bundled-marketplaces")
+        try FileManager.default.createDirectory(at: snapshot, withIntermediateDirectories: true)
+        return snapshot
+    }
+
+    private static func makeFakeApp(home: URL) throws -> String {
+        let app = home.appendingPathComponent("ChatGPT.app")
+        try FileManager.default.createDirectory(
+            at: app.appendingPathComponent("Contents/Resources/plugins"),
+            withIntermediateDirectories: true
+        )
+        return app.path
+    }
+
+    // MARK: - Bundled marketplace inspector
+
+    private static func testBundledMarketplaceSnapshotOk() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makeCompleteMarketplace(root: snapshots.appendingPathComponent("openai-bundled"))
+        let state = BundledMarketplaceInspector.snapshotState(homeDirectory: root.path)
+        expect(state == .ok, "a snapshot with all expected plugin manifests should be ok")
+    }
+
+    private static func testBundledMarketplaceSnapshotIncomplete() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makeCompleteMarketplace(root: snapshots.appendingPathComponent("openai-bundled"))
+        try FileManager.default.removeItem(
+            at: snapshots.appendingPathComponent("openai-bundled/plugins/browser")
+        )
+        let state = BundledMarketplaceInspector.snapshotState(homeDirectory: root.path)
+        expect(state == .incomplete(missing: ["browser"]), "a snapshot missing the browser manifest should be incomplete")
+    }
+
+    private static func testBundledMarketplaceSnapshotAbsent() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let state = BundledMarketplaceInspector.snapshotState(homeDirectory: root.path)
+        expect(state == .absent, "a missing snapshot directory should be absent")
+    }
+
+    private static func testBundledMarketplaceSnapshotMissingManifest() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makeCompleteMarketplace(root: snapshots.appendingPathComponent("openai-bundled"))
+        try FileManager.default.removeItem(
+            at: snapshots.appendingPathComponent("openai-bundled/plugins/computer-use/.codex-plugin")
+        )
+        let state = BundledMarketplaceInspector.snapshotState(homeDirectory: root.path)
+        expect(state == .incomplete(missing: ["computer-use"]), "a plugin without its manifest should be treated as missing")
+    }
+
+    private static func testBundledMarketplaceAppSource() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = try makeFakeApp(home: root)
+        try FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: app).appendingPathComponent("Contents/Resources/plugins/openai-bundled"),
+            withIntermediateDirectories: true
+        )
+        let source = BundledMarketplaceInspector.appMarketplaceSource(appPath: app)
+        expect(source != nil, "the app marketplace source should be found under Contents/Resources/plugins/openai-bundled")
+        expect(source?.lastPathComponent == "openai-bundled", "the found source should be the openai-bundled marketplace")
+
+        let empty = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: empty) }
+        expect(BundledMarketplaceInspector.appMarketplaceSource(appPath: empty.path) == nil, "an app without the marketplace should return nil")
+    }
+
+    // MARK: - Bundled marketplace repairer
+
+    private static func testBundledMarketplaceRepairNoop() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makeCompleteMarketplace(root: snapshots.appendingPathComponent("openai-bundled"))
+        let app = try makeFakeApp(home: root)
+        try makeCompleteMarketplace(root: URL(fileURLWithPath: app).appendingPathComponent("Contents/Resources/plugins/openai-bundled"))
+        let outcome = BundledMarketplaceRepairer.repairIfNeeded(homeDirectory: root.path, appPath: app)
+        expect(outcome == .ok, "a healthy snapshot should repair to ok without changes")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: snapshots.path)
+        expect(!backups.contains { $0.hasPrefix("bundled-marketplaces.bak.") }, "a healthy snapshot should not create a backup")
+    }
+
+    private static func testBundledMarketplaceRepairFromApp() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makePluginManifest(root: snapshots.appendingPathComponent("openai-bundled"), pluginID: "chrome")
+        let app = try makeFakeApp(home: root)
+        try makeCompleteMarketplace(root: URL(fileURLWithPath: app).appendingPathComponent("Contents/Resources/plugins/openai-bundled"))
+        let outcome = BundledMarketplaceRepairer.repairIfNeeded(homeDirectory: root.path, appPath: app)
+        expect(outcome == .repairedFromApp, "an incomplete snapshot with an app reference should be repaired from the app")
+        let state = BundledMarketplaceInspector.snapshotState(homeDirectory: root.path)
+        expect(state == .ok, "the snapshot should be complete after repairing from the app")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: snapshots.path)
+        expect(backups.contains { $0.hasPrefix("bundled-marketplaces.bak.") }, "the stale snapshot should be moved to a backup before copying")
+    }
+
+    private static func testBundledMarketplaceRepairNoApp() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makePluginManifest(root: snapshots.appendingPathComponent("openai-bundled"), pluginID: "chrome")
+        let outcome = BundledMarketplaceRepairer.repairIfNeeded(
+            homeDirectory: root.path,
+            appPath: root.appendingPathComponent("Missing.app").path
+        )
+        expect(outcome == .noAppFound, "repair without an app reference should report noAppFound")
+        let state = BundledMarketplaceInspector.snapshotState(homeDirectory: root.path)
+        expect(state == .incomplete(missing: ["browser", "computer-use"]), "repair without an app reference must not touch the snapshot")
+    }
+
+    private static func testBundledMarketplaceRepairStaleMove() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makePluginManifest(root: snapshots.appendingPathComponent("openai-bundled"), pluginID: "chrome")
+        let app = try makeFakeApp(home: root) // app exists but has no marketplace inside
+        let outcome = BundledMarketplaceRepairer.repairIfNeeded(homeDirectory: root.path, appPath: app)
+        expect(outcome == .repairedByStaleMove, "an app without a marketplace should fall back to moving the stale snapshot aside")
+        let entries = try FileManager.default.contentsOfDirectory(atPath: snapshots.path)
+        expect(entries.contains { $0.hasPrefix("bundled-marketplaces.bak.") }, "the stale snapshot should be moved aside for regeneration")
+        expect(!entries.contains("openai-bundled"), "the stale snapshot should no longer be in place")
+    }
+
+    private static func testBundledMarketplaceRepairRollback() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makePluginManifest(root: snapshots.appendingPathComponent("openai-bundled"), pluginID: "chrome")
+        let app = try makeFakeApp(home: root)
+        // the app marketplace itself is incomplete (only chrome) — the copy will fail verification
+        try makePluginManifest(root: URL(fileURLWithPath: app).appendingPathComponent("Contents/Resources/plugins/openai-bundled"), pluginID: "chrome")
+        let outcome = BundledMarketplaceRepairer.repairIfNeeded(homeDirectory: root.path, appPath: app)
+        if case .failed = outcome {} else {
+            expect(false, "a copy that fails verification should report failed")
+        }
+        let state = BundledMarketplaceInspector.snapshotState(homeDirectory: root.path)
+        expect(state == .incomplete(missing: ["browser", "computer-use"]), "the original snapshot should be restored after a failed repair")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: snapshots.path)
+        expect(!backups.contains { $0.hasPrefix("bundled-marketplaces.bak.") }, "the backup should be restored, leaving no stale backup behind")
+    }
+
+    private static func testBundledMarketplaceRepairReinstall() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makePluginManifest(root: snapshots.appendingPathComponent("openai-bundled"), pluginID: "chrome")
+        let app = try makeFakeApp(home: root)
+        try makeCompleteMarketplace(root: URL(fileURLWithPath: app).appendingPathComponent("Contents/Resources/plugins/openai-bundled"))
+        let home = root.appendingPathComponent(".codex")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let configText = """
+        [plugins."chrome@openai-bundled"]
+        enabled = true
+
+        [plugins."browser@openai-bundled"]
+        enabled = true
+        """
+        try configText.write(to: home.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        var calls: [[String]] = []
+        let outcome = BundledMarketplaceRepairer.repairIfNeeded(
+            homeDirectory: root.path,
+            appPath: app,
+            codexExecutable: "/usr/bin/true",
+            pluginRunner: { _, arguments, _ in
+                calls.append(arguments)
+                return CommandResult(status: 0, output: "ok")
+            }
+        )
+        expect(outcome == .repairedFromApp, "reinstall success should still report repairedFromApp")
+        let pluginCalls = calls.filter { $0.first == "plugin" }
+        expect(pluginCalls.contains { $0.contains("chrome@openai-bundled") }, "enabled chrome plugin should be reinstalled")
+        expect(pluginCalls.contains { $0.contains("browser@openai-bundled") }, "enabled browser plugin should be reinstalled")
+        expect(!pluginCalls.contains { $0.contains("computer-use@openai-bundled") }, "a plugin absent from config should not be reinstalled")
+    }
+
+    private static func testBundledMarketplaceRepairReinstallFailure() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makePluginManifest(root: snapshots.appendingPathComponent("openai-bundled"), pluginID: "chrome")
+        let app = try makeFakeApp(home: root)
+        try makeCompleteMarketplace(root: URL(fileURLWithPath: app).appendingPathComponent("Contents/Resources/plugins/openai-bundled"))
+        let home = root.appendingPathComponent(".codex")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let configText = """
+        [plugins."chrome@openai-bundled"]
+        enabled = true
+        """
+        try configText.write(to: home.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        let outcome = BundledMarketplaceRepairer.repairIfNeeded(
+            homeDirectory: root.path,
+            appPath: app,
+            codexExecutable: "/usr/bin/true",
+            pluginRunner: { _, _, _ in CommandResult(status: 1, output: "boom") }
+        )
+        if case .failed = outcome {} else {
+            expect(false, "a failed plugin reinstall should report failed")
         }
     }
 }
