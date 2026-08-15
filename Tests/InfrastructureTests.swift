@@ -13,6 +13,7 @@ struct InfrastructureTests {
         try testComputerUsePluginDiscovery()
         try testBackupPruning()
         testProcessRunner()
+        testWeeklyResetFormatter()
 
         if failures.isEmpty {
             print("Infrastructure tests passed (\(assertionCount) assertions).")
@@ -110,5 +111,58 @@ struct InfrastructureTests {
         expect(success.status == 0 && success.output.contains("healthy"), "process runner should capture successful output")
         let timeout = ProcessRunner.run("/bin/sleep", ["2"], environment: environment, timeout: 0.1)
         expect(timeout.status == 124 && timeout.output.contains("timed out"), "process runner should terminate stalled commands")
+    }
+
+    private static func utcDate(day: Int, month: Int, year: Int, hour: Int, minute: Int, calendar: Calendar) -> Date {
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = hour
+        components.minute = minute
+        return calendar.date(from: components) ?? .distantPast
+    }
+
+    private static func testWeeklyResetFormatter() {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+
+        let saturday = utcDate(day: 15, month: 8, year: 2026, hour: 12, minute: 0, calendar: utc)
+        expect(
+            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", now: saturday, calendar: utc) == "FRI · 21 Aug",
+            "reset formatter should resolve the nearest upcoming weekday from the usage string"
+        )
+
+        let fridayMorning = utcDate(day: 21, month: 8, year: 2026, hour: 8, minute: 0, calendar: utc)
+        expect(
+            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", now: fridayMorning, calendar: utc) == "FRI · 21 Aug",
+            "reset formatter should keep today when the reset time is still upcoming"
+        )
+
+        let fridayAfterReset = utcDate(day: 21, month: 8, year: 2026, hour: 10, minute: 0, calendar: utc)
+        expect(
+            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", now: fridayAfterReset, calendar: utc) == "FRI · 28 Aug",
+            "reset formatter should jump to next week once today's reset has fired"
+        )
+
+        expect(
+            WeeklyResetFormatter.text(from: "82% (Fri)", now: fridayAfterReset, calendar: utc) == "FRI · 28 Aug",
+            "day-only reset text should pick next week when the day matches today"
+        )
+
+        expect(
+            WeeklyResetFormatter.text(from: "82% (09:00)", now: saturday, calendar: utc) == "09:00",
+            "reset formatter should fall back to the raw inner text when no weekday is parseable"
+        )
+
+        expect(
+            WeeklyResetFormatter.text(from: "82% (Sat 09:00)", now: saturday, calendar: utc) == "SAT · 22 Aug",
+            "reset formatter should resolve non-Friday weekdays"
+        )
+
+        expect(
+            WeeklyResetFormatter.text(from: "--", now: saturday, calendar: utc) == "--",
+            "dash usage without a parenthesized value should pass through untouched"
+        )
     }
 }

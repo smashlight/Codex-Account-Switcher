@@ -4,6 +4,19 @@ import Foundation
 import Security
 import UserNotifications
 
+private enum AccountPanelLayout {
+    static let usageInset: CGFloat = 14
+    static let usageHeaderHeight: CGFloat = 66
+    static let usageHeaderGap: CGFloat = 10
+    static let bottomBarTopGap: CGFloat = 10
+    static let bottomBarHeight: CGFloat = 44
+    static let maxVisibleRows = 10
+    static let rowHeight: CGFloat = 48
+    static let rowGap: CGFloat = 6
+    static let overflowCaptionHeight: CGFloat = 14
+    static let overflowCaptionGap: CGFloat = 4
+}
+
 final class AccountSwitcherPanelView: NSView {
     private let accounts: [CodexAccount]
     private let activeAccount: CodexAccount?
@@ -54,11 +67,8 @@ final class AccountSwitcherPanelView: NSView {
     private let bottomBarHeight: CGFloat = 44
     private let usageHeaderHeight: CGFloat = 66
     private let usageHeaderGap: CGFloat = 10
-    private var usesCompactGrid: Bool {
-        mode == .usage && accounts.count >= 3
-    }
     private var accountCardHeight: CGFloat {
-        bounds.height - (usageInset * 2) - usageHeaderHeight - usageHeaderGap - bottomBarTopGap - bottomBarHeight
+        bounds.height - (AccountPanelLayout.usageInset * 2) - AccountPanelLayout.usageHeaderHeight - AccountPanelLayout.usageHeaderGap - AccountPanelLayout.bottomBarTopGap - AccountPanelLayout.bottomBarHeight
     }
 
     init(
@@ -161,7 +171,14 @@ final class AccountSwitcherPanelView: NSView {
 
     static func preferredSize(mode: AccountPanelMode, accountCount: Int) -> NSSize {
         if mode == .usage && accountCount >= 3 {
-            return NSSize(width: 448, height: 560)
+            let rows = min(accountCount, AccountPanelLayout.maxVisibleRows)
+            var height = AccountPanelLayout.usageInset * 2 + AccountPanelLayout.usageHeaderHeight + AccountPanelLayout.usageHeaderGap
+                + CGFloat(rows) * AccountPanelLayout.rowHeight + CGFloat(rows - 1) * AccountPanelLayout.rowGap
+                + AccountPanelLayout.bottomBarTopGap + AccountPanelLayout.bottomBarHeight
+            if accountCount > AccountPanelLayout.maxVisibleRows {
+                height += AccountPanelLayout.overflowCaptionHeight + AccountPanelLayout.overflowCaptionGap
+            }
+            return NSSize(width: 448, height: height)
         }
         if mode == .usage {
             return NSSize(width: 424, height: 500)
@@ -206,7 +223,7 @@ final class AccountSwitcherPanelView: NSView {
             empty.frame.origin.y = cardsY
             addSubview(empty)
         } else if accounts.count >= 3 {
-            buildCompactGridUsageContent()
+            buildListUsageContent()
         } else {
             let orderedAccounts = accounts.sorted { left, right in
                 let leftPriority = panelSortPriority(for: left)
@@ -228,7 +245,7 @@ final class AccountSwitcherPanelView: NSView {
         addSubview(bottomBar(frame: NSRect(x: usageInset, y: bounds.height - usageInset - bottomBarHeight, width: bounds.width - (usageInset * 2), height: bottomBarHeight)))
     }
 
-    private func buildCompactGridUsageContent() {
+    private func buildListUsageContent() {
         let orderedAccounts = accounts.sorted { left, right in
             let leftPriority = panelSortPriority(for: left)
             let rightPriority = panelSortPriority(for: right)
@@ -239,22 +256,30 @@ final class AccountSwitcherPanelView: NSView {
         }
 
         let contentWidth = bounds.width - (usageInset * 2)
-        let cardWidth = (contentWidth - cardGap) / 2
         let cardsY = usageInset + usageHeaderHeight + usageHeaderGap
-        let cardAreaHeight = bounds.height - cardsY - usageInset - bottomBarTopGap - bottomBarHeight
-        let cardHeight = (cardAreaHeight - cardGap) / 2
+        let visibleCount = min(orderedAccounts.count, AccountPanelLayout.maxVisibleRows)
 
-        for index in 0..<4 {
-            let column = index % 2
-            let row = index / 2
-            let x = usageInset + CGFloat(column) * (cardWidth + cardGap)
-            let y = cardsY + CGFloat(row) * (cardHeight + cardGap)
-            let frame = NSRect(x: x, y: y, width: cardWidth, height: cardHeight)
-            if index < orderedAccounts.count {
-                addSubview(compactAccountCard(orderedAccounts[index], frame: frame))
-            } else {
-                addSubview(emptyCompactAccountSlot(frame: frame))
-            }
+        for index in 0..<visibleCount {
+            let y = cardsY + CGFloat(index) * (AccountPanelLayout.rowHeight + AccountPanelLayout.rowGap)
+            let frame = NSRect(x: usageInset, y: y, width: contentWidth, height: AccountPanelLayout.rowHeight)
+            addSubview(accountListRow(orderedAccounts[index], frame: frame))
+        }
+
+        if orderedAccounts.count > AccountPanelLayout.maxVisibleRows {
+            let remainder = orderedAccounts.count - AccountPanelLayout.maxVisibleRows
+            let captionY = cardsY
+                + CGFloat(visibleCount) * AccountPanelLayout.rowHeight
+                + CGFloat(visibleCount - 1) * AccountPanelLayout.rowGap
+                + AccountPanelLayout.overflowCaptionGap
+            let caption = label(
+                "+\(remainder) more in menu",
+                frame: NSRect(x: usageInset, y: captionY, width: contentWidth, height: AccountPanelLayout.overflowCaptionHeight),
+                size: 9.5,
+                weight: .medium,
+                color: theme.tertiaryText,
+                alignment: .right
+            )
+            addSubview(caption)
         }
     }
 
@@ -915,7 +940,7 @@ final class AccountSwitcherPanelView: NSView {
         let detail: String
         if let activeAccount {
             let plan = activeAccount.plan.isEmpty ? "ChatGPT" : activeAccount.plan.capitalized
-            detail = "\(plan)  ·  5-hour \(percentText(activeAccount.fiveHourUsedPercent))  ·  weekly \(percentText(activeAccount.weeklyUsedPercent))"
+            detail = "\(plan)  ·  weekly \(percentText(activeAccount.weeklyUsedPercent))"
         } else {
             detail = lastError ?? "Open settings to add or repair an account"
         }
@@ -929,12 +954,11 @@ final class AccountSwitcherPanelView: NSView {
         return header
     }
 
-    private func compactAccountCard(_ account: CodexAccount, frame: NSRect) -> NSView {
+    private func accountListRow(_ account: CodexAccount, frame: NSRect) -> NSView {
         let weeklyPercent = account.weeklyUsedPercent
-        let fiveHourPercent = account.fiveHourUsedPercent
-        let fiveHourColor = accentColor(for: fiveHourPercent, isActive: account.isActive)
+        let usedPercent = weeklyPercent.map { 100 - $0 }
         let weeklyColor = accentColor(for: weeklyPercent, isActive: account.isActive)
-        let usageWeight: NSFont.Weight = account.isActive ? .bold : .semibold
+        let barColor = statusBarColor(for: weeklyPercent)
         let card = RoundedPanelView(
             frame: frame,
             fillColor: cardFillColor(for: account),
@@ -949,72 +973,34 @@ final class AccountSwitcherPanelView: NSView {
         )
 
         if account.isActive {
-            card.addSubview(AccentRailView(frame: NSRect(x: 0, y: 18, width: 3, height: frame.height - 36), color: fiveHourColor))
+            card.addSubview(AccentRailView(frame: NSRect(x: 0, y: 8, width: 3, height: frame.height - 16), color: weeklyColor))
         }
 
         let isArmed = confirmBeforeSwitching && armedSwitchEmail == account.email && !account.isActive
         let statusTitle = account.isActive ? "ACTIVE" : (isSwitching ? "..." : (isArmed ? "CONFIRM" : "SWITCH"))
-        let buttonColor = account.isActive ? fiveHourColor.withAlphaComponent(0.82) : (isArmed ? NSColor.systemBlue : theme.usageInactiveButtonFill)
+        let buttonColor = account.isActive ? weeklyColor.withAlphaComponent(0.82) : (isArmed ? NSColor.systemBlue : theme.usageInactiveButtonFill)
         let switchButtonWidth: CGFloat = isArmed ? 68 : 58
-        let switchButton = PillButton(frame: NSRect(x: frame.width - switchButtonWidth - 14, y: 14, width: switchButtonWidth, height: 24), title: statusTitle, color: buttonColor, showsDot: isArmed, allowsHover: !account.isActive)
-        switchButton.toolTip = isArmed ? "Confirm \(switchPreviewText(for: account))" : switchPreviewText(for: account)
+        let switchButton = PillButton(frame: NSRect(x: frame.width - switchButtonWidth - 14, y: 12, width: switchButtonWidth, height: 24), title: statusTitle, color: buttonColor, showsDot: isArmed, allowsHover: !account.isActive)
+        let preview = "Switch to \(labelForAccount(account)) · Weekly \(percentText(account.weeklyUsedPercent))"
+        switchButton.toolTip = isArmed ? "Confirm \(preview)" : preview
         switchButton.target = self
         switchButton.action = #selector(accountSwitchPressed(_:))
         switchButton.identifier = NSUserInterfaceItemIdentifier(account.email)
         switchButton.isEnabled = !account.isActive && !isSwitching && !accounts.isEmpty
         card.addSubview(switchButton)
 
-        let identityWidth = max(80, frame.width - switchButtonWidth - 46)
-        let emailText = compactCardEmail(account.email)
-        card.addSubview(label(emailText, frame: NSRect(x: 16, y: 16, width: identityWidth, height: 20), size: 10.8, weight: .semibold, color: account.isActive ? fiveHourColor : theme.primaryText))
-        let emailButton = NSButton(frame: NSRect(x: 16, y: 14, width: identityWidth, height: 24))
-        emailButton.title = ""
-        emailButton.bezelStyle = .regularSquare
-        emailButton.isBordered = false
-        emailButton.isTransparent = true
-        emailButton.focusRingType = .exterior
-        emailButton.setAccessibilityLabel(emailText)
-        emailButton.identifier = NSUserInterfaceItemIdentifier("label|\(account.email)")
-        emailButton.target = self
-        emailButton.action = #selector(accountSettingsActionPressed(_:))
-        emailButton.toolTip = "Edit account label"
-        card.addSubview(emailButton)
+        let emailWidth = frame.width - 16 - switchButtonWidth - 24
+        let emailLabel = label(account.email, frame: NSRect(x: 16, y: 7, width: emailWidth, height: 14), size: 10.8, weight: .semibold, color: account.isActive ? weeklyColor : theme.primaryText)
+        emailLabel.toolTip = account.email
+        card.addSubview(emailLabel)
 
-        let contentX: CGFloat = 16
-        let contentWidth = frame.width - 32
-        let valueY: CGFloat = 50
-        card.addSubview(MetricValueView(frame: NSRect(x: contentX, y: valueY, width: 94, height: 44), percent: fiveHourPercent, color: fiveHourColor, isActive: account.isActive))
-        card.addSubview(label("5-hour left", frame: NSRect(x: frame.width - 96, y: valueY + 4, width: 80, height: 16), size: 10.5, weight: .semibold, color: theme.secondaryText, alignment: .right))
-        card.addSubview(label("resets \(fiveHourResetTimeText(from: account.fiveHourUsage))", frame: NSRect(x: frame.width - 110, y: valueY + 21, width: 94, height: 15), size: 9.5, weight: .medium, color: theme.tertiaryText, alignment: .right))
-        card.addSubview(ProgressLineView(frame: NSRect(x: contentX, y: 96, width: contentWidth, height: account.isActive ? 9 : 7), color: fiveHourColor, trackColor: theme.progressTrack, percent: CGFloat(fiveHourPercent ?? 0) / 100))
+        let barWidth: CGFloat = 144
+        card.addSubview(ProgressLineView(frame: NSRect(x: 16, y: 27, width: barWidth, height: 8), color: barColor, trackColor: theme.progressTrack, percent: CGFloat(usedPercent ?? 0) / 100))
+        card.addSubview(label(percentText(weeklyPercent), frame: NSRect(x: 168, y: 25, width: 38, height: 16), size: 10.5, weight: account.isActive ? .bold : .semibold, color: barColor))
 
-        let dividerY: CGFloat = 112
-        let divider = NSView(frame: NSRect(x: contentX, y: dividerY, width: contentWidth, height: 1))
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = theme.divider.cgColor
-        card.addSubview(divider)
-
-        let lowerY: CGFloat = 125
-        let halfWidth = (contentWidth - 13) / 2
-        card.addSubview(label("Weekly", frame: NSRect(x: contentX, y: lowerY, width: halfWidth, height: 14), size: 9.5, weight: .semibold, color: theme.tertiaryText))
-        card.addSubview(label(percentText(weeklyPercent), frame: NSRect(x: contentX, y: lowerY + 16, width: halfWidth, height: 20), size: 15, weight: usageWeight, color: weeklyColor))
-
-        let lowerDivider = NSView(frame: NSRect(x: contentX + halfWidth + 6, y: lowerY, width: 1, height: 37))
-        lowerDivider.wantsLayer = true
-        lowerDivider.layer?.backgroundColor = theme.divider.cgColor
-        card.addSubview(lowerDivider)
-
-        let resetX = contentX + halfWidth + 14
-        card.addSubview(label("Weekly reset", frame: NSRect(x: resetX, y: lowerY, width: halfWidth, height: 14), size: 9.5, weight: .semibold, color: theme.tertiaryText))
-        card.addSubview(label(weeklyResetText(from: account.weeklyUsage), frame: NSRect(x: resetX, y: lowerY + 16, width: halfWidth - 2, height: 20), size: 12, weight: .semibold, color: weeklyColor))
-        card.addSubview(ProgressLineView(frame: NSRect(x: contentX, y: lowerY + 44, width: contentWidth, height: 6), color: weeklyColor, trackColor: theme.progressTrack, percent: CGFloat(weeklyPercent ?? 0) / 100))
-        return card
-    }
-
-    private func emptyCompactAccountSlot(frame: NSRect) -> NSView {
-        let card = RoundedPanelView(frame: frame, fillColor: theme.inactiveCardFill, borderColor: theme.inactiveCardBorder, cornerRadius: 16, hoverFillColor: theme.inactiveCardHoverFill, clickAction: { [weak self] in self?.showSettings() }, shadowOpacity: 0.05)
-        card.addSubview(SymbolIconView(frame: NSRect(x: (frame.width - 28) / 2, y: (frame.height - 54) / 2, width: 28, height: 28), symbol: "plus", color: theme.iconTint.withAlphaComponent(0.62)))
-        card.addSubview(label("Add another account", frame: NSRect(x: 14, y: (frame.height / 2) + 13, width: frame.width - 28, height: 18), size: 11, weight: .semibold, color: theme.secondaryText, alignment: .center))
+        let resetX: CGFloat = 214
+        let resetWidth = frame.width - resetX - switchButtonWidth - 24
+        card.addSubview(label(WeeklyResetFormatter.text(from: account.weeklyUsage), frame: NSRect(x: resetX, y: 25, width: resetWidth, height: 16), size: 10, weight: .medium, color: theme.tertiaryText))
         return card
     }
 
@@ -1466,6 +1452,22 @@ final class AccountSwitcherPanelView: NSView {
     private func accentColor(for percent: Int?, isActive: Bool) -> NSColor {
         let color = usageColor(for: percent)
         return isActive ? color : color.withAlphaComponent(theme.isDark ? 0.48 : 0.44)
+    }
+
+    private func statusBarColor(for remaining: Int?) -> NSColor {
+        guard let remaining else {
+            return theme.secondaryText.withAlphaComponent(0.6)
+        }
+        if remaining >= 90 {
+            return theme.isDark ? .white : NSColor(white: 0.22, alpha: 1)
+        }
+        if remaining > 50 {
+            return .systemGreen
+        }
+        if remaining > 10 {
+            return .systemOrange
+        }
+        return .systemRed
     }
 
     private func progressLineHeight(isActive: Bool) -> CGFloat {
@@ -2482,6 +2484,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let controller = NSViewController()
         controller.view = panel
         accountPanel?.contentViewController = controller
+        if accountPanel?.isVisible == true {
+            positionAccountPanel()
+        }
     }
 
     private func handlePanelSwitchRequest(_ email: String) {

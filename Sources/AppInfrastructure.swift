@@ -230,3 +230,91 @@ enum CodexHTTPClient {
         throw lastError ?? URLError(.unknown)
     }
 }
+
+enum WeeklyResetFormatter {
+    private static let weekdayIndexByToken: [String: Int] = [
+        "mon": 2, "monday": 2,
+        "tue": 3, "tues": 3, "tuesday": 3,
+        "wed": 4, "wednesday": 4,
+        "thu": 5, "thur": 5, "thurs": 5, "thursday": 5,
+        "fri": 6, "friday": 6,
+        "sat": 7, "saturday": 7,
+        "sun": 1, "sunday": 1
+    ]
+
+    private static let abbreviationByWeekday: [Int: String] = [
+        1: "SUN", 2: "MON", 3: "TUES", 4: "WED", 5: "THUR", 6: "FRI", 7: "SAT"
+    ]
+
+    static func text(from usage: String, now: Date = Date(), calendar: Calendar = .current) -> String {
+        guard let open = usage.firstIndex(of: "("),
+              let close = usage.firstIndex(of: ")"),
+              open < close else {
+            return "--"
+        }
+        let inner = String(usage[usage.index(after: open)..<close])
+        guard let weekday = firstWeekday(in: inner) else {
+            return inner.uppercased()
+        }
+
+        let target = upcomingDate(weekday: weekday, time: firstTime(in: inner), now: now, calendar: calendar)
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "d MMM"
+        let dayMonth = formatter.string(from: target)
+        let abbreviation = abbreviationByWeekday[weekday] ?? "?"
+        return "\(abbreviation) · \(dayMonth)"
+    }
+
+    private static func firstWeekday(in text: String) -> Int? {
+        for token in text.split(whereSeparator: { !$0.isLetter }) {
+            if let index = weekdayIndexByToken[String(token).lowercased()] {
+                return index
+            }
+        }
+        return nil
+    }
+
+    private static func firstTime(in text: String) -> (hour: Int, minute: Int)? {
+        let pattern = #"(?<!\d)(\d{1,2}):(\d{2})(?!\d)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let hourRange = Range(match.range(at: 1), in: text),
+              let minuteRange = Range(match.range(at: 2), in: text),
+              let hour = Int(text[hourRange]),
+              let minute = Int(text[minuteRange]) else {
+            return nil
+        }
+        return (hour, minute)
+    }
+
+    private static func upcomingDate(
+        weekday: Int,
+        time: (hour: Int, minute: Int)?,
+        now: Date,
+        calendar: Calendar
+    ) -> Date {
+        let today = calendar.component(.weekday, from: now)
+        var daysAhead = (weekday - today + 7) % 7
+        if daysAhead == 0 {
+            let nowComponents = calendar.dateComponents([.hour, .minute], from: now)
+            let nowHour = nowComponents.hour ?? 0
+            let nowMinute = nowComponents.minute ?? 0
+            if let time {
+                let sameHour = time.hour == nowHour
+                let resetFiredToday = time.hour < nowHour || (sameHour && time.minute <= nowMinute)
+                if !resetFiredToday {
+                    return calendar.startOfDay(for: now)
+                }
+            }
+            daysAhead = 7
+        }
+        guard let startOfDay = calendar.date(bySettingHour: 0, minute: 0, second: 0, of: now),
+              let target = calendar.date(byAdding: .day, value: daysAhead, to: startOfDay) else {
+            return now
+        }
+        return target
+    }
+}

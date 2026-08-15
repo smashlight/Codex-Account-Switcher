@@ -13,6 +13,20 @@ Rules for future work:
 - Install verification is `./install.sh`, then confirm the app runs from `/Applications/Codex Account Switcher.app`.
 - Current local app update is v1.8.3.2 / build 1832 with all-account live usage refresh, last-known-good usage retention, a frosted popover background, post-reset missing-window handling, centrally presented reset confirmation, extended reset verification, compact generation-safe switch/reset status animations, cached concurrent reset-credit refreshes, bounded async networking, command timeouts, dynamic Computer Use discovery, automated infrastructure tests, backup pruning, verified reset-credit redemption, the graphite control-deck redesign, transactional verified switching, rollback, best-account scoring, a native lifecycle monitor, privacy-safe diagnostics, clipboard restoration, local ad-hoc signing, API-mode rollback, and the non-executing Route B prototype.
 
+## Development workflow
+
+- Do UI work in a git worktree under `.worktrees/<branch>` (gitignored); keep the main checkout clean.
+- UI change cycle: edit in worktree → `./build.sh` → `./install.sh` (copies the app into `/Applications` and re-signs) → **kill the running `CodexAccountSwitcher` process and relaunch via `open`** — the running app keeps the old binary in memory, so overwriting the bundle alone never updates the visible UI.
+- `./verify-install.sh` checks the installed bundle, ad-hoc signature, and native lifecycle monitor.
+- `./run-tests.sh` compiles only `Sources/AppInfrastructure.swift` + `Tests/InfrastructureTests.swift` (no AppKit) and then runs the built app's `--self-test-reset-logic`. Pure logic belongs in `AppInfrastructure.swift` so it is unit-testable; anything visual in `main.swift` is verified by the user in the running panel.
+
+## Language & percent semantics (confusion source)
+
+- On the current toolchain (Swift 6.3.3, swift-driver 1.148.6) **unqualified access to `static` members from an instance context is a compile error** (`static member ... cannot be used on instance of type ...`) — verified even on plain classes. Always qualify: `AccountPanelLayout.rowHeight` or `Self.member`. Never convert `let`/`var` instance constants to `static` and keep calling them bare.
+- Shared geometry lives in `private enum AccountPanelLayout` (top of `main.swift`): usage insets, row height/gap, overflow caption, bottom bar. `preferredSize(mode:accountCount:)` is the single source of panel sizing, including the adaptive height of the usage row list (≥3 accounts → single-column list, up to 10 rows, height follows account count). Keep all layout math inside the enum.
+- `AccountSwitcherPanelView` is flipped (isFlipped = true, y grows downward); the panel is a borderless `NSPanel`, live-refreshed by rebuilding the view controller (`refreshAccountPanelContent()`), which must be followed by `positionAccountPanel()` while visible so size/anchoring follow account changes.
+- **`fiveHourUsedPercent` / `weeklyUsedPercent` on `CodexAccount` are REMAINING percents** (parsed from `remainingPercent`, displayed as "X% left"); they are NOT used amounts. UI that draws consumption must flip them (e.g. progress fill = `(100 - remaining) / 100`, full bar = limit exhausted). Account-list row bar colors (`statusBarColor(for:)`) are keyed off the remaining value (white ≥ 90%, green > 50%, orange > 10%, red ≤ 10%).
+
 Potential v2.5 idea:
 
 - Consider a separate "Cheap Agent" / Route B mode instead of trying to make a third-party model fully replace Codex Desktop.
