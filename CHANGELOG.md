@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.5 - 2026-08-15
+
+- Add a pool-wide usage pace forecast for the five-hour window: the app samples the remaining pool of all saved accounts every 30 minutes into a local 56-day JSONL history, then draws a CodexBar-style utilization chart (capped bars over a full track, coloured by remaining level) at the bottom of the account panel.
+- Show the predicted EOL, the average burn rate against the pool limit, and the weekly reset schedule; a verdict badge states whether the remaining pool is enough to reach the next reset.
+- Persist the weekly reset timestamps captured from live usage snapshots so the forecast can compare EOL against the actual reset date.
+
 ## 1.8.4 - 2026-08-15
 
 - Auto-refresh expired or aging Codex OAuth tokens: proactive refresh when the token is older than 3 days, plus an automatic one-shot retry after a 400/401 usage response. Updated tokens are written back to the account auth file and mirrored into the active `~/.codex/auth.json` when the active account refreshes.

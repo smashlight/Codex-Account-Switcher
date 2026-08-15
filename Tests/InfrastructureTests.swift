@@ -20,6 +20,11 @@ struct InfrastructureTests {
         testTokenRefreshAgePolicy()
         testCodexAuthDateParsing()
         try testCodexAuthTokenWriter()
+        try testPoolHistoryStore()
+        testWeekCurveBuilder()
+        testPaceEstimatorForecast()
+        testPoolVerdict()
+        testPoolHistorySampleResetsAtCoding()
 
         if failures.isEmpty {
             print("Infrastructure tests passed (\(assertionCount) assertions).")
@@ -413,5 +418,222 @@ struct InfrastructureTests {
             lastRefresh: now
         )
         expect(missingFailure != nil, "a missing auth file should report a failure")
+    }
+
+    private static func testPoolHistoryStore() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fileURL = root.appendingPathComponent("pool-history.jsonl")
+
+        let t0 = Date(timeIntervalSince1970: 1_750_000_000)
+        let sampleA = PoolHistorySample(
+            ts: t0,
+            n: 5,
+            poolTotal: 500,
+            accounts: [
+                PoolAccountSample(key: "a", remaining: 100),
+                PoolAccountSample(key: "b", remaining: 100)
+            ]
+        )
+        expect(PoolHistoryStore.poolAverage(n: 0, poolTotal: 0) == 0, "an empty pool should average to zero")
+        expect(PoolHistoryStore.poolAverage(n: 5, poolTotal: 500) == 100, "the pool average should normalize by account count")
+
+        let t1 = t0.addingTimeInterval(30 * 60)
+        let sampleB = PoolHistorySample(ts: t1, n: 5, poolTotal: 460, accounts: [])
+        let duplicateInBucket = PoolHistorySample(ts: t1.addingTimeInterval(60), n: 5, poolTotal: 458, accounts: [])
+        try PoolHistoryStore.write([sampleA], to: fileURL, now: t1)
+        expect(
+            PoolHistoryStore.load(from: fileURL) == [sampleA],
+            "a written history file should round-trip its samples"
+        )
+
+        let corrupt = root.appendingPathComponent("corrupt.jsonl")
+        let isoEncoder = JSONEncoder()
+        isoEncoder.dateEncodingStrategy = .iso8601
+        var corruptText = "not-json\n"
+        if let encoded = try? isoEncoder.encode(sampleA), let line = String(data: encoded, encoding: .utf8) {
+            corruptText += line + "\n"
+        }
+        try corruptText.write(to: corrupt, atomically: true, encoding: .utf8)
+        expect(
+            PoolHistoryStore.load(from: corrupt) == [sampleA],
+            "a corrupt line should be skipped without failing the load"
+        )
+
+        var running = PoolHistoryStore.load(from: fileURL)
+        running.append(contentsOf: [sampleB, duplicateInBucket])
+        try PoolHistoryStore.write(running, to: fileURL, now: t1)
+        let deduped = PoolHistoryStore.load(from: fileURL)
+        expect(deduped.count == 2, "samples in different buckets should both load")
+        expect(deduped.last?.poolTotal == 458, "the newest sample in a bucket should win")
+
+        let older = PoolHistorySample(ts: t0.addingTimeInterval(-100 * 24 * 60 * 60), n: 5, poolTotal: 400, accounts: [])
+        let pruned = PoolHistoryStore.pruned([older, sampleA], now: t0)
+        expect(pruned == [sampleA], "samples beyond the retention window should be pruned")
+
+        expect(
+            PoolHistoryStore.shouldRecord(lastSample: nil, poolAverage: 92, now: t0),
+            "a missing last sample should always record"
+        )
+        expect(
+            !PoolHistoryStore.shouldRecord(lastSample: sampleA, poolAverage: 99.9, now: t0.addingTimeInterval(60), minimumDelta: 1.0),
+            "a fresh sample with a small delta should not record"
+        )
+        expect(
+            PoolHistoryStore.shouldRecord(lastSample: sampleA, poolAverage: 90, now: t0.addingTimeInterval(60)),
+            "a fresh sample with a large delta should record"
+        )
+        expect(
+            PoolHistoryStore.shouldRecord(lastSample: sampleA, poolAverage: 99, now: t0.addingTimeInterval(30 * 60)),
+            "a stale sample should record even without a large delta"
+        )
+    }
+
+    private static var utcCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        return calendar
+    }
+
+    /// Generates 30-minute pool samples with a linear weekly burn from 100%,
+/// starting at a UTC week start, ending no later than `until` (defaults to the
+/// full `weeks` span). The last sample never lies after `until`.
+    private static func poolSamples(
+        startingAt start: Date,
+        weeks: Int,
+        burnPerWeek: Double,
+        accountCount: Int = 5,
+        until now: Date? = nil
+    ) -> [PoolHistorySample] {
+        let weekDuration = 7 * 24 * 60 * 60
+        let interval = 30 * 60.0
+        let limit = start.addingTimeInterval(Double(weeks) * Double(weekDuration))
+        let end = min(limit, now ?? limit)
+        var samples: [PoolHistorySample] = []
+        var ts = start
+        while ts <= end {
+            let elapsedWeeks = ts.timeIntervalSince(start) / Double(weekDuration)
+            let average = max(0, 100 - burnPerWeek * elapsedWeeks)
+            samples.append(PoolHistorySample(ts: ts, n: accountCount, poolTotal: average * Double(accountCount), accounts: []))
+            ts = ts.addingTimeInterval(interval)
+        }
+        return samples
+    }
+
+    private static func testWeekCurveBuilder() {
+        let calendar = utcCalendar
+        let arbitrary = Date(timeIntervalSince1970: 1_752_000_000)
+        let start = WeekCurveBuilder.weekStart(of: arbitrary, calendar: calendar)
+        expect(calendar.component(.weekday, from: start) == calendar.firstWeekday, "the week start should be the calendar's first weekday")
+        expect(start <= arbitrary && arbitrary.timeIntervalSince(start) < 7 * 24 * 60 * 60, "the week start should bracket the sample date")
+
+        let samples = poolSamples(startingAt: start, weeks: 2, burnPerWeek: 25)
+        let curves = WeekCurveBuilder.weekCurves(from: samples, calendar: calendar)
+        expect(curves.count == 2, "two calendar weeks should build two curves")
+        for (_, curve) in curves {
+            expect(curve.count == WeekCurveBuilder.gridPointCount, "a week curve should fill the grid")
+            for index in 1..<curve.count {
+                expect(curve[index] <= curve[index - 1] + 1e-9, "a week curve should be monotone non-increasing")
+            }
+        }
+        guard let firstCurve = curves.first?.curve else {
+            expect(false, "the first week curve should exist")
+            return
+        }
+        let middle = WeekCurveBuilder.interpolate(curve: firstCurve, at: 0.5)
+        expect(abs(middle - 87.5) < 0.6, "halfway through a 25pt/week burn should sit near 87.5")
+        expect(WeekCurveBuilder.interpolate(curve: firstCurve, at: 0) == firstCurve[0], "interpolate at zero should return the start value")
+    }
+
+    private static func testPaceEstimatorForecast() {
+        let calendar = utcCalendar
+        let arbitrary = Date(timeIntervalSince1970: 1_752_000_000)
+        let start = WeekCurveBuilder.weekStart(of: arbitrary, calendar: calendar)
+        let now = start.addingTimeInterval(3.5 * 7 * 24 * 60 * 60) // middle of week 4
+
+        // Fast burn: 25 pt per week ends exactly at the end of week 4.
+        let fast = poolSamples(startingAt: start, weeks: 4, burnPerWeek: 25, until: now)
+        let fastForecast = PaceEstimator.forecast(samples: fast, now: now, calendar: calendar)
+        expect(!fastForecast.insufficientData, "four weeks of history should be enough data")
+        if let eolDate = fastForecast.eolDate {
+            expect(eolDate > now, "the EOL should lie in the future")
+            expect(eolDate < now.addingTimeInterval(7 * 24 * 60 * 60), "a 25pt/week burn should end within the current week")
+        } else {
+            expect(false, "a draining pool should produce an EOL date")
+        }
+
+        // Slow burn: 10 pt per week survives every week.
+        let slow = poolSamples(startingAt: start, weeks: 4, burnPerWeek: 10, until: now)
+        let slowForecast = PaceEstimator.forecast(samples: slow, now: now, calendar: calendar)
+        expect(!slowForecast.insufficientData, "the slow history should still be enough data")
+        expect(slowForecast.willLastToReset, "a 10pt/week burn should survive the week")
+        expect(slowForecast.eolDate == nil, "a surviving pool should have no EOL")
+        expect((slowForecast.runOutProbability ?? 0) < 0.5, "the burn-out probability should stay low")
+
+        // Almost no history: one day of samples.
+        let sparse = poolSamples(startingAt: start, weeks: 1, burnPerWeek: 25).filter { $0.ts <= start.addingTimeInterval(24 * 60 * 60) }
+        let sparseForecast = PaceEstimator.forecast(samples: sparse, now: sparse.last?.ts ?? now, calendar: calendar)
+        expect(sparseForecast.insufficientData, "less than two days of history should be reported as insufficient")
+
+        // Partial week only (no complete weeks): a sharp drop should still yield a near-term EOL.
+        let partialStart = Date(timeIntervalSince1970: 1_752_000_000)
+        var partial: [PoolHistorySample] = []
+        var partialTs = partialStart
+        var partialValue = 100.0
+        while partialValue > 25 {
+            partial.append(PoolHistorySample(ts: partialTs, n: 5, poolTotal: partialValue * 5, accounts: []))
+            partialTs = partialTs.addingTimeInterval(60 * 60)
+            partialValue -= 75.0 / 72.0
+        }
+        let partialNow = partial.last?.ts ?? partialStart
+        let partialForecast = PaceEstimator.forecast(samples: partial, now: partialNow, calendar: calendar)
+        expect(!partialForecast.insufficientData, "three days in the current week should produce an approximate forecast")
+        expect(partialForecast.eolDate != nil, "a sharp drop within the partial week should forecast an EOL")
+    }
+
+    private static func testPoolVerdict() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let reset = now.addingTimeInterval(3 * 24 * 3600)
+        let eolSoon = now.addingTimeInterval(1 * 24 * 3600)
+        expect(
+            PoolVerdict.evaluate(poolTotal: 46, burnPerDay: 33, eolDate: eolSoon, resetDate: reset, accountCount: 5, now: now)
+                == .notEnoughBeforeReset(eolDate: eolSoon, resetDate: reset),
+            "EOL before reset should be reported as not-enough-before-reset")
+        let eolLater = now.addingTimeInterval(5 * 24 * 3600)
+        expect(
+            PoolVerdict.evaluate(poolTotal: 400, burnPerDay: 33, eolDate: eolLater, resetDate: reset, accountCount: 5, now: now)
+                == .enough(burnPerDay: 33, limitPerDay: 500.0 / 7.0, resetDate: reset),
+            "burn below the weekly limit with reset before EOL should be enough")
+        expect(
+            PoolVerdict.evaluate(poolTotal: 400, burnPerDay: 120, eolDate: eolLater, resetDate: reset, accountCount: 5, now: now)
+                == .burnExceedsLimit(burnPerDay: 120, limitPerDay: 500.0 / 7.0),
+            "burn above the weekly limit should exceed even with a reset in sight")
+        expect(
+            PoolVerdict.evaluate(poolTotal: 400, burnPerDay: 33, eolDate: eolLater, resetDate: nil, accountCount: 5, now: now)
+                == .unknown,
+            "a missing reset date should fall back to unknown")
+        let linearEOL = now.addingTimeInterval(46.0 / 33.0 * 24 * 3600)
+        expect(
+            PoolVerdict.evaluate(poolTotal: 46, burnPerDay: 33, eolDate: nil, resetDate: reset, accountCount: 5, now: now)
+                == .notEnoughBeforeReset(eolDate: linearEOL, resetDate: reset),
+            "a linear EOL fallback should be used when the forecast EOL is nil")
+    }
+
+    private static func testPoolHistorySampleResetsAtCoding() {
+        let reset = Date(timeIntervalSince1970: 1_900_000_000)
+        let sample = PoolHistorySample(ts: Date(timeIntervalSince1970: 1_800_000_000), n: 5, poolTotal: 220, accounts: [], resetsAt: reset)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = (try? encoder.encode(sample)) ?? Data()
+        let text = String(data: data, encoding: .utf8) ?? ""
+        expect(text.contains("resetsAt"), "an encoded sample should include resetsAt")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try? decoder.decode(PoolHistorySample.self, from: data)
+        expect(decoded?.resetsAt == reset, "resetsAt should survive an encode/decode round trip")
+        let legacy = Data(#"{"ts":"2026-08-15T19:40:56Z","n":5,"poolTotal":33,"accounts":[]}"#.utf8)
+        let legacyDecoded = try? decoder.decode(PoolHistorySample.self, from: legacy)
+        expect(legacyDecoded?.resetsAt == nil, "a legacy line without resetsAt should decode as nil")
     }
 }

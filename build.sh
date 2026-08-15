@@ -41,6 +41,8 @@ CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR" swiftc \
   -target arm64-apple-macosx14.0 \
   -module-cache-path "$MODULE_CACHE_DIR" \
   -framework AppKit \
+  -framework SwiftUI \
+  -framework Charts \
   -framework UserNotifications \
   -o "$BIN_PATH"
 
@@ -68,9 +70,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.8.4</string>
+  <string>1.8.5</string>
   <key>CFBundleVersion</key>
-  <string>184</string>
+  <string>185</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>LSUIElement</key>

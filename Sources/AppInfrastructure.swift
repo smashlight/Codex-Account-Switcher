@@ -488,3 +488,505 @@ enum WeeklyResetFormatter {
         return target
     }
 }
+
+// MARK: - Pool usage history
+
+struct PoolAccountSample: Codable, Equatable {
+    let key: String
+    let remaining: Double
+}
+
+/// One pool-wide sample: remaining percents per account, the pool total, and
+/// the earliest weekly reset date captured from the live usage windows.
+struct PoolHistorySample: Codable, Equatable {
+    let ts: Date
+    let n: Int
+    let poolTotal: Double
+    let accounts: [PoolAccountSample]
+    let resetsAt: Date?
+}
+
+extension PoolHistorySample {
+    /// Shorthand for history without a captured reset date (tests, legacy code).
+    init(ts: Date, n: Int, poolTotal: Double, accounts: [PoolAccountSample]) {
+        self.init(ts: ts, n: n, poolTotal: poolTotal, accounts: accounts, resetsAt: nil)
+    }
+}
+
+/// JSONL store for pool-wide usage history (one sample per line, newest wins
+/// within a sampling bucket). Pure logic so it can be unit-tested without AppKit.
+enum PoolHistoryStore {
+    static let samplingInterval: TimeInterval = 30 * 60
+    static let retentionDays = 56
+    static let minimumDeltaPoints = 1.0
+
+    static func poolAverage(n: Int, poolTotal: Double) -> Double {
+        n > 0 ? poolTotal / Double(n) : 0
+    }
+
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }()
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
+
+    static func fileURL(fileManager: FileManager = .default) -> URL {
+        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
+        return base
+            .appendingPathComponent("Codex Account Switcher", isDirectory: true)
+            .appendingPathComponent("pool-history.jsonl")
+    }
+
+    /// Reads every valid line, keeps the newest sample per sampling bucket, and
+    /// returns the history sorted chronologically. Corrupt lines are skipped.
+    static func load(
+        from url: URL? = nil,
+        fileManager: FileManager = .default,
+        interval: TimeInterval = Self.samplingInterval
+    ) -> [PoolHistorySample] {
+        let url = url ?? Self.fileURL(fileManager: fileManager)
+        guard let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .utf8) else {
+            return []
+        }
+        var samples: [PoolHistorySample] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let lineData = line.data(using: .utf8),
+                  let sample = try? decoder.decode(PoolHistorySample.self, from: lineData) else {
+                continue
+            }
+            samples.append(sample)
+        }
+        var newestByBucket: [Int64: PoolHistorySample] = [:]
+        for sample in samples {
+            let bucket = Int64(sample.ts.timeIntervalSince1970 / interval)
+            if let existing = newestByBucket[bucket], existing.ts >= sample.ts { continue }
+            newestByBucket[bucket] = sample
+        }
+        return newestByBucket.values.sorted { $0.ts < $1.ts }
+    }
+
+    /// Drops samples older than the retention window.
+    static func pruned(
+        _ samples: [PoolHistorySample],
+        now: Date = Date(),
+        retentionSeconds: TimeInterval = TimeInterval(Self.retentionDays * 24 * 60 * 60)
+    ) -> [PoolHistorySample] {
+        let cutoff = now.addingTimeInterval(-retentionSeconds)
+        return samples.filter { $0.ts >= cutoff }
+    }
+
+    /// Rewrites the whole history file atomically after pruning. Cheap at
+    /// ~2 700 lines, and keeps the file consistent on every append.
+    static func write(
+        _ samples: [PoolHistorySample],
+        to url: URL? = nil,
+        fileManager: FileManager = .default,
+        now: Date = Date()
+    ) throws {
+        let url = url ?? Self.fileURL(fileManager: fileManager)
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let kept = Self.pruned(samples, now: now)
+        var lines: [String] = []
+        lines.reserveCapacity(kept.count)
+        for sample in kept {
+            if let data = try? encoder.encode(sample),
+               let line = String(data: data, encoding: .utf8) {
+                lines.append(line)
+            }
+        }
+        try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// True when a new sample should be recorded: the pool average changed by
+    /// more than the delta threshold, or the last sample is older than the
+    /// sampling interval (or no history exists yet).
+    static func shouldRecord(
+        lastSample: PoolHistorySample?,
+        poolAverage: Double,
+        now: Date = Date(),
+        interval: TimeInterval = samplingInterval,
+        minimumDelta: Double = minimumDeltaPoints
+    ) -> Bool {
+        guard let lastSample else { return true }
+        if now.timeIntervalSince(lastSample.ts) >= interval { return true }
+        let previousAverage = Self.poolAverage(n: lastSample.n, poolTotal: lastSample.poolTotal)
+        return abs(poolAverage - previousAverage) > minimumDelta
+    }
+}
+
+// MARK: - Weekly pace curves
+
+/// Builds calendar-week curves of the normalized pool average (remaining %),
+/// mirroring CodexBar's `HistoricalUsagePace` in the remaining-percent frame:
+/// monotone (running minimum) curves over a fixed 0...1 grid. A window reset
+/// (a spike upward) never looks like gained headroom.
+enum WeekCurveBuilder {
+    static let gridPointCount = 100
+    static let minimumSamplesPerWeek = 2
+
+    static func weekStart(of date: Date, calendar: Calendar) -> Date {
+        calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? calendar.startOfDay(for: date)
+    }
+
+    /// Splits samples into calendar weeks, one monotone curve per week.
+    /// Weeks with fewer than two samples are skipped.
+    static func weekCurves(
+        from samples: [PoolHistorySample],
+        calendar: Calendar,
+        gridPointCount: Int = Self.gridPointCount,
+        minimumSamples: Int = Self.minimumSamplesPerWeek
+    ) -> [(start: Date, curve: [Double])] {
+        guard gridPointCount >= 2 else { return [] }
+        var grouped: [Date: [PoolHistorySample]] = [:]
+        for sample in samples {
+            let start = Self.weekStart(of: sample.ts, calendar: calendar)
+            grouped[start, default: []].append(sample)
+        }
+        var curves: [(start: Date, curve: [Double])] = []
+        for (start, weekSamples) in grouped {
+            guard weekSamples.count >= minimumSamples else { continue }
+            guard let duration = calendar.dateInterval(of: .weekOfYear, for: start)?.duration,
+                  duration > 0,
+                  let curve = Self.reconstructCurve(
+                      samples: weekSamples,
+                      start: start,
+                      duration: duration,
+                      gridPointCount: gridPointCount
+                  ) else {
+                continue
+            }
+            curves.append((start: start, curve: curve))
+        }
+        return curves.sorted { $0.start < $1.start }
+    }
+
+    /// Grid values are the running minimum of the observed pool average,
+    /// interpolated on a fixed grid. Before the first sample of the week the
+    /// curve holds the first observed value (no anchor to 100). After the grid
+    /// is filled the last observed slope extends to the very end of the week,
+    /// so a burn-out in the final half hour is not hidden by the last sample
+    /// sitting at Sat 23:30.
+    static func reconstructCurve(
+        samples: [PoolHistorySample],
+        start: Date,
+        duration: TimeInterval,
+        gridPointCount: Int
+    ) -> [Double]? {
+        let points = samples
+            .map { sample -> (u: Double, value: Double) in
+                let u = max(0, min(1, sample.ts.timeIntervalSince(start) / duration))
+                let average = PoolHistoryStore.poolAverage(n: sample.n, poolTotal: sample.poolTotal)
+                return (u: u, value: max(0, min(100, average)))
+            }
+            .sorted { $0.u < $1.u }
+        guard let first = points.first else { return nil }
+
+        var curve = Array(repeating: first.value, count: gridPointCount)
+        var runningMin = first.value
+        var pointIndex = 0
+        for index in 0..<gridPointCount {
+            let u = Double(index) / Double(gridPointCount - 1)
+            while pointIndex < points.count, points[pointIndex].u <= u {
+                runningMin = min(runningMin, points[pointIndex].value)
+                pointIndex += 1
+            }
+            curve[index] = runningMin
+        }
+        guard points.count >= 2, let lastPoint = points.last else { return curve }
+        let previousPoint = points[points.count - 2]
+        let slopeStep = lastPoint.u - previousPoint.u
+        if slopeStep > 1e-9, lastPoint.u < 1 {
+            // A rising tail must not climb above the running minimum: the
+            // week-end level is unknown, the observed floor is the honest
+            // guess. Only the downward extension is allowed.
+            let endValue = lastPoint.value + ((lastPoint.value - previousPoint.value) / slopeStep) * (1 - lastPoint.u)
+            if endValue < curve[gridPointCount - 1] {
+                curve[gridPointCount - 1] = max(0, endValue)
+            }
+        }
+        return curve
+    }
+
+    static func interpolate(curve: [Double], at u: Double) -> Double {
+        guard curve.count >= 2 else { return curve.first ?? 0 }
+        let clamped = max(0, min(1, u))
+        let position = clamped * Double(curve.count - 1)
+        let lower = Int(floor(position))
+        let upper = min(curve.count - 1, Int(ceil(position)))
+        guard lower != upper else { return curve[lower] }
+        let fraction = position - Double(lower)
+        return curve[lower] * (1 - fraction) + curve[upper] * fraction
+    }
+}
+
+// MARK: - Pool pace forecast
+
+/// Forecasts when the pool average reaches 0%, following the CodexBar
+/// algorithm: a weighted-median typical week mixed with a linear quota
+/// baseline, each historical week extended by its end slope and shifted to the
+/// observed level, then a weighted-median crossing time. In the
+/// remaining-percent frame the quota baseline (100 → 0 over the week) is only
+/// ever pessimistic, so no upside cap is applied — an easy history is a real
+/// reserve, unlike CodexBar's used-percent case.
+enum PaceEstimator {
+    struct Forecast {
+        let insufficientData: Bool
+        let historyDays: Double
+        let eolDate: Date?
+        let willLastToReset: Bool
+        let runOutProbability: Double?
+        let expectedNow: Double
+        let actualNow: Double
+    }
+
+    static let minimumHistorySeconds: TimeInterval = 2 * 24 * 60 * 60
+    static let recencyTauWeeks = 2.0
+    static let minimumCompleteWeeks = 1
+    static let probabilitySmoothing = 0.5
+
+    static func forecast(
+        samples: [PoolHistorySample],
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        gridPointCount: Int = WeekCurveBuilder.gridPointCount
+    ) -> Forecast {
+        let historyDays = samples.isEmpty
+            ? 0
+            : max(0, now.timeIntervalSince(samples[0].ts)) / (24 * 60 * 60)
+        guard let last = samples.last else {
+            return Forecast(
+                insufficientData: true, historyDays: historyDays,
+                eolDate: nil, willLastToReset: true, runOutProbability: nil,
+                expectedNow: 0, actualNow: 0
+            )
+        }
+        let actual = PoolHistoryStore.poolAverage(n: last.n, poolTotal: last.poolTotal)
+
+        guard now.timeIntervalSince(samples[0].ts) >= Self.minimumHistorySeconds else {
+            return Forecast(
+                insufficientData: true, historyDays: historyDays,
+                eolDate: nil, willLastToReset: true, runOutProbability: nil,
+                expectedNow: 0, actualNow: actual
+            )
+        }
+
+        let curves = WeekCurveBuilder.weekCurves(from: samples, calendar: calendar, gridPointCount: gridPointCount)
+        guard let currentInterval = calendar.dateInterval(of: .weekOfYear, for: now) else {
+            return Forecast(insufficientData: false, historyDays: historyDays,
+                            eolDate: nil, willLastToReset: true, runOutProbability: nil,
+                            expectedNow: actual, actualNow: actual)
+        }
+        let currentStart = currentInterval.start
+        let currentDuration = currentInterval.duration
+        let uNow = max(0, min(1, now.timeIntervalSince(currentStart) / currentDuration))
+
+        let scopedWeeks = curves.filter { $0.start < currentStart }
+        guard scopedWeeks.count >= Self.minimumCompleteWeeks else {
+            return Self.partialForecast(
+                samples: samples,
+                actual: actual,
+                now: now,
+                calendar: calendar,
+                historyDays: historyDays
+            )
+        }
+
+        let weightedWeeks = scopedWeeks.map { week in
+            let ageWeeks = max(0, currentStart.timeIntervalSince(week.start) / currentDuration)
+            let weight = exp(-ageWeeks / Self.recencyTauWeeks)
+            return (week: week, weight: weight)
+        }
+        let totalWeight = weightedWeeks.reduce(0.0) { $0 + $1.weight }
+        guard totalWeight > 0 else {
+            return Forecast(insufficientData: false, historyDays: historyDays,
+                            eolDate: nil, willLastToReset: true, runOutProbability: nil,
+                            expectedNow: actual, actualNow: actual)
+        }
+
+        // Weighted-median typical week, mixed with the linear quota baseline
+        // (100 → 0 over the week). λ grows with the effective sample count, so
+        // little history leans on the pessimistic quota instead.
+        var medianCurve = Array(repeating: 0.0, count: gridPointCount)
+        for index in 0..<gridPointCount {
+            let values = weightedWeeks.map { $0.week.curve[index] }
+            let weights = weightedWeeks.map(\.weight)
+            medianCurve[index] = Self.weightedMedian(values: values, weights: weights)
+        }
+        let totalWeightSquared = weightedWeeks.reduce(0.0) { $0 + $1.weight * $1.weight }
+        let nEff = totalWeightSquared > 0 ? totalWeight * totalWeight / totalWeightSquared : 0
+        let lambda = Self.clamp((nEff - 2) / 6, lower: 0, upper: 1)
+        var expectedCurve = Array(repeating: 0.0, count: gridPointCount)
+        for index in 0..<gridPointCount {
+            let u = Double(index) / Double(gridPointCount - 1)
+            let linearBaseline = 100 * (1 - u)
+            expectedCurve[index] = (lambda * medianCurve[index]) + ((1 - lambda) * linearBaseline)
+        }
+
+        let expectedNow = WeekCurveBuilder.interpolate(curve: expectedCurve, at: uNow)
+
+        var weightedRunOutMass = 0.0
+        var crossingCandidates: [(etaSeconds: TimeInterval, weight: Double)] = []
+        for weighted in weightedWeeks {
+            let curve = weighted.week.curve
+            let shift = actual - WeekCurveBuilder.interpolate(curve: curve, at: uNow)
+            if (curve.last ?? 0) + shift <= 0 {
+                weightedRunOutMass += weighted.weight
+                if let crossingU = Self.firstCrossing(
+                    after: uNow,
+                    curve: curve,
+                    shift: shift,
+                    actualAtNow: actual
+                ) {
+                    crossingCandidates.append((
+                        etaSeconds: max(0, (crossingU - uNow) * currentDuration),
+                        weight: weighted.weight
+                    ))
+                }
+            }
+        }
+
+        let smoothedProbability = Self.clamp(
+            (weightedRunOutMass + Self.probabilitySmoothing) / (totalWeight + 1),
+            lower: 0,
+            upper: 1
+        )
+        let willRunOut = smoothedProbability >= 0.5
+
+        var eolDate: Date?
+        if actual <= 0 {
+            eolDate = now
+        } else if willRunOut, !crossingCandidates.isEmpty {
+            let values = crossingCandidates.map(\.etaSeconds)
+            let weights = crossingCandidates.map(\.weight)
+            eolDate = now.addingTimeInterval(max(0, Self.weightedMedian(values: values, weights: weights)))
+        }
+
+        return Forecast(
+            insufficientData: false,
+            historyDays: historyDays,
+            eolDate: eolDate,
+            willLastToReset: eolDate == nil,
+            runOutProbability: smoothedProbability,
+            expectedNow: expectedNow,
+            actualNow: actual
+        )
+    }
+
+    /// With no complete weeks yet, extrapolate the recent burn rate (last 12
+    /// samples) to zero inside the current week. Marked as approximate by the
+    /// UI. A flat recent history reports will-last.
+    private static func partialForecast(
+        samples: [PoolHistorySample],
+        actual: Double,
+        now: Date,
+        calendar: Calendar,
+        historyDays: Double
+    ) -> Forecast {
+        let willLast = Forecast(
+            insufficientData: false, historyDays: historyDays,
+            eolDate: nil, willLastToReset: true, runOutProbability: 0.5,
+            expectedNow: actual, actualNow: actual
+        )
+        guard samples.count >= 4,
+              let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now),
+              let oldestSample = samples.suffix(12).first,
+              let lastSample = samples.last else {
+            return willLast
+        }
+        let span = lastSample.ts.timeIntervalSince(oldestSample.ts)
+        guard span > 0 else { return willLast }
+        let oldestAverage = PoolHistoryStore.poolAverage(n: oldestSample.n, poolTotal: oldestSample.poolTotal)
+        let burnPerSecond = max(0, (oldestAverage - actual) / span)
+        guard burnPerSecond > 1e-9 else { return willLast }
+        let eolDate = now.addingTimeInterval(actual / burnPerSecond)
+        if eolDate < weekInterval.end {
+            return Forecast(insufficientData: false, historyDays: historyDays,
+                            eolDate: eolDate, willLastToReset: false,
+                            runOutProbability: 1, expectedNow: actual, actualNow: actual)
+        }
+        return willLast
+    }
+
+    static func firstCrossing(
+        after uNow: Double,
+        curve: [Double],
+        shift: Double,
+        actualAtNow: Double
+    ) -> Double? {
+        guard curve.count >= 2 else { return nil }
+        let gridCount = curve.count
+        let denominator = Double(gridCount - 1)
+        var previousU = uNow
+        var previousValue = actualAtNow
+        let startIndex = min(gridCount - 1, max(1, Int(floor(uNow * denominator)) + 1))
+        for index in startIndex..<gridCount {
+            let u = Double(index) / denominator
+            if u <= uNow + 1e-9 { continue }
+            let value = curve[index] + shift
+            if previousValue > 1e-9, value <= 1e-9 {
+                let delta = previousValue - value
+                let ratio = delta > 1e-9 ? (previousValue / delta) : 0
+                return Self.clamp(previousU + ratio * (u - previousU), lower: uNow, upper: 1)
+            }
+            previousU = u
+            previousValue = value
+        }
+        return nil
+    }
+
+    static func weightedMedian(values: [Double], weights: [Double]) -> Double {
+        guard !values.isEmpty else { return 0 }
+        let pairs = zip(values, weights).sorted { $0.0 < $1.0 }
+        let total = max(1e-9, pairs.reduce(0.0) { $0 + $1.1 })
+        var cumulative = 0.0
+        for (value, weight) in pairs {
+            cumulative += weight
+            if cumulative >= total / 2 { return value }
+        }
+        return pairs.last?.0 ?? 0
+    }
+
+    static func clamp(_ value: Double, lower: Double, upper: Double) -> Double {
+        max(lower, min(upper, value))
+    }
+}
+
+/// The forecast row's verdict: does the pool last until the next weekly reset,
+/// and is the daily burn below the weekly limit per day?
+enum PoolVerdict: Equatable {
+    case enough(burnPerDay: Double, limitPerDay: Double, resetDate: Date)
+    case notEnoughBeforeReset(eolDate: Date, resetDate: Date)
+    case burnExceedsLimit(burnPerDay: Double, limitPerDay: Double)
+    case unknown
+
+    static func evaluate(
+        poolTotal: Double,
+        burnPerDay: Double?,
+        eolDate: Date?,
+        resetDate: Date?,
+        accountCount: Int,
+        now: Date = Date()
+    ) -> PoolVerdict {
+        guard let resetDate, let burnPerDay, burnPerDay > 1e-9, poolTotal > 0 else {
+            return .unknown
+        }
+        let limitPerDay = Double(max(1, accountCount)) * 100.0 / 7.0
+        let effectiveEOL = eolDate ?? now.addingTimeInterval(poolTotal / burnPerDay * (24 * 60 * 60))
+        if effectiveEOL < resetDate {
+            return .notEnoughBeforeReset(eolDate: effectiveEOL, resetDate: resetDate)
+        }
+        if burnPerDay > limitPerDay {
+            return .burnExceedsLimit(burnPerDay: burnPerDay, limitPerDay: limitPerDay)
+        }
+        return .enough(burnPerDay: burnPerDay, limitPerDay: limitPerDay, resetDate: resetDate)
+    }
+}
