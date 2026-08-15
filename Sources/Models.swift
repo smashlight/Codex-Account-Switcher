@@ -225,9 +225,26 @@ enum SettingsPanelAction: String {
 
 func usageStatusColor(for percent: Int?) -> NSColor {
     guard let percent else { return .secondaryLabelColor }
-    if percent >= 50 { return .systemGreen }
-    if percent >= 20 { return .systemOrange }
-    return .systemRed
+    if percent >= 50 { return .warmGreen }
+    if percent >= 20 { return .warmAmber }
+    return .warmRed
+}
+
+// MARK: - Warm glass palette
+
+extension NSColor {
+    /// CodexBar-style teal-blue meter fill (#4FB6C3).
+    static let meterBlue = NSColor(red: 0.310, green: 0.714, blue: 0.765, alpha: 1)
+    /// Deeper variant of the meter gradient (#3584A3).
+    static let meterBlueDeep = NSColor(red: 0.208, green: 0.518, blue: 0.639, alpha: 1)
+    /// Warm off-white (#F5F3EE).
+    static let warmWhite = NSColor(red: 0.960, green: 0.953, blue: 0.933, alpha: 1)
+    /// Warm green (#4ADE80).
+    static let warmGreen = NSColor(red: 0.290, green: 0.871, blue: 0.502, alpha: 1)
+    /// Amber / system orange (#FF9F0A).
+    static let warmAmber = NSColor(red: 1.000, green: 0.624, blue: 0.039, alpha: 1)
+    /// Warm system red (#FF453A).
+    static let warmRed = NSColor(red: 1.000, green: 0.271, blue: 0.227, alpha: 1)
 }
 
 extension NSAppearance {
@@ -244,71 +261,71 @@ struct PanelTheme {
     }
 
     var primaryText: NSColor {
-        isDark ? NSColor(red: 0.93, green: 0.95, blue: 0.97, alpha: 1) : NSColor(red: 0.10, green: 0.12, blue: 0.15, alpha: 1)
+        NSColor.warmWhite
     }
 
     var secondaryText: NSColor {
-        isDark ? NSColor(red: 0.58, green: 0.62, blue: 0.68, alpha: 1) : NSColor(red: 0.37, green: 0.41, blue: 0.46, alpha: 1)
+        NSColor(red: 0.659, green: 0.635, blue: 0.620, alpha: 1) // #A8A29E
     }
 
     var tertiaryText: NSColor {
-        isDark ? NSColor(red: 0.40, green: 0.44, blue: 0.50, alpha: 1) : NSColor(red: 0.49, green: 0.53, blue: 0.58, alpha: 1)
+        NSColor(red: 0.475, green: 0.443, blue: 0.420, alpha: 1) // #79716B
     }
 
     var valueText: NSColor {
-        isDark ? NSColor(red: 0.75, green: 0.79, blue: 0.84, alpha: 1) : NSColor(red: 0.24, green: 0.28, blue: 0.33, alpha: 1)
+        NSColor(red: 0.840, green: 0.812, blue: 0.780, alpha: 1) // #D6CFC7
     }
 
     var inactiveAccent: NSColor {
-        isDark ? NSColor(red: 0.42, green: 0.46, blue: 0.52, alpha: 1) : NSColor(red: 0.47, green: 0.51, blue: 0.56, alpha: 1)
+        NSColor(red: 0.545, green: 0.520, blue: 0.490, alpha: 1) // #8B857D
     }
 
     var activeCardFill: NSColor {
-        isDark ? NSColor(red: 0.045, green: 0.105, blue: 0.088, alpha: 0.94) : NSColor(red: 0.91, green: 0.97, blue: 0.935, alpha: 0.98)
+        NSColor(red: 0.150, green: 0.105, blue: 0.055, alpha: 0.96) // warm amber-tinted graphite
     }
 
     var inactiveCardFill: NSColor {
-        isDark ? NSColor(red: 0.060, green: 0.073, blue: 0.093, alpha: 0.96) : NSColor(red: 0.955, green: 0.965, blue: 0.978, alpha: 0.98)
+        NSColor(red: 0.098, green: 0.090, blue: 0.078, alpha: 0.97) // warm graphite
     }
 
     var inactiveCardHoverFill: NSColor {
-        isDark ? NSColor(red: 0.082, green: 0.101, blue: 0.128, alpha: 1) : NSColor(red: 0.985, green: 0.99, blue: 1.0, alpha: 1)
+        NSColor(red: 0.125, green: 0.114, blue: 0.096, alpha: 1)
     }
 
     var inactiveCardBorder: NSColor {
-        isDark ? NSColor(red: 0.42, green: 0.48, blue: 0.56, alpha: 0.16) : NSColor(red: 0.18, green: 0.23, blue: 0.29, alpha: 0.12)
+        NSColor.warmWhite.withAlphaComponent(0.13)
     }
 
     var bottomBarFill: NSColor {
-        isDark ? NSColor(red: 0.055, green: 0.068, blue: 0.087, alpha: 0.98) : NSColor(red: 0.93, green: 0.945, blue: 0.965, alpha: 0.98)
+        NSColor(red: 0.075, green: 0.069, blue: 0.058, alpha: 0.98)
     }
 
     var divider: NSColor {
-        isDark ? NSColor(red: 0.48, green: 0.54, blue: 0.62, alpha: 0.14) : NSColor(red: 0.18, green: 0.22, blue: 0.27, alpha: 0.10)
+        NSColor.warmWhite.withAlphaComponent(0.10)
     }
 
     var iconTint: NSColor {
-        isDark ? NSColor(red: 0.64, green: 0.69, blue: 0.75, alpha: 1) : NSColor(red: 0.34, green: 0.39, blue: 0.44, alpha: 1)
+        NSColor(red: 0.720, green: 0.698, blue: 0.670, alpha: 1)
     }
 
     var ringTrack: NSColor {
-        isDark ? NSColor.white.withAlphaComponent(0.075) : NSColor.black.withAlphaComponent(0.075)
+        NSColor.white.withAlphaComponent(0.075)
     }
 
     var progressTrack: NSColor {
-        isDark ? NSColor.white.withAlphaComponent(0.09) : NSColor.black.withAlphaComponent(0.08)
+        NSColor.white.withAlphaComponent(0.10)
     }
 
     var inactiveButtonFill: NSColor {
-        isDark ? NSColor(red: 0.12, green: 0.145, blue: 0.18, alpha: 1) : NSColor(red: 0.88, green: 0.905, blue: 0.935, alpha: 1)
+        NSColor(red: 0.165, green: 0.150, blue: 0.130, alpha: 1)
     }
 
     var usageInactiveButtonFill: NSColor {
-        isDark ? NSColor(red: 0.14, green: 0.165, blue: 0.20, alpha: 1) : NSColor(red: 0.31, green: 0.35, blue: 0.40, alpha: 0.96)
+        NSColor(red: 0.195, green: 0.178, blue: 0.155, alpha: 1)
     }
 
     var switchOffFill: NSColor {
-        isDark ? NSColor.white.withAlphaComponent(0.18) : NSColor.black.withAlphaComponent(0.18)
+        NSColor.white.withAlphaComponent(0.18)
     }
 }
 

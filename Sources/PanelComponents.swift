@@ -1,6 +1,15 @@
 import AppKit
 import Foundation
 
+extension NSFont {
+    /// Rounded system font (AppKit has no design: parameter on systemFont).
+    static func roundedSystemFont(ofSize size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let base = systemFont(ofSize: size, weight: weight)
+        guard let descriptor = base.fontDescriptor.withDesign(.rounded) else { return base }
+        return NSFont(descriptor: descriptor, size: size) ?? base
+    }
+}
+
 final class DashboardBackgroundView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -18,60 +27,26 @@ final class DashboardBackgroundView: NSView {
     }
 
     private func installFrostedBackdrop() {
-        let material = NSVisualEffectView(frame: bounds)
-        material.material = .popover
-        material.blendingMode = .behindWindow
-        material.state = .active
-        material.wantsLayer = true
-        material.layer?.cornerRadius = 22
-        material.layer?.masksToBounds = true
-        material.autoresizingMask = [.width, .height]
-        addSubview(material)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let rect = bounds
-        let isDark = effectiveAppearance.isDarkMode
-        let base = isDark
-            ? NSColor(red: 0.027, green: 0.034, blue: 0.045, alpha: 0.16)
-            : NSColor(red: 0.925, green: 0.94, blue: 0.958, alpha: 0.20)
-        base.setFill()
-        rect.fill()
-
-        let topGlow = NSGradient(
-            starting: isDark ? NSColor(red: 0.12, green: 0.19, blue: 0.18, alpha: 0.42) : NSColor(red: 0.70, green: 0.90, blue: 0.82, alpha: 0.42),
-            ending: base.withAlphaComponent(0)
-        )
-        topGlow?.draw(in: NSRect(x: -90, y: -150, width: rect.width + 180, height: 360), relativeCenterPosition: NSPoint(x: -0.10, y: 0.18))
-
-        let sideGlow = NSGradient(
-            starting: isDark ? NSColor(red: 0.14, green: 0.20, blue: 0.30, alpha: 0.28) : NSColor(red: 0.74, green: 0.82, blue: 0.94, alpha: 0.30),
-            ending: base.withAlphaComponent(0)
-        )
-        sideGlow?.draw(in: NSRect(x: rect.width * 0.36, y: rect.height * 0.42, width: rect.width * 0.88, height: rect.height * 0.72), relativeCenterPosition: NSPoint(x: 0.22, y: -0.10))
-
-        let gridColor = isDark ? NSColor.white.withAlphaComponent(0.024) : NSColor.black.withAlphaComponent(0.022)
-        gridColor.setStroke()
-        let grid = NSBezierPath()
-        grid.lineWidth = 0.5
-        var x: CGFloat = 22
-        while x < rect.width {
-            grid.move(to: NSPoint(x: x, y: 0))
-            grid.line(to: NSPoint(x: x, y: rect.height))
-            x += 44
+        if #available(macOS 26.0, *) {
+            // Native Liquid Glass backing — the same engine system menus use on 26.
+            let glass = NSGlassEffectView(frame: bounds)
+            glass.cornerRadius = 22
+            glass.style = .regular
+            glass.autoresizingMask = [.width, .height]
+            addSubview(glass)
+        } else {
+            let material = NSVisualEffectView(frame: bounds)
+            // `.menu` matches the material native status-bar menus use (`.popover`
+            // renders with a cooler tint on dark mode).
+            material.material = .menu
+            material.blendingMode = .behindWindow
+            material.state = .active
+            material.wantsLayer = true
+            material.layer?.cornerRadius = 22
+            material.layer?.masksToBounds = true
+            material.autoresizingMask = [.width, .height]
+            addSubview(material)
         }
-        var y: CGFloat = 22
-        while y < rect.height {
-            grid.move(to: NSPoint(x: 0, y: y))
-            grid.line(to: NSPoint(x: rect.width, y: y))
-            y += 44
-        }
-        grid.stroke()
-
-        (isDark ? NSColor.white.withAlphaComponent(0.10) : NSColor.black.withAlphaComponent(0.09)).setStroke()
-        let border = rect.insetBy(dx: 1, dy: 1).roundedPath(radius: 24)
-        border.lineWidth = 1
-        border.stroke()
     }
 }
 
@@ -228,25 +203,6 @@ final class PanelMarkView: NSView {
     }
 }
 
-final class AccentRailView: NSView {
-    private let color: NSColor
-
-    init(frame: NSRect, color: NSColor) {
-        self.color = color
-        super.init(frame: frame)
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        color.withAlphaComponent(0.92).setFill()
-        bounds.roundedPath(radius: bounds.width / 2).fill()
-    }
-}
-
 final class MetricValueView: NSView {
     private let percent: Int?
     private let color: NSColor
@@ -268,10 +224,12 @@ final class MetricValueView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let value = percent.map { "\(max(0, min(100, $0)))" } ?? "--"
+        let valueFont: NSFont = NSFont.roundedSystemFont(ofSize: 32, weight: isActive ? .bold : .semibold)
+        let percentFont: NSFont = NSFont.roundedSystemFont(ofSize: 13, weight: .bold)
         let text = NSMutableAttributedString(
             string: value,
             attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 32, weight: isActive ? .bold : .semibold),
+                .font: valueFont,
                 .foregroundColor: color,
                 .kern: -1.3
             ]
@@ -279,7 +237,7 @@ final class MetricValueView: NSView {
         text.append(NSAttributedString(
             string: "\u{2009}%",
             attributes: [
-                .font: NSFont.systemFont(ofSize: 13, weight: .bold),
+                .font: percentFont,
                 .foregroundColor: color.withAlphaComponent(0.90),
                 .baselineOffset: 3.0,
                 .kern: 0.2
@@ -312,11 +270,13 @@ final class ProgressLineView: NSView {
     private let color: NSColor
     private let trackColor: NSColor
     private let percent: CGFloat
+    private let isMeter: Bool
 
-    init(frame: NSRect, color: NSColor, trackColor: NSColor = NSColor.white.withAlphaComponent(0.11), percent: CGFloat) {
+    init(frame: NSRect, color: NSColor, trackColor: NSColor = NSColor.white.withAlphaComponent(0.11), percent: CGFloat, isMeter: Bool = false) {
         self.color = color
         self.trackColor = trackColor
         self.percent = max(0, min(1, percent))
+        self.isMeter = isMeter
         super.init(frame: frame)
         wantsLayer = true
     }
@@ -330,8 +290,19 @@ final class ProgressLineView: NSView {
         trackColor.setFill()
         track.roundedPath(radius: track.height / 2).fill()
         let fill = NSRect(x: track.minX, y: track.minY, width: track.width * percent, height: track.height)
-        color.withAlphaComponent(min(color.alphaComponent, 0.92)).setFill()
-        fill.roundedPath(radius: track.height / 2).fill()
+
+        if isMeter, color == .meterBlue {
+            // CodexBar-style teal-blue gradient meter.
+            let clip = fill.roundedPath(radius: track.height / 2)
+            let gradient = NSGradient(starting: .meterBlue, ending: .meterBlueDeep)
+            NSGraphicsContext.saveGraphicsState()
+            clip.addClip()
+            gradient?.draw(in: fill, angle: -90)
+            NSGraphicsContext.restoreGraphicsState()
+        } else {
+            color.withAlphaComponent(min(color.alphaComponent, 0.92)).setFill()
+            fill.roundedPath(radius: track.height / 2).fill()
+        }
     }
 }
 
@@ -384,12 +355,14 @@ final class PercentCenterLabelView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let value = percent.map { "\(max(0, min(100, $0)))" } ?? "--"
+        let numberFont: NSFont = NSFont.roundedSystemFont(ofSize: 29, weight: .semibold)
+        let percentFont: NSFont = NSFont.roundedSystemFont(ofSize: 15, weight: .semibold)
         let numberAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 29, weight: .semibold),
+            .font: numberFont,
             .foregroundColor: color
         ]
         let percentAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 15, weight: .semibold),
+            .font: percentFont,
             .foregroundColor: color.withAlphaComponent(0.92),
             .baselineOffset: -0.5
         ]
@@ -507,7 +480,7 @@ final class UsageRingView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let rect = bounds.insetBy(dx: 10, dy: 10)
-        let lineWidth: CGFloat = isActive ? 4 : 3
+        let lineWidth: CGFloat = isActive ? 5 : 3.5
         let center = NSPoint(x: rect.midX, y: rect.midY)
         let radius = min(rect.width, rect.height) / 2
         let track = NSBezierPath()
