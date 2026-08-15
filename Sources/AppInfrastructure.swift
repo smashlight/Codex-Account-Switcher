@@ -158,6 +158,135 @@ enum ComputerUsePluginLocator {
     }
 }
 
+enum BundledMarketplaceInspector {
+    enum SnapshotState: Equatable {
+        case ok
+        case incomplete(missing: [String])
+        case absent
+    }
+
+    static func expectedPluginIDs() -> [String] {
+        ["browser", "chrome", "computer-use"]
+    }
+
+    static func snapshotRoot(homeDirectory: String) -> URL {
+        URL(fileURLWithPath: homeDirectory)
+            .appendingPathComponent(".codex/.tmp/bundled-marketplaces/openai-bundled", isDirectory: true)
+    }
+
+    static func snapshotState(homeDirectory: String, fileManager: FileManager = .default) -> SnapshotState {
+        let snapshot = snapshotRoot(homeDirectory: homeDirectory)
+        guard fileManager.fileExists(atPath: snapshot.path) else { return .absent }
+        let missing = expectedPluginIDs().filter { id in
+            let manifest = snapshot.appendingPathComponent("plugins/\(id)/.codex-plugin")
+            return !fileManager.fileExists(atPath: manifest.path)
+        }
+        return missing.isEmpty ? .ok : .incomplete(missing: missing)
+    }
+
+    static func appMarketplaceSource(appPath: String, fileManager: FileManager = .default) -> URL? {
+        let candidates = [
+            URL(fileURLWithPath: appPath).appendingPathComponent("Contents/Resources/plugins/openai-bundled"),
+            URL(fileURLWithPath: appPath).appendingPathComponent("Contents/Resources/openai-bundled")
+        ]
+        return candidates.first { fileManager.fileExists(atPath: $0.path) }
+    }
+}
+
+enum BundledMarketplaceRepairer {
+    enum RepairOutcome: Equatable {
+        case ok
+        case repairedFromApp
+        case repairedByStaleMove
+        case noAppFound
+        case failed(reason: String)
+    }
+
+    static func repairIfNeeded(
+        homeDirectory: String,
+        appPath: String,
+        fileManager: FileManager = .default,
+        codexExecutable: String? = nil,
+        pluginRunner: ((String, [String], [String: String]) -> CommandResult)? = nil
+    ) -> RepairOutcome {
+        let state = BundledMarketplaceInspector.snapshotState(homeDirectory: homeDirectory, fileManager: fileManager)
+        guard state != .ok else { return .ok }
+        guard fileManager.fileExists(atPath: appPath) else { return .noAppFound }
+
+        let snapshot = BundledMarketplaceInspector.snapshotRoot(homeDirectory: homeDirectory)
+        let marketplaceDir = snapshot.deletingLastPathComponent()
+
+        if let source = BundledMarketplaceInspector.appMarketplaceSource(appPath: appPath, fileManager: fileManager) {
+            let stamp = Int(Date().timeIntervalSince1970)
+            let backup = marketplaceDir.appendingPathComponent("bundled-marketplaces.bak.\(stamp)")
+            do {
+                try moveItem(source: snapshot, to: backup, fileManager: fileManager)
+                try fileManager.copyItem(at: source, to: snapshot)
+            } catch {
+                restoreBackup(backup: backup, snapshot: snapshot, fileManager: fileManager)
+                return .failed(reason: "snapshot copy failed: \(error.localizedDescription)")
+            }
+
+            let recheck = BundledMarketplaceInspector.snapshotState(homeDirectory: homeDirectory, fileManager: fileManager)
+            guard recheck == .ok else {
+                restoreBackup(backup: backup, snapshot: snapshot, fileManager: fileManager)
+                return .failed(reason: "snapshot verification failed after repair")
+            }
+
+            if let codexExecutable {
+                let runner = pluginRunner ?? { executable, arguments, environment in
+                    ProcessRunner.run(executable, arguments, environment: environment)
+                }
+                for id in enabledPluginIDs(homeDirectory: homeDirectory, fileManager: fileManager) {
+                    let result = runner(codexExecutable, ["plugin", "add", "\(id)@openai-bundled"], [:])
+                    if result.status != 0 {
+                        return .failed(reason: "snapshot repaired but plugin reinstall failed for \(id): \(result.output)")
+                    }
+                }
+            }
+            return .repairedFromApp
+        }
+
+        // Fallback A: app exists but contains no marketplace — move the stale snapshot aside so Codex regenerates it.
+        if case .incomplete = state {
+            let stamp = Int(Date().timeIntervalSince1970)
+            let backup = marketplaceDir.appendingPathComponent("bundled-marketplaces.bak.\(stamp)")
+            do {
+                try fileManager.moveItem(at: snapshot, to: backup)
+                return .repairedByStaleMove
+            } catch {
+                return .failed(reason: "stale snapshot move failed: \(error.localizedDescription)")
+            }
+        }
+        return .noAppFound
+    }
+
+    private static func enabledPluginIDs(homeDirectory: String, fileManager: FileManager = .default) -> [String] {
+        let configURL = URL(fileURLWithPath: homeDirectory).appendingPathComponent(".codex/config.toml")
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return [] }
+        return BundledMarketplaceInspector.expectedPluginIDs().filter { id in
+            config.contains("[plugins.\"\(id)@openai-bundled\"]") || config.contains("[plugins.\"\(id)\"]")
+        }
+    }
+
+    private static func moveItem(source: URL, to destination: URL, fileManager: FileManager) throws {
+        do {
+            try fileManager.moveItem(at: source, to: destination)
+        } catch {
+            try fileManager.copyItem(at: source, to: destination)
+            try fileManager.removeItem(at: source)
+        }
+    }
+
+    private static func restoreBackup(backup: URL, snapshot: URL, fileManager: FileManager) {
+        guard fileManager.fileExists(atPath: backup.path) else { return }
+        if fileManager.fileExists(atPath: snapshot.path) {
+            try? fileManager.removeItem(at: snapshot)
+        }
+        try? fileManager.moveItem(at: backup, to: snapshot)
+    }
+}
+
 enum AuthBackupPruner {
     @discardableResult
     static func prune(in directory: URL, keepingPerAccount keepCount: Int = 10, fileManager: FileManager = .default) -> Int {
