@@ -25,6 +25,7 @@ struct InfrastructureTests {
         testPaceEstimatorForecast()
         testPoolVerdict()
         testPoolHistorySampleResetsAtCoding()
+        testResetChanceParsing()
 
         if failures.isEmpty {
             print("Infrastructure tests passed (\(assertionCount) assertions).")
@@ -635,5 +636,34 @@ struct InfrastructureTests {
         let legacy = Data(#"{"ts":"2026-08-15T19:40:56Z","n":5,"poolTotal":33,"accounts":[]}"#.utf8)
         let legacyDecoded = try? decoder.decode(PoolHistorySample.self, from: legacy)
         expect(legacyDecoded?.resetsAt == nil, "a legacy line without resetsAt should decode as nil")
+    }
+
+    private static func testResetChanceParsing() {
+        let realFixture = #"{"mode":"model","probabilities":{"raw_24h":0.29446105287468405,"raw_48h":0.5022147940893007,"rounded_24h":30,"rounded_48h":50},"confidence":"medium","last_reset_at":"2026-08-13T01:01:37.000Z","cadence":{"recent_median_days":2.3}} "#.utf8
+        if case .success(let forecast) = ResetChanceClient.parseResponse(data: Data(realFixture), statusCode: 200) {
+            expect(forecast.rounded24h == 30, "real fixture should surface rounded 24h as 30")
+            expect(forecast.rounded48h == 50, "real fixture should surface rounded 48h as 50")
+        } else {
+            expect(false, "a well-formed 200 response should parse as success")
+        }
+
+        let missing48Fixture = #"{"probabilities":{"rounded_24h":30}}"#.utf8
+        if case .failure = ResetChanceClient.parseResponse(data: Data(missing48Fixture), statusCode: 200) {} else {
+            expect(false, "a response without rounded_48h should be invalid")
+        }
+
+        let noProbabilitiesFixture = #"{"mode":"model","confidence":"low"}"#.utf8
+        if case .failure = ResetChanceClient.parseResponse(data: Data(noProbabilitiesFixture), statusCode: 200) {} else {
+            expect(false, "a response without a probabilities object should be invalid")
+        }
+
+        let garbage = Data("not json".utf8)
+        if case .failure = ResetChanceClient.parseResponse(data: garbage, statusCode: 200) {} else {
+            expect(false, "non-JSON 200 response should be invalid")
+        }
+
+        if case .failure = ResetChanceClient.parseResponse(data: Data(realFixture), statusCode: 500) {} else {
+            expect(false, "a non-200 status should be a failure even with a valid body")
+        }
     }
 }
