@@ -423,7 +423,7 @@ final class AccountSwitcherPanelView: NSView {
             return NSSize(width: 448, height: height)
         }
         if mode == .usage {
-            return NSSize(width: 424, height: 424 + AccountPanelLayout.resetChanceTopGap + AccountPanelLayout.resetChanceHeight)
+            return NSSize(width: 424, height: 500 + AccountPanelLayout.resetChanceTopGap + AccountPanelLayout.resetChanceHeight)
         }
         if mode == .settings {
             return NSSize(width: 432, height: 592)
@@ -1042,10 +1042,6 @@ final class AccountSwitcherPanelView: NSView {
             shadowRadius: account.isActive ? 18 : 10
         )
 
-        if account.isActive {
-            card.addSubview(AccentRailView(frame: NSRect(x: 0, y: 8, width: 3, height: frame.height - 16), color: weeklyColor))
-        }
-
         let isArmed = confirmBeforeSwitching && armedSwitchEmail == account.email && !account.isActive
         let statusTitle = account.isActive ? "ACTIVE" : (isSwitching ? "..." : (isArmed ? "CONFIRM" : "SWITCH"))
         let buttonColor = account.isActive ? weeklyColor.withAlphaComponent(0.82) : (isArmed ? NSColor.systemBlue : theme.usageInactiveButtonFill)
@@ -1140,7 +1136,7 @@ final class AccountSwitcherPanelView: NSView {
         let weeklyValue = label(percentText(weeklyPercent), frame: NSRect(x: frame.width - 70, y: weeklyY, width: 48, height: 16), size: 12, weight: usageWeight, color: weeklyColor, alignment: .right)
         card.addSubview(weeklyValue)
 
-        let progress = ProgressLineView(frame: NSRect(x: 22, y: weeklyY + 27, width: frame.width - 44, height: fullProgressHeight), color: weeklyColor, trackColor: theme.progressTrack, percent: CGFloat(weeklyPercent ?? 0) / 100)
+        let progress = ProgressLineView(frame: NSRect(x: 22, y: weeklyY + 27, width: frame.width - 44, height: fullProgressHeight), color: weeklyColor, trackColor: theme.progressTrack, percent: CGFloat(weeklyPercent ?? 0) / 100, isMeter: true)
         card.addSubview(progress)
         card.addSubview(resetRow(
             title: "RESET",
@@ -1704,8 +1700,15 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func accentColor(for percent: Int?, isActive: Bool) -> NSColor {
-        let color = usageColor(for: percent)
+        let color = meterColor(for: percent)
         return isActive ? color : color.withAlphaComponent(theme.isDark ? 0.48 : 0.44)
+    }
+
+    private func meterColor(for percent: Int?) -> NSColor {
+        guard let percent else { return .secondaryLabelColor }
+        if percent <= 10 { return .warmRed }
+        if percent <= 25 { return .warmAmber }
+        return .meterBlue
     }
 
     private func statusBarColor(for remaining: Int?) -> NSColor {
@@ -1713,19 +1716,19 @@ final class AccountSwitcherPanelView: NSView {
             return theme.secondaryText.withAlphaComponent(0.6)
         }
         if remaining >= 90 {
-            return theme.isDark ? .white : NSColor(white: 0.22, alpha: 1)
+            return theme.isDark ? NSColor.warmWhite : NSColor(white: 0.22, alpha: 1)
         }
         if remaining > 50 {
-            return .systemGreen
+            return .warmGreen
         }
         if remaining > 10 {
-            return .systemOrange
+            return .warmAmber
         }
-        return .systemRed
+        return .warmRed
     }
 
     private func progressLineHeight(isActive: Bool) -> CGFloat {
-        isActive ? 8 : 6
+        isActive ? 10 : 7
     }
 
     private func inactiveAccentColor() -> NSColor {
@@ -1740,7 +1743,7 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func cardBorderColor(isActive: Bool) -> NSColor {
-        isActive ? NSColor.systemGreen.withAlphaComponent(theme.isDark ? 0.68 : 0.52) : theme.inactiveCardBorder
+        isActive ? NSColor.meterBlue.withAlphaComponent(theme.isDark ? 0.55 : 0.42) : theme.inactiveCardBorder
     }
 
     private func cardFillColor(for account: CodexAccount) -> NSColor {
