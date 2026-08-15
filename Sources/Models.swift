@@ -208,6 +208,7 @@ enum SettingsPanelAction: String {
     case styleCompact
     case toggleLaunchAtLogin
     case toggleUsageReminder
+    case toggleCreditExpiryNotifications
     case editUsageReminder
     case toggleAutoSwitch
     case editAutoSwitch
@@ -335,6 +336,8 @@ struct SavedAccountAuth {
     let email: String
     let accessToken: String
     let accountID: String
+    let refreshToken: String?
+    let lastRefresh: Date?
 }
 
 enum SavedAccountAuthResult {

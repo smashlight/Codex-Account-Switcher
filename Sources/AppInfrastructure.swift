@@ -231,6 +231,176 @@ enum CodexHTTPClient {
     }
 }
 
+struct CodexTokenRefreshPayload {
+    let accessToken: String
+    let refreshToken: String?
+    let idToken: String?
+    let lastRefresh: Date
+}
+
+enum CodexTokenRefreshResult {
+    case success(CodexTokenRefreshPayload)
+    case notRefreshable
+    case expired
+    case revoked
+    case reused
+    case networkError(String)
+    case invalidResponse(String)
+}
+
+enum CodexTokenRefresher {
+    static let refreshEndpoint = URL(string: "https://auth.openai.com/oauth/token")!
+    static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+    static let refreshAgeThreshold: TimeInterval = 3 * 24 * 60 * 60
+
+    static func shouldRefresh(lastRefresh: Date?, now: Date = Date()) -> Bool {
+        guard let lastRefresh else { return true }
+        return now.timeIntervalSince(lastRefresh) >= refreshAgeThreshold
+    }
+
+    static func makeRequest(refreshToken: String, timeout: TimeInterval = 30) -> URLRequest {
+        var request = URLRequest(
+            url: refreshEndpoint,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: timeout
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String] = [
+            "client_id": clientID,
+            "grant_type": "refresh_token",
+            "refresh_token": refreshToken,
+            "scope": "openid profile email"
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    static func parseResponse(
+        data: Data,
+        statusCode: Int,
+        previousRefreshToken: String?,
+        now: Date = Date()
+    ) -> CodexTokenRefreshResult {
+        guard statusCode == 200 else {
+            return failureResult(statusCode: statusCode, data: data)
+        }
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return .invalidResponse("Invalid JSON")
+        }
+        guard let accessToken = json["access_token"] as? String, !accessToken.isEmpty else {
+            return .invalidResponse("Missing access_token")
+        }
+        let refreshToken = (json["refresh_token"] as? String) ?? previousRefreshToken
+        let idToken = json["id_token"] as? String
+        return .success(CodexTokenRefreshPayload(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            idToken: idToken,
+            lastRefresh: now
+        ))
+    }
+
+    static func refresh(refreshToken: String, now: Date = Date()) async -> CodexTokenRefreshResult {
+        guard !refreshToken.isEmpty else { return .notRefreshable }
+        let payload: HTTPPayload
+        do {
+            payload = try await CodexHTTPClient.send(makeRequest(refreshToken: refreshToken), retries: 1)
+        } catch {
+            return .networkError(error.localizedDescription)
+        }
+        return parseResponse(
+            data: payload.data,
+            statusCode: payload.statusCode,
+            previousRefreshToken: refreshToken,
+            now: now
+        )
+    }
+
+    private static func failureResult(statusCode: Int, data: Data) -> CodexTokenRefreshResult {
+        if let code = errorCode(from: data) {
+            switch code.lowercased() {
+            case "refresh_token_expired":
+                return .expired
+            case "refresh_token_reused":
+                return .reused
+            case "invalid_grant", "refresh_token_invalidated":
+                return .revoked
+            default:
+                break
+            }
+        }
+        if statusCode == 401 {
+            return .expired
+        }
+        return .invalidResponse("Status \(statusCode)")
+    }
+
+    private static func errorCode(from data: Data) -> String? {
+        guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return nil
+        }
+        if let error = json["error"] as? [String: Any], let code = error["code"] as? String {
+            return code
+        }
+        if let error = json["error"] as? String { return error }
+        return json["code"] as? String
+    }
+}
+
+enum CodexAuthDate {
+    static func parseLastRefresh(_ raw: String?) -> Date? {
+        guard let raw else { return nil }
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: raw) { return date }
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: raw)
+    }
+
+    static func encode(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+}
+
+enum CodexAuthTokenWriter {
+    /// Atomically updates `tokens` in a Codex account auth file. Returns nil on
+    /// success or a failure description. Aborts when the stored `account_id` no
+    /// longer matches, so a concurrent codex-auth rewrite cannot be clobbered.
+    static func applyTokenUpdate(
+        to url: URL,
+        expectedAccountID: String,
+        accessToken: String,
+        refreshToken: String?,
+        lastRefresh: Date,
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              var json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              var tokens = json["tokens"] as? [String: Any] else {
+            return "auth file was not readable"
+        }
+        guard let storedAccountID = tokens["account_id"] as? String,
+              storedAccountID == expectedAccountID else {
+            return "auth file account changed concurrently"
+        }
+        tokens["access_token"] = accessToken
+        if let refreshToken {
+            tokens["refresh_token"] = refreshToken
+        }
+        tokens["last_refresh"] = CodexAuthDate.encode(lastRefresh)
+        json["tokens"] = tokens
+        guard let output = try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]) else {
+            return "auth file could not be serialized"
+        }
+        do {
+            try output.write(to: url, options: [.atomic])
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+}
+
 enum WeeklyResetFormatter {
     private static let weekdayIndexByToken: [String: Int] = [
         "mon": 2, "monday": 2,

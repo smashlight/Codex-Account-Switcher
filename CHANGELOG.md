@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Auto-refresh expired or aging Codex OAuth tokens: proactive refresh when the token is older than 3 days, plus an automatic one-shot retry after a 400/401 usage response. Updated tokens are written back to the account auth file and mirrored into the active `~/.codex/auth.json` when the active account refreshes.
+- Notify when auto token refresh finally fails (per-account 6-hour cooldown) so a dead account is re-logged in with `codex-auth login` instead of silently going stale.
+- Add an optional "Credit expiry" automation toggle that alerts 3 days before saved reset credits expire, deduplicated per credit inventory.
+
 ## 1.8.3.1 - 2026-07-13
 
 - Treat an absent, not-yet-started post-reset usage window as 100% available instead of retaining a stale 0% value.

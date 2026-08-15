@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CryptoKit
 import Foundation
 import Security
 import UserNotifications
@@ -26,6 +27,7 @@ final class AccountSwitcherPanelView: NSView {
     private let isSwitching: Bool
     private let launchAtLoginEnabled: Bool
     private let remindersEnabled: Bool
+    private let creditExpiryNotificationsEnabled: Bool
     private let reminderThreshold: Int
     private let autoSwitchEnabled: Bool
     private let autoSwitchThreshold: Int
@@ -80,6 +82,7 @@ final class AccountSwitcherPanelView: NSView {
         isSwitching: Bool,
         launchAtLoginEnabled: Bool,
         remindersEnabled: Bool,
+        creditExpiryNotificationsEnabled: Bool,
         reminderThreshold: Int,
         autoSwitchEnabled: Bool,
         autoSwitchThreshold: Int,
@@ -122,6 +125,7 @@ final class AccountSwitcherPanelView: NSView {
         self.isSwitching = isSwitching
         self.launchAtLoginEnabled = launchAtLoginEnabled
         self.remindersEnabled = remindersEnabled
+        self.creditExpiryNotificationsEnabled = creditExpiryNotificationsEnabled
         self.reminderThreshold = reminderThreshold
         self.autoSwitchEnabled = autoSwitchEnabled
         self.autoSwitchThreshold = autoSwitchThreshold
@@ -184,7 +188,7 @@ final class AccountSwitcherPanelView: NSView {
             return NSSize(width: 424, height: 500)
         }
         if mode == .settings {
-            return NSSize(width: 432, height: 650)
+            return NSSize(width: 432, height: 686)
         }
         if mode == .routeB {
             return NSSize(width: 468, height: 600)
@@ -298,16 +302,17 @@ final class AccountSwitcherPanelView: NSView {
         ]))
         addSubview(displaySection)
 
-        let automationSection = settingsSection(frame: NSRect(x: outerInset, y: 200, width: contentWidth, height: 220), title: "Automation")
+        let automationSection = settingsSection(frame: NSRect(x: outerInset, y: 200, width: contentWidth, height: 256), title: "Automation")
         automationSection.addSubview(settingToggleRow(title: "Follow Codex / ChatGPT", detail: "Show only while either app is open", isOn: launchAtLoginEnabled, action: .toggleLaunchAtLogin, frame: NSRect(x: 16, y: 34, width: contentWidth - 32, height: 34)))
         automationSection.addSubview(settingToggleRow(title: "Usage reminder", detail: "Alert at \(reminderThreshold)%", isOn: remindersEnabled, action: .toggleUsageReminder, frame: NSRect(x: 16, y: 70, width: contentWidth - 32, height: 34)))
-        automationSection.addSubview(settingToggleRow(title: "Auto switch", detail: autoSwitchDetailText(), isOn: autoSwitchEnabled, action: .editAutoSwitch, frame: NSRect(x: 16, y: 106, width: contentWidth - 32, height: 34)))
-        automationSection.addSubview(settingToggleRow(title: "Auto resume", detail: autoResumeDetailText(), isOn: autoResumeMode != .off, action: .editAutoResume, frame: NSRect(x: 16, y: 142, width: contentWidth - 32, height: 34)))
-        automationSection.addSubview(settingToggleRow(title: "Confirm before switching", detail: "Arm the account card before relaunch", isOn: confirmBeforeSwitching, action: .toggleConfirmSwitch, frame: NSRect(x: 16, y: 178, width: contentWidth - 32, height: 34)))
+        automationSection.addSubview(settingToggleRow(title: "Credit expiry", detail: "Alert 3 days before reset credits expire", isOn: creditExpiryNotificationsEnabled, action: .toggleCreditExpiryNotifications, frame: NSRect(x: 16, y: 106, width: contentWidth - 32, height: 34)))
+        automationSection.addSubview(settingToggleRow(title: "Auto switch", detail: autoSwitchDetailText(), isOn: autoSwitchEnabled, action: .editAutoSwitch, frame: NSRect(x: 16, y: 142, width: contentWidth - 32, height: 34)))
+        automationSection.addSubview(settingToggleRow(title: "Auto resume", detail: autoResumeDetailText(), isOn: autoResumeMode != .off, action: .editAutoResume, frame: NSRect(x: 16, y: 178, width: contentWidth - 32, height: 34)))
+        automationSection.addSubview(settingToggleRow(title: "Confirm before switching", detail: "Arm the account card before relaunch", isOn: confirmBeforeSwitching, action: .toggleConfirmSwitch, frame: NSRect(x: 16, y: 214, width: contentWidth - 32, height: 34)))
         addSubview(automationSection)
 
-        addSubview(healthSection(frame: NSRect(x: outerInset, y: 432, width: contentWidth, height: 104)))
-        addSubview(settingsFooter(frame: NSRect(x: outerInset, y: 556, width: contentWidth, height: 76)))
+        addSubview(healthSection(frame: NSRect(x: outerInset, y: 468, width: contentWidth, height: 104)))
+        addSubview(settingsFooter(frame: NSRect(x: outerInset, y: 592, width: contentWidth, height: 76)))
     }
 
     private func buildRouteBContent() {
@@ -1627,6 +1632,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let timerTickInterval: TimeInterval = 5
     private let labelsDefaultsKey = "accountDisplayLabels"
     private let remindersEnabledDefaultsKey = "usageReminderEnabled"
+    private let creditExpiryNotificationsDefaultsKey = "creditExpiryNotificationsEnabled"
+    private let creditExpiryFingerprintDefaultsKey = "resetCreditExpiryFingerprints"
+    private let creditExpiryWindow: TimeInterval = 3 * 24 * 60 * 60
+    private let creditExpiryFingerprintLimit = 64
     private let reminderThresholdDefaultsKey = "usageReminderThreshold"
     private let autoSwitchEnabledDefaultsKey = "autoSwitchEnabled"
     private let autoSwitchThresholdDefaultsKey = "autoSwitchThreshold"
@@ -1659,6 +1668,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let switchCooldown: TimeInterval = 90
     private let resetCreditsRefreshInterval: TimeInterval = 300
     private let directUsageRefreshInterval: TimeInterval = 30
+    private let loginExpiredCooldownDefaultsKey = "loginExpiredNotificationCooldowns"
+    private let loginExpiredNotificationCooldown: TimeInterval = 6 * 60 * 60
+    private let refreshInFlightLock = NSLock()
+    private var refreshInFlightEmails: Set<String> = []
     private var refreshTimer: Timer?
     private var currentStatusTitleKey = ""
     private var currentStatusItemLength: CGFloat = 0
@@ -1712,6 +1725,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             UserDefaults.standard.set(newValue, forKey: remindersEnabledDefaultsKey)
         }
     }
+    private var creditExpiryNotificationsEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: creditExpiryNotificationsDefaultsKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: creditExpiryNotificationsDefaultsKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: creditExpiryNotificationsDefaultsKey)
+        }
+    }
+
+    private var creditExpiryFingerprints: [String] {
+        get { UserDefaults.standard.stringArray(forKey: creditExpiryFingerprintDefaultsKey) ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: creditExpiryFingerprintDefaultsKey) }
+    }
+
     private var reminderThreshold: Int {
         get {
             let stored = UserDefaults.standard.integer(forKey: reminderThresholdDefaultsKey)
@@ -2421,6 +2451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isSwitching: isSwitching,
             launchAtLoginEnabled: launchAtLoginEnabled(),
             remindersEnabled: remindersEnabled,
+            creditExpiryNotificationsEnabled: creditExpiryNotificationsEnabled,
             reminderThreshold: reminderThreshold,
             autoSwitchEnabled: autoSwitchEnabled,
             autoSwitchThreshold: autoSwitchThreshold,
@@ -2632,6 +2663,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             toggleLaunchAtLogin()
         case .toggleUsageReminder:
             toggleUsageReminder()
+        case .toggleCreditExpiryNotifications:
+            toggleCreditExpiryNotifications()
         case .editUsageReminder:
             showUsageReminderDialog()
         case .toggleAutoSwitch:
@@ -4232,6 +4265,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         rebuildMenu()
     }
 
+    @objc private func toggleCreditExpiryNotifications() {
+        creditExpiryNotificationsEnabled.toggle()
+        if creditExpiryNotificationsEnabled {
+            configureNotifications()
+            checkCreditExpiryNotifications()
+        } else {
+            creditExpiryFingerprints.removeAll()
+        }
+        rebuildMenu()
+    }
+
     @objc private func toggleAutoSwitch() {
         autoSwitchEnabled.toggle()
         if autoSwitchEnabled {
@@ -5402,7 +5446,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             for account in accounts {
                 group.addTask {
                     guard case .success(let auth) = self.savedAuth(forEmail: account.email) else { return nil }
-                    guard case .success(let usage) = await self.fetchDirectUsage(using: auth) else { return nil }
+                    let refreshedAuth = await self.maybeRefreshAuth(auth)
+                    guard case .success(let usage) = await self.fetchDirectUsage(using: refreshedAuth) else { return nil }
                     return (account.email, usage)
                 }
             }
@@ -5415,7 +5460,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return Dictionary(uniqueKeysWithValues: refreshed)
     }
 
-    private func fetchDirectUsage(using auth: SavedAccountAuth) async -> DirectUsageFetchResult {
+    private func fetchDirectUsage(
+        using auth: SavedAccountAuth,
+        alreadyRetried: Bool = false
+    ) async -> DirectUsageFetchResult {
         guard let url = URL(string: "https://chatgpt.com/backend-api/wham/usage") else {
             return .failure("usage endpoint URL is invalid")
         }
@@ -5435,9 +5483,133 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return .failure(error.localizedDescription)
         }
         guard payload.statusCode == 200 else {
+            if !alreadyRetried,
+               payload.statusCode == 400 || payload.statusCode == 401,
+               let refreshToken = auth.refreshToken, !refreshToken.isEmpty {
+                let refreshed = await performTokenRefresh(auth: auth, refreshToken: refreshToken)
+                if refreshed.accessToken != auth.accessToken {
+                    return await fetchDirectUsage(using: refreshed, alreadyRetried: true)
+                }
+            }
             return .failure("usage endpoint returned \(payload.statusCode)")
         }
         return parseDirectUsageResponse(payload.data)
+    }
+
+    private func maybeRefreshAuth(_ auth: SavedAccountAuth) async -> SavedAccountAuth {
+        guard let refreshToken = auth.refreshToken, !refreshToken.isEmpty else {
+            return auth
+        }
+        guard CodexTokenRefresher.shouldRefresh(lastRefresh: auth.lastRefresh) else {
+            return auth
+        }
+        return await performTokenRefresh(auth: auth, refreshToken: refreshToken)
+    }
+
+    private func performTokenRefresh(auth: SavedAccountAuth, refreshToken: String) async -> SavedAccountAuth {
+        guard claimRefreshSlot(email: auth.email) else { return auth }
+        defer { releaseRefreshSlot(email: auth.email) }
+
+        let result = await CodexTokenRefresher.refresh(refreshToken: refreshToken)
+
+        switch result {
+        case .success(let payload):
+            writeBackRefreshedTokens(auth: auth, payload: payload)
+            return SavedAccountAuth(
+                email: auth.email,
+                accessToken: payload.accessToken,
+                accountID: auth.accountID,
+                refreshToken: payload.refreshToken ?? auth.refreshToken,
+                lastRefresh: payload.lastRefresh
+            )
+        case .expired, .revoked, .reused:
+            notifyLoginExpiredIfNeeded(auth: auth)
+            return auth
+        case .notRefreshable, .networkError, .invalidResponse:
+            return auth
+        }
+    }
+
+    private func claimRefreshSlot(email: String) -> Bool {
+        refreshInFlightLock.lock()
+        defer { refreshInFlightLock.unlock() }
+        guard !refreshInFlightEmails.contains(email) else { return false }
+        refreshInFlightEmails.insert(email)
+        return true
+    }
+
+    private func releaseRefreshSlot(email: String) {
+        refreshInFlightLock.lock()
+        defer { refreshInFlightLock.unlock() }
+        refreshInFlightEmails.remove(email)
+    }
+
+    private func writeBackRefreshedTokens(auth: SavedAccountAuth, payload: CodexTokenRefreshPayload) {
+        let root = URL(fileURLWithPath: "\(NSHomeDirectory())/.codex/accounts")
+        guard let fileURL = authFileURL(forAccountID: auth.accountID, root: root) else { return }
+        guard CodexAuthTokenWriter.applyTokenUpdate(
+            to: fileURL,
+            expectedAccountID: auth.accountID,
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken,
+            lastRefresh: payload.lastRefresh
+        ) == nil else {
+            return
+        }
+        mirrorActiveAuthIfNeeded(accountID: auth.accountID, payload: payload)
+    }
+
+    private func mirrorActiveAuthIfNeeded(accountID: String, payload: CodexTokenRefreshPayload) {
+        let home = NSHomeDirectory()
+        let registryURL = URL(fileURLWithPath: "\(home)/.codex/accounts/registry.json")
+        let activeAuthURL = URL(fileURLWithPath: "\(home)/.codex/auth.json")
+        guard
+            let registryData = try? Data(contentsOf: registryURL),
+            let registry = try? JSONSerialization.jsonObject(with: registryData) as? [String: Any],
+            let activeKey = registry["active_account_key"] as? String,
+            !activeKey.isEmpty
+        else {
+            return
+        }
+        let encoded = Data(activeKey.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let accountAuthURL = URL(fileURLWithPath: "\(home)/.codex/accounts/\(encoded).auth.json")
+        guard FileManager.default.fileExists(atPath: activeAuthURL.path),
+              FileManager.default.fileExists(atPath: accountAuthURL.path),
+              let accountData = try? Data(contentsOf: accountAuthURL),
+              let accountJSON = try? JSONSerialization.jsonObject(with: accountData) as? [String: Any],
+              let accountTokens = accountJSON["tokens"] as? [String: Any],
+              let storedAccountID = accountTokens["account_id"] as? String,
+              storedAccountID == accountID
+        else {
+            return
+        }
+        _ = CodexAuthTokenWriter.applyTokenUpdate(
+            to: activeAuthURL,
+            expectedAccountID: accountID,
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken,
+            lastRefresh: payload.lastRefresh
+        )
+    }
+
+    private func notifyLoginExpiredIfNeeded(auth: SavedAccountAuth) {
+        let defaults = UserDefaults.standard
+        let cooldowns = defaults.dictionary(forKey: loginExpiredCooldownDefaultsKey) as? [String: TimeInterval] ?? [:]
+        let lastNotified = cooldowns[auth.email] ?? 0
+        let now = Date().timeIntervalSince1970
+        guard now - lastNotified >= loginExpiredNotificationCooldown else { return }
+        var updated = cooldowns
+        updated[auth.email] = now
+        defaults.set(updated, forKey: loginExpiredCooldownDefaultsKey)
+        sendNotification(
+            title: "Codex account login expired",
+            subtitle: displayLabel(for: auth.email),
+            body: "Auto token refresh failed for \(auth.email). Run `codex-auth login` to restore this account."
+        )
+    }
+
+    private func displayLabel(for email: String) -> String {
+        limitedLabel(customLabel(forEmail: email) ?? defaultLabel(forEmail: email))
     }
 
     private func parseDirectUsageResponse(_ responseData: Data) -> DirectUsageFetchResult {
@@ -5603,7 +5775,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             for (email, snapshot) in batchResults { results[email] = snapshot }
             startIndex = endIndex
         }
+        if creditExpiryNotificationsEnabled {
+            for (email, snapshot) in results {
+                checkCreditExpiryNotifications(snapshot: snapshot, email: email)
+            }
+        }
         return results
+    }
+
+    private func checkCreditExpiryNotifications() {
+        guard creditExpiryNotificationsEnabled else { return }
+        for (email, snapshot) in resetCreditsByEmail {
+            checkCreditExpiryNotifications(snapshot: snapshot, email: email)
+        }
+    }
+
+    private func checkCreditExpiryNotifications(snapshot: ResetCreditsSnapshot, email: String) {
+        let now = Date()
+        let expiring: [(id: String, expiresAt: TimeInterval)] = snapshot.credits.compactMap { credit in
+            guard let expiresAt = credit.expiresAt else { return nil }
+            let remaining = expiresAt.timeIntervalSince(now)
+            guard remaining > 0, remaining <= creditExpiryWindow else { return nil }
+            return (credit.id, expiresAt.timeIntervalSince1970)
+        }
+        guard !expiring.isEmpty else { return }
+
+        let fingerprint = creditExpirySummaryFingerprint(expiring)
+        var stored = creditExpiryFingerprints
+        guard !stored.contains(fingerprint) else { return }
+        stored.append(fingerprint)
+        if stored.count > creditExpiryFingerprintLimit {
+            stored.removeFirst(stored.count - creditExpiryFingerprintLimit)
+        }
+        creditExpiryFingerprints = stored
+
+        let earliest = expiring.map(\.expiresAt).min() ?? 0
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEE · d MMM"
+        let dateText = formatter.string(from: Date(timeIntervalSince1970: earliest)).uppercased()
+        let count = expiring.count
+        sendNotification(
+            title: "Reset credits expire soon",
+            subtitle: "\(displayLabel(for: email)) · \(count) credit\(count == 1 ? "" : "s")",
+            body: "\(count) reset credit\(count == 1 ? "" : "s") for \(email) expire \(dateText). Open the RESETS panel to use them before they are lost."
+        )
+    }
+
+    private func creditExpirySummaryFingerprint(_ expiring: [(id: String, expiresAt: TimeInterval)]) -> String {
+        let material = expiring
+            .map { "\($0.id)\u{1f}\(Int($0.expiresAt))" }
+            .sorted()
+            .joined(separator: "\u{1e}")
+        return SHA256.hash(data: Data(material.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     private func fetchResetCredits(using auth: SavedAccountAuth) async -> ResetCreditsFetchResult {
@@ -5747,7 +5973,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return .failure("saved account auth token was not readable")
         }
 
-        return .success(SavedAccountAuth(email: email, accessToken: accessToken, accountID: accountID))
+        return .success(SavedAccountAuth(
+            email: email,
+            accessToken: accessToken,
+            accountID: accountID,
+            refreshToken: tokens["refresh_token"] as? String,
+            lastRefresh: CodexAuthDate.parseLastRefresh(tokens["last_refresh"] as? String)
+        ))
     }
 
     private func authFileURL(forAccountID accountID: String, root: URL) -> URL? {
