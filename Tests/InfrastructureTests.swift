@@ -64,6 +64,8 @@ struct InfrastructureTests {
         try testReferencePluginReconcileIdempotent()
         try testReferencePluginReconcileWithoutReference()
         try testReferencePluginReconcileRollsBackFailedSwap()
+        testCuratedPluginPlan()
+        testPluginSyncStabilityTracker()
 
         if failures.isEmpty {
             print("Infrastructure tests passed (\(assertionCount) assertions).")
@@ -1246,6 +1248,40 @@ struct InfrastructureTests {
         expect(
             ReferencePluginInventory.remotePluginIDs(homeDirectory: targetHome.path) == ["canva"],
             "a staged swap failure should restore the target account cache"
+        )
+    }
+
+    private static func testCuratedPluginPlan() {
+        expect(
+            CuratedPluginPlan.commands(
+                referenceIDs: ["github"],
+                installedIDs: ["canva", "github", "browser@openai-bundled"]
+            ) == [["plugin", "remove", "canva@openai-curated"]],
+            "curated plan should remove non-reference curated plugins and ignore system selectors"
+        )
+        expect(
+            CuratedPluginPlan.commands(
+                referenceIDs: ["github", "vercel"],
+                installedIDs: ["github"]
+            ) == [["plugin", "add", "vercel@openai-curated"]],
+            "curated plan should add missing reference plugins"
+        )
+    }
+
+    private static func testPluginSyncStabilityTracker() {
+        let timestamp = Date(timeIntervalSince1970: 100)
+        var tracker = PluginSyncStabilityTracker()
+        expect(
+            !tracker.observe(inventory: ["canva"], modifiedAt: timestamp),
+            "the first sync observation should not be stable"
+        )
+        expect(
+            tracker.observe(inventory: ["canva"], modifiedAt: timestamp),
+            "two identical sync observations should be stable"
+        )
+        expect(
+            !tracker.observe(inventory: ["canva", "posthog"], modifiedAt: timestamp),
+            "an inventory change should reset sync stability"
         )
     }
 }

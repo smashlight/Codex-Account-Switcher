@@ -601,6 +601,39 @@ enum ReferencePluginReconciler {
     }
 }
 
+enum CuratedPluginPlan {
+    static func commands(referenceIDs: [String], installedIDs: [String]) -> [[String]] {
+        let reference = Set(referenceIDs.filter(isBarePluginID))
+        let installed = Set(installedIDs.filter(isBarePluginID))
+        let removals = installed.subtracting(reference).sorted().map {
+            ["plugin", "remove", "\($0)@openai-curated"]
+        }
+        let additions = reference.subtracting(installed).sorted().map {
+            ["plugin", "add", "\($0)@openai-curated"]
+        }
+        return removals + additions
+    }
+
+    private static func isBarePluginID(_ id: String) -> Bool {
+        !id.isEmpty && !id.contains("@") && !id.contains(where: \.isWhitespace)
+    }
+}
+
+struct PluginSyncStabilityTracker {
+    private struct Observation: Equatable {
+        let inventory: [String]
+        let modifiedAt: Date?
+    }
+
+    private var previous: Observation?
+
+    mutating func observe(inventory: [String], modifiedAt: Date?) -> Bool {
+        let observation = Observation(inventory: inventory.sorted(), modifiedAt: modifiedAt)
+        defer { previous = observation }
+        return previous == observation
+    }
+}
+
 enum AuthBackupPruner {
     @discardableResult
     static func prune(in directory: URL, keepingPerAccount keepCount: Int = 10, fileManager: FileManager = .default) -> Int {
