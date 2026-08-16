@@ -1205,6 +1205,7 @@ enum ReferencePluginTransaction {
         let backupRemote = backupDirectory.appendingPathComponent("openai-curated-remote", isDirectory: true)
         let backupCurated = backupDirectory.appendingPathComponent("openai-curated", isDirectory: true)
         let backupReference = backupDirectory.appendingPathComponent(ReferencePluginMarketplace.name, isDirectory: true)
+        let backupConfig = backupDirectory.appendingPathComponent("config.toml")
 
         let originalConfig: Data
         do {
@@ -1221,6 +1222,7 @@ enum ReferencePluginTransaction {
 
         do {
             try fileManager.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+            try originalConfig.write(to: backupConfig, options: .atomic)
             if remoteExisted {
                 try fileManager.copyItem(at: remoteCache, to: backupRemote)
             }
@@ -1229,6 +1231,9 @@ enum ReferencePluginTransaction {
             }
             if referenceExisted {
                 try fileManager.copyItem(at: referenceCache, to: backupReference)
+            }
+            guard try Data(contentsOf: backupConfig) == originalConfig else {
+                throw ReferencePluginTransactionError.rollbackVerificationFailed
             }
         } catch {
             try? fileManager.removeItem(at: backupDirectory)

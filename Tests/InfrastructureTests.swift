@@ -1865,11 +1865,18 @@ struct InfrastructureTests {
             currentConfig == "changed",
             "unsafe rollback should not overwrite config while Codex may still be running"
         )
-        let backups = try FileManager.default.contentsOfDirectory(atPath: home.appendingPathComponent(".codex").path)
+        let codexDirectory = home.appendingPathComponent(".codex")
+        let backups = try FileManager.default.contentsOfDirectory(atPath: codexDirectory.path)
         expect(
             backups.contains(where: { $0.hasPrefix(".reference-plugin-transaction.") }),
             "unsafe rollback should retain the transaction backup"
         )
+        let backupName = backups.first(where: { $0.hasPrefix(".reference-plugin-transaction.") })!
+        let savedConfig = try String(
+            contentsOf: codexDirectory.appendingPathComponent("\(backupName)/config.toml"),
+            encoding: .utf8
+        )
+        expect(savedConfig == "original", "retained transaction backup should include the original config")
     }
 
     private static func testProcessLookupPolicy() {
