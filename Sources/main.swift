@@ -5366,16 +5366,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                        label: "Opening \(self.codexDesktopAppName) with reference plugins...",
                        transcript: &transcript
                    ) {
-                    _ = self.terminateCodexProcessTree(transcript: &transcript)
-                    return "final Codex launch failed: \(failure.output)"
+                    let reason = "final Codex launch failed: \(failure.output)"
+                    return self.terminateCodexProcessTree(transcript: &transcript)
+                        ? .rollback(reason: reason)
+                        : .preserveBackup(reason: reason)
                 }
                 guard self.verifyReferencePlugins(reference, transcript: &transcript) else {
                     if launchAfterApply {
-                        _ = self.terminateCodexProcessTree(transcript: &transcript)
+                        return self.terminateCodexProcessTree(transcript: &transcript)
+                            ? .rollback(reason: "final reference plugin verification failed")
+                            : .preserveBackup(reason: "final reference plugin verification failed")
                     }
-                    return "final reference plugin verification failed"
+                    return .rollback(reason: "final reference plugin verification failed")
                 }
-                return nil
+                return .success
             },
             operation: {
                 let bundledCodex = "\(self.codexDesktopResourcesPath)/codex"

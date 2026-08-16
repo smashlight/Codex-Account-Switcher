@@ -1178,10 +1178,16 @@ enum ReferencePluginTransaction {
         case failed(reason: String)
     }
 
+    enum FinalizationOutcome: Equatable {
+        case success
+        case rollback(reason: String)
+        case preserveBackup(reason: String)
+    }
+
     static func perform(
         homeDirectory: String,
         fileManager: FileManager = .default,
-        finalize: () -> String? = { nil },
+        finalize: () -> FinalizationOutcome = { .success },
         operation: () -> String?
     ) -> Outcome {
         let codexDirectory = URL(fileURLWithPath: homeDirectory).appendingPathComponent(".codex", isDirectory: true)
@@ -1229,13 +1235,24 @@ enum ReferencePluginTransaction {
             return .failed(reason: "plugin transaction backup failed: \(error.localizedDescription)")
         }
 
-        let failure = operation() ?? finalize()
-        guard let failure else {
-            do {
-                try fileManager.removeItem(at: backupDirectory)
-                return .applied
-            } catch {
-                return .failed(reason: "plugins were applied but transaction backup cleanup failed: \(error.localizedDescription)")
+        let failure: String
+        if let operationFailure = operation() {
+            failure = operationFailure
+        } else {
+            switch finalize() {
+            case .success:
+                do {
+                    try fileManager.removeItem(at: backupDirectory)
+                    return .applied
+                } catch {
+                    return .failed(reason: "plugins were applied but transaction backup cleanup failed: \(error.localizedDescription)")
+                }
+            case .rollback(let reason):
+                failure = reason
+            case .preserveBackup(let reason):
+                return .failed(
+                    reason: reason + "; rollback skipped while Codex may be running; backup kept at \(backupDirectory.path)"
+                )
             }
         }
 

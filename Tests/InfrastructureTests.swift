@@ -98,6 +98,7 @@ struct InfrastructureTests {
         try testCuratedPluginReconcileRollsBackPartialFailure()
         try testReferencePluginTransactionRollsBackBothLayers()
         try testReferencePluginTransactionRollsBackFailedFinalization()
+        try testReferencePluginTransactionPreservesBackupWhenRollbackIsUnsafe()
         testPluginSyncStabilityTracker()
         testProcessLookupPolicy()
 
@@ -1815,7 +1816,7 @@ struct InfrastructureTests {
         let outcome = ReferencePluginTransaction.perform(
             homeDirectory: home.path,
             finalize: {
-                "final plugin verification failed"
+                .rollback(reason: "final plugin verification failed")
             },
             operation: {
                 try? "changed".write(to: configURL, atomically: true, encoding: .utf8)
@@ -1832,6 +1833,42 @@ struct InfrastructureTests {
         expect(
             restoredConfig == originalConfig,
             "failed finalization should restore the pre-reconciliation config"
+        )
+    }
+
+    private static func testReferencePluginTransactionPreservesBackupWhenRollbackIsUnsafe() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let configURL = home.appendingPathComponent(".codex/config.toml")
+        try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "original".write(to: configURL, atomically: true, encoding: .utf8)
+
+        let outcome = ReferencePluginTransaction.perform(
+            homeDirectory: home.path,
+            finalize: {
+                .preserveBackup(reason: "Codex could not be stopped")
+            },
+            operation: {
+                try? "changed".write(to: configURL, atomically: true, encoding: .utf8)
+                return nil
+            }
+        )
+
+        if case .failed(let reason) = outcome {
+            expect(reason.contains("backup kept"), "unsafe rollback should report the retained backup")
+        } else {
+            expect(false, "unsafe rollback should fail without touching live state")
+        }
+        let currentConfig = try String(contentsOf: configURL, encoding: .utf8)
+        expect(
+            currentConfig == "changed",
+            "unsafe rollback should not overwrite config while Codex may still be running"
+        )
+        let backups = try FileManager.default.contentsOfDirectory(atPath: home.appendingPathComponent(".codex").path)
+        expect(
+            backups.contains(where: { $0.hasPrefix(".reference-plugin-transaction.") }),
+            "unsafe rollback should retain the transaction backup"
         )
     }
 
