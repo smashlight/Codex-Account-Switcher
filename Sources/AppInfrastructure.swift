@@ -174,10 +174,29 @@ enum BundledMarketplaceInspector {
             .appendingPathComponent(".codex/.tmp/bundled-marketplaces/openai-bundled", isDirectory: true)
     }
 
-    static func snapshotState(homeDirectory: String, fileManager: FileManager = .default) -> SnapshotState {
+    static func pluginIDs(in marketplace: URL, fileManager: FileManager = .default) -> [String] {
+        let plugins = marketplace.appendingPathComponent("plugins", isDirectory: true)
+        guard let directories = try? fileManager.contentsOfDirectory(
+            at: plugins,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return directories
+            .filter { fileManager.fileExists(atPath: $0.appendingPathComponent(".codex-plugin").path) }
+            .map(\.lastPathComponent)
+            .sorted()
+    }
+
+    static func snapshotState(
+        homeDirectory: String,
+        requiredPluginIDs: [String]? = nil,
+        fileManager: FileManager = .default
+    ) -> SnapshotState {
         let snapshot = snapshotRoot(homeDirectory: homeDirectory)
         guard fileManager.fileExists(atPath: snapshot.path) else { return .absent }
-        let missing = expectedPluginIDs().filter { id in
+        let missing = (requiredPluginIDs ?? expectedPluginIDs()).filter { id in
             let manifest = snapshot.appendingPathComponent("plugins/\(id)/.codex-plugin")
             return !fileManager.fileExists(atPath: manifest.path)
         }
@@ -209,14 +228,25 @@ enum BundledMarketplaceRepairer {
         codexExecutable: String? = nil,
         pluginRunner: ((String, [String], [String: String]) -> CommandResult)? = nil
     ) -> RepairOutcome {
-        let state = BundledMarketplaceInspector.snapshotState(homeDirectory: homeDirectory, fileManager: fileManager)
+        let source = BundledMarketplaceInspector.appMarketplaceSource(appPath: appPath, fileManager: fileManager)
+        let discoveredPluginIDs = source.map {
+            BundledMarketplaceInspector.pluginIDs(in: $0, fileManager: fileManager)
+        } ?? []
+        let requiredPluginIDs = Array(
+            Set(BundledMarketplaceInspector.expectedPluginIDs() + discoveredPluginIDs)
+        ).sorted()
+        let state = BundledMarketplaceInspector.snapshotState(
+            homeDirectory: homeDirectory,
+            requiredPluginIDs: requiredPluginIDs,
+            fileManager: fileManager
+        )
         guard state != .ok else { return .ok }
         guard fileManager.fileExists(atPath: appPath) else { return .noAppFound }
 
         let snapshot = BundledMarketplaceInspector.snapshotRoot(homeDirectory: homeDirectory)
         let marketplaceDir = snapshot.deletingLastPathComponent()
 
-        if let source = BundledMarketplaceInspector.appMarketplaceSource(appPath: appPath, fileManager: fileManager) {
+        if let source {
             let stamp = Int(Date().timeIntervalSince1970)
             let backup = marketplaceDir.appendingPathComponent("bundled-marketplaces.bak.\(stamp)")
             do {
@@ -227,7 +257,11 @@ enum BundledMarketplaceRepairer {
                 return .failed(reason: "snapshot copy failed: \(error.localizedDescription)")
             }
 
-            let recheck = BundledMarketplaceInspector.snapshotState(homeDirectory: homeDirectory, fileManager: fileManager)
+            let recheck = BundledMarketplaceInspector.snapshotState(
+                homeDirectory: homeDirectory,
+                requiredPluginIDs: requiredPluginIDs,
+                fileManager: fileManager
+            )
             guard recheck == .ok else {
                 restoreBackup(backup: backup, snapshot: snapshot, fileManager: fileManager)
                 return .failed(reason: "snapshot verification failed after repair")
@@ -237,7 +271,11 @@ enum BundledMarketplaceRepairer {
                 let runner = pluginRunner ?? { executable, arguments, environment in
                     ProcessRunner.run(executable, arguments, environment: environment)
                 }
-                for id in enabledPluginIDs(homeDirectory: homeDirectory, fileManager: fileManager) {
+                for id in enabledPluginIDs(
+                    homeDirectory: homeDirectory,
+                    candidatePluginIDs: requiredPluginIDs,
+                    fileManager: fileManager
+                ) {
                     let result = runner(codexExecutable, ["plugin", "add", "\(id)@openai-bundled"], [:])
                     if result.status != 0 {
                         return .failed(reason: "snapshot repaired but plugin reinstall failed for \(id): \(result.output)")
@@ -261,10 +299,14 @@ enum BundledMarketplaceRepairer {
         return .noAppFound
     }
 
-    private static func enabledPluginIDs(homeDirectory: String, fileManager: FileManager = .default) -> [String] {
+    private static func enabledPluginIDs(
+        homeDirectory: String,
+        candidatePluginIDs: [String],
+        fileManager: FileManager = .default
+    ) -> [String] {
         let configURL = URL(fileURLWithPath: homeDirectory).appendingPathComponent(".codex/config.toml")
         guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return [] }
-        return BundledMarketplaceInspector.expectedPluginIDs().filter { id in
+        return candidatePluginIDs.filter { id in
             config.contains("[plugins.\"\(id)@openai-bundled\"]") || config.contains("[plugins.\"\(id)\"]")
         }
     }

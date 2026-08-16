@@ -34,10 +34,12 @@ struct InfrastructureTests {
         try testBundledMarketplaceAppSource()
         try testBundledMarketplaceRepairNoop()
         try testBundledMarketplaceRepairFromApp()
+        try testBundledMarketplaceRepairRefreshesOutdatedSnapshot()
         try testBundledMarketplaceRepairNoApp()
         try testBundledMarketplaceRepairStaleMove()
         try testBundledMarketplaceRepairRollback()
         try testBundledMarketplaceRepairReinstall()
+        try testBundledMarketplaceRepairReinstallsNewBundledPlugin()
         try testBundledMarketplaceRepairReinstallFailure()
 
         if failures.isEmpty {
@@ -843,6 +845,28 @@ struct InfrastructureTests {
         expect(backups.contains { $0.hasPrefix("bundled-marketplaces.bak.") }, "the stale snapshot should be moved to a backup before copying")
     }
 
+    private static func testBundledMarketplaceRepairRefreshesOutdatedSnapshot() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makeCompleteMarketplace(root: snapshots.appendingPathComponent("openai-bundled"))
+        let app = try makeFakeApp(home: root)
+        let appMarketplace = URL(fileURLWithPath: app)
+            .appendingPathComponent("Contents/Resources/plugins/openai-bundled")
+        try makeCompleteMarketplace(root: appMarketplace)
+        try makePluginManifest(root: appMarketplace, pluginID: "deep-research")
+
+        let outcome = BundledMarketplaceRepairer.repairIfNeeded(homeDirectory: root.path, appPath: app)
+
+        expect(outcome == .repairedFromApp, "a snapshot missing a plugin shipped by the app should be refreshed")
+        expect(
+            FileManager.default.fileExists(
+                atPath: snapshots.appendingPathComponent("openai-bundled/plugins/deep-research/.codex-plugin").path
+            ),
+            "repair should restore every plugin shipped by the app marketplace"
+        )
+    }
+
     private static func testBundledMarketplaceRepairNoApp() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -920,6 +944,40 @@ struct InfrastructureTests {
         expect(pluginCalls.contains { $0.contains("chrome@openai-bundled") }, "enabled chrome plugin should be reinstalled")
         expect(pluginCalls.contains { $0.contains("browser@openai-bundled") }, "enabled browser plugin should be reinstalled")
         expect(!pluginCalls.contains { $0.contains("computer-use@openai-bundled") }, "a plugin absent from config should not be reinstalled")
+    }
+
+    private static func testBundledMarketplaceRepairReinstallsNewBundledPlugin() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let snapshots = try makeHomeSnapshot(home: root)
+        try makeCompleteMarketplace(root: snapshots.appendingPathComponent("openai-bundled"))
+        let app = try makeFakeApp(home: root)
+        let appMarketplace = URL(fileURLWithPath: app)
+            .appendingPathComponent("Contents/Resources/plugins/openai-bundled")
+        try makeCompleteMarketplace(root: appMarketplace)
+        try makePluginManifest(root: appMarketplace, pluginID: "visualize")
+        let home = root.appendingPathComponent(".codex")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try """
+        [plugins."visualize@openai-bundled"]
+        enabled = true
+        """.write(to: home.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        var calls: [[String]] = []
+
+        _ = BundledMarketplaceRepairer.repairIfNeeded(
+            homeDirectory: root.path,
+            appPath: app,
+            codexExecutable: "/usr/bin/true",
+            pluginRunner: { _, arguments, _ in
+                calls.append(arguments)
+                return CommandResult(status: 0, output: "ok")
+            }
+        )
+
+        expect(
+            calls.contains(["plugin", "add", "visualize@openai-bundled"]),
+            "an enabled plugin discovered in the app marketplace should be reinstalled"
+        )
     }
 
     private static func testBundledMarketplaceRepairReinstallFailure() throws {
