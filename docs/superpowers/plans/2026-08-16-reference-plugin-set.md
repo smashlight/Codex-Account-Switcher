@@ -1,5 +1,7 @@
 # Reference Plugin Set Implementation Plan
 
+> **Runtime correction:** End-to-end testing invalidated direct reconciliation of `openai-curated-remote`: Codex owns and rewrites that account-scoped cache after launch. The implemented fix builds a local `account-switcher-reference` marketplace from the saved packages and installs them with the bundled CLI. The final launch verifies the local installed set and does not retry against the server-owned remote cache.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make every Codex account switch finish with the same saved user/integration plugin set, removing target-account-only plugins while preserving system plugins.

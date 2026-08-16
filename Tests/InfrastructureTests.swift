@@ -79,6 +79,7 @@ struct InfrastructureTests {
         try testReferencePluginCaptureReportsRollbackFailure()
         try testReferencePluginCaptureRequiresReadableConfig()
         try testReferencePluginLoadRejectsModifiedFiles()
+        try testReferencePluginMarketplacePreparation()
         try testReferencePluginReconcileExactMatch()
         try testReferencePluginReconcileRestoresChangedFiles()
         try testReferencePluginReconcileIdempotent()
@@ -86,6 +87,8 @@ struct InfrastructureTests {
         try testReferencePluginReconcileRollsBackFailedSwap()
         try testReferencePluginReconcileReportsRollbackFailure()
         testCuratedPluginPlan()
+        testReferenceMarketplacePluginPlan()
+        try testReferenceMarketplacePluginReconcile()
         try testCuratedPluginReconcileRollsBackPartialFailure()
         try testReferencePluginTransactionRollsBackBothLayers()
         testPluginSyncStabilityTracker()
@@ -1174,6 +1177,37 @@ struct InfrastructureTests {
         )
     }
 
+    private static func testReferencePluginMarketplacePreparation() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(root: root, remoteIDs: ["cloudflare", "product-design"])
+
+        let outcome = ReferencePluginMarketplace.prepare(reference: reference)
+        guard case .prepared(let marketplaceURL, let pluginIDs) = outcome else {
+            expect(false, "a valid reference should produce a local marketplace")
+            return
+        }
+
+        expect(
+            pluginIDs == ["cloudflare", "product-design"],
+            "the local marketplace should contain every remote reference plugin"
+        )
+        expect(
+            FileManager.default.fileExists(
+                atPath: marketplaceURL.appendingPathComponent(".agents/plugins/marketplace.json").path
+            ),
+            "the local marketplace should contain a marketplace manifest"
+        )
+        for id in pluginIDs {
+            expect(
+                FileManager.default.fileExists(
+                    atPath: marketplaceURL.appendingPathComponent("plugins/\(id)/.codex-plugin/plugin.json").path
+                ),
+                "the local marketplace should flatten the saved version for \(id)"
+            )
+        }
+    }
+
     private static func testReferencePluginCaptureReportsRollbackFailure() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1238,6 +1272,13 @@ struct InfrastructureTests {
             )
             try FileManager.default.createDirectory(at: version, withIntermediateDirectories: true)
             try Data(id.utf8).write(to: version.appendingPathComponent("payload.txt"))
+            try FileManager.default.createDirectory(
+                at: version.appendingPathComponent(".codex-plugin"),
+                withIntermediateDirectories: true
+            )
+            try Data("{\"name\":\"\(id)\",\"version\":\"1.0.0\"}".utf8).write(
+                to: version.appendingPathComponent(".codex-plugin/plugin.json")
+            )
         }
         try FileManager.default.createDirectory(
             at: canonicalHome.appendingPathComponent(".codex"),
@@ -1414,6 +1455,69 @@ struct InfrastructureTests {
         )
     }
 
+    private static func testReferenceMarketplacePluginPlan() {
+        let config = """
+        [plugins."cloudflare@account-switcher-reference"]
+        enabled = true
+
+        [plugins."obsolete@account-switcher-reference"]
+        enabled = true
+        """
+        expect(
+            ReferencePluginInventory.pluginIDs(
+                configText: config,
+                marketplace: ReferencePluginMarketplace.name
+            ) == ["cloudflare", "obsolete"],
+            "plugin inventory should read an explicit marketplace"
+        )
+        expect(
+            PluginInstallPlan.commands(
+                referenceIDs: ["cloudflare", "product-design"],
+                installedIDs: ["cloudflare", "obsolete"],
+                marketplace: ReferencePluginMarketplace.name
+            ) == [
+                ["plugin", "remove", "obsolete@account-switcher-reference"],
+                ["plugin", "add", "product-design@account-switcher-reference"],
+            ],
+            "the local marketplace plan should remove stale plugins before adding missing references"
+        )
+    }
+
+    private static func testReferenceMarketplacePluginReconcile() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(root: root, remoteIDs: ["cloudflare", "product-design"])
+        let home = root.appendingPathComponent("target-home")
+        let configURL = home.appendingPathComponent(".codex/config.toml")
+        try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "".write(to: configURL, atomically: true, encoding: .utf8)
+        var commands: [[String]] = []
+
+        let outcome = ReferenceMarketplacePluginReconciler.reconcile(
+            homeDirectory: home.path,
+            reference: reference
+        ) { arguments in
+            commands.append(arguments)
+            var config = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
+            if arguments.prefix(3) == ["plugin", "marketplace", "add"] {
+                config += "\n[marketplaces.account-switcher-reference]\nsource_type = \"local\"\n"
+            } else if arguments.prefix(2) == ["plugin", "add"], let selector = arguments.last {
+                config += "\n[plugins.\"\(selector)\"]\nenabled = true\n"
+            }
+            try? config.write(to: configURL, atomically: true, encoding: .utf8)
+            return CommandResult(status: 0, output: "ok")
+        }
+
+        expect(outcome == .applied(changes: 3), "reference marketplace registration and installs should be reported")
+        expect(
+            commands.dropFirst() == [
+                ["plugin", "add", "cloudflare@account-switcher-reference"],
+                ["plugin", "add", "product-design@account-switcher-reference"],
+            ],
+            "every saved remote plugin should be installed from the local reference marketplace"
+        )
+    }
+
     private static func testCuratedPluginReconcileRollsBackPartialFailure() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1478,13 +1582,18 @@ struct InfrastructureTests {
         let configURL = home.appendingPathComponent(".codex/config.toml")
         let remoteCache = home.appendingPathComponent(".codex/plugins/cache/openai-curated-remote")
         let remotePayload = remoteCache.appendingPathComponent("canva/1.0.0/payload.txt")
+        let referenceCache = home.appendingPathComponent(".codex/plugins/cache/account-switcher-reference")
+        let referencePayload = referenceCache.appendingPathComponent("cloudflare/1.0.0/payload.txt")
         let originalConfig = "[plugins.\"canva@openai-curated\"]\nenabled = true\n"
         try FileManager.default.createDirectory(at: remotePayload.deletingLastPathComponent(), withIntermediateDirectories: true)
         try originalConfig.write(to: configURL, atomically: true, encoding: .utf8)
         try Data("canva".utf8).write(to: remotePayload)
+        try FileManager.default.createDirectory(at: referencePayload.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("cloudflare".utf8).write(to: referencePayload)
 
         let outcome = ReferencePluginTransaction.perform(homeDirectory: home.path) {
             try? FileManager.default.removeItem(at: remoteCache)
+            try? FileManager.default.removeItem(at: referenceCache)
             try? "".write(to: configURL, atomically: true, encoding: .utf8)
             return "forced curated failure"
         }
@@ -1496,6 +1605,7 @@ struct InfrastructureTests {
         }
         let restoredConfig = try String(contentsOf: configURL, encoding: .utf8)
         let restoredPayload = try String(contentsOf: remotePayload, encoding: .utf8)
+        let restoredReferencePayload = try String(contentsOf: referencePayload, encoding: .utf8)
         expect(
             restoredConfig == originalConfig,
             "plugin transaction should restore curated config"
@@ -1503,6 +1613,10 @@ struct InfrastructureTests {
         expect(
             restoredPayload == "canva",
             "plugin transaction should restore remote cache files"
+        )
+        expect(
+            restoredReferencePayload == "cloudflare",
+            "plugin transaction should restore local reference cache files"
         )
     }
 

@@ -3,6 +3,12 @@
 **Date:** 2026-08-16
 **Status:** Approved in conversation; awaiting written-spec review
 
+## Runtime correction
+
+End-to-end testing showed that `openai-curated-remote` is an account-synchronized server cache, not a durable installation source. Codex replaces it after launch, so copying an exact reference tree into the active remote cache cannot survive synchronization.
+
+The saved tree is now converted into a local `account-switcher-reference` marketplace. Reference packages are installed and enabled through the bundled `codex plugin` CLI, while the account-owned remote cache is left untouched. The initial launch still lets account synchronization settle; reconciliation then runs from a stopped state followed by one final launch. Final verification checks the local marketplace installation and explicit curated plugins rather than requiring the remote cache to match.
+
 ## Goal
 
 Keep one account-independent reference set of user and integration plugins active after every Codex account switch. Plugins introduced by the target account must be removed from the active set, while Codex system plugins remain untouched.

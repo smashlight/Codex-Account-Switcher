@@ -2158,6 +2158,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSApp.terminate(nil)
             return
         }
+        if ProcessInfo.processInfo.arguments.contains("--restore-reference-plugins") {
+            var transcript: [String] = []
+            if let reference = ReferencePluginStore.load(storeDirectory: referencePluginStoreDirectory()),
+               applyReferencePlugins(reference, transcript: &transcript) {
+                _ = verifyReferencePlugins(reference, transcript: &transcript)
+            } else if ReferencePluginStore.load(storeDirectory: referencePluginStoreDirectory()) == nil {
+                transcript.append("Reference plugins are not saved or the saved reference is invalid.")
+            }
+            FileHandle.standardOutput.write(Data("\(transcript.joined(separator: "\n"))\n".utf8))
+            NSApp.terminate(nil)
+            return
+        }
         disableApiMode()
         DispatchQueue.global(qos: .utility).async {
             let accountsDirectory = URL(fileURLWithPath: NSHomeDirectory())
@@ -5247,31 +5259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let failure = openCodexAndVerify(label: "Opening \(codexDesktopAppName) with reference plugins...", transcript: &transcript) {
                 return failure
             }
-            let finalSyncStable = waitForRemotePluginSync(timeout: 15)
-            if finalSyncStable, verifyReferencePlugins(reference, transcript: &transcript) {
-                return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
-            }
-            if !finalSyncStable {
-                transcript.append("Plugin sync did not stabilize during the final observation window.")
-            }
-
-            transcript.append("Codex changed plugins after launch; retrying once from a stopped state.")
-            guard terminateCodexProcessTree(transcript: &transcript),
-                  applyReferencePlugins(reference, transcript: &transcript) else {
-                _ = openCodexAndVerify(
-                    label: "Reopening \(codexDesktopAppName) after plugin retry failure...",
-                    transcript: &transcript
-                )
-                return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
-            }
-            if let failure = openCodexAndVerify(label: "Reopening \(codexDesktopAppName) after reference plugin retry...", transcript: &transcript) {
-                return failure
-            }
-            let retrySyncStable = waitForRemotePluginSync(timeout: 15)
-            guard retrySyncStable, verifyReferencePlugins(reference, transcript: &transcript) else {
-                if !retrySyncStable {
-                    transcript.append("Plugin sync did not stabilize after the retry.")
-                }
+            guard verifyReferencePlugins(reference, transcript: &transcript) else {
                 return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
             }
             return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
@@ -5358,24 +5346,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         var messages: [String] = []
         let transaction = ReferencePluginTransaction.perform(homeDirectory: NSHomeDirectory()) {
-            let remoteOutcome = ReferencePluginReconciler.reconcile(
-                homeDirectory: NSHomeDirectory(),
-                reference: reference
-            )
-            switch remoteOutcome {
-            case .alreadyMatched:
-                messages.append("Reference remote plugins already matched.")
-            case .applied(let added, let removed):
-                messages.append("Reference remote plugins applied: +\(added.count), -\(removed.count).")
-            case .noReference:
-                return "reference remote plugins unavailable"
-            case .failed(let reason):
-                return "reference remote plugin reconciliation failed: \(reason)"
-            }
-
             let bundledCodex = "\(codexDesktopResourcesPath)/codex"
             guard FileManager.default.isExecutableFile(atPath: bundledCodex) else {
-                return "reference curated plugin reconciliation failed: bundled codex CLI not found"
+                return "reference plugin reconciliation failed: bundled codex CLI not found"
+            }
+            let marketplaceOutcome = ReferenceMarketplacePluginReconciler.reconcile(
+                homeDirectory: NSHomeDirectory(),
+                reference: reference
+            ) { arguments in
+                self.run(bundledCodex, arguments)
+            }
+            switch marketplaceOutcome {
+            case .alreadyMatched:
+                messages.append("Reference local plugins already matched.")
+            case .applied(let changes):
+                messages.append("Reference local plugins applied: \(changes) change(s).")
+            case .failed(let reason):
+                return "reference local plugin reconciliation failed: \(reason)"
             }
             let curatedOutcome = CuratedPluginReconciler.reconcile(
                 homeDirectory: NSHomeDirectory(),
@@ -5409,13 +5396,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         transcript: inout [String]
     ) -> Bool {
         let home = URL(fileURLWithPath: NSHomeDirectory())
-        let remoteCache = home.appendingPathComponent(
-            ".codex/plugins/cache/openai-curated-remote",
+        let referenceCache = home.appendingPathComponent(
+            ".codex/plugins/cache/\(ReferencePluginMarketplace.name)",
             isDirectory: true
         )
-        guard ReferencePluginInventory.remotePluginIDs(in: remoteCache) == reference.manifest.remotePluginIDs,
-              ReferencePluginInventory.remoteTreeDigest(in: remoteCache) == reference.manifest.remoteTreeDigest else {
-            transcript.append("Reference remote plugin verification failed after launch.")
+        guard ReferencePluginInventory.remotePluginIDs(in: referenceCache) == reference.manifest.remotePluginIDs else {
+            transcript.append("Reference local plugin cache verification failed after launch.")
             return false
         }
         let configURL = home.appendingPathComponent(".codex/config.toml")
@@ -5426,6 +5412,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard ReferencePluginInventory.curatedPluginIDs(configText: configText)
             == reference.manifest.curatedPluginIDs.sorted() else {
             transcript.append("Reference curated plugin verification failed after launch.")
+            return false
+        }
+        guard ReferencePluginInventory.pluginIDs(
+            configText: configText,
+            marketplace: ReferencePluginMarketplace.name
+        ) == reference.manifest.remotePluginIDs.sorted() else {
+            transcript.append("Reference local plugin configuration verification failed after launch.")
             return false
         }
         transcript.append("Reference plugin set verified after launch.")

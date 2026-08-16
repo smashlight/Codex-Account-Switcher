@@ -352,8 +352,12 @@ enum ReferencePluginInventory {
     }
 
     static func curatedPluginIDs(configText: String) -> [String] {
+        pluginIDs(configText: configText, marketplace: "openai-curated")
+    }
+
+    static func pluginIDs(configText: String, marketplace: String) -> [String] {
         let prefix = "[plugins.\""
-        let suffix = "@openai-curated\"]"
+        let suffix = "@\(marketplace)\"]"
         var currentID: String?
         var enabledIDs: [String] = []
 
@@ -415,6 +419,177 @@ enum ReferencePluginInventory {
             hasher.update(data: Data([0]))
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+enum ReferencePluginMarketplace {
+    static let name = "account-switcher-reference"
+
+    enum PreparationOutcome: Equatable {
+        case prepared(marketplaceURL: URL, pluginIDs: [String])
+        case failed(reason: String)
+    }
+
+    static func prepare(
+        reference: ReferencePluginStore.LoadedReference,
+        fileManager: FileManager = .default
+    ) -> PreparationOutcome {
+        let storeDirectory = reference.remoteCacheURL.deletingLastPathComponent()
+        let marketplaceURL = storeDirectory.appendingPathComponent("local-marketplace", isDirectory: true)
+        let stagingURL = storeDirectory.appendingPathComponent(
+            ".local-marketplace.staging.\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let backupURL = storeDirectory.appendingPathComponent(
+            ".local-marketplace.backup.\(UUID().uuidString)",
+            isDirectory: true
+        )
+
+        do {
+            let pluginsURL = stagingURL.appendingPathComponent("plugins", isDirectory: true)
+            let manifestDirectory = stagingURL.appendingPathComponent(".agents/plugins", isDirectory: true)
+            try fileManager.createDirectory(at: pluginsURL, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: manifestDirectory, withIntermediateDirectories: true)
+
+            var entries: [MarketplaceManifest.Plugin] = []
+            for pluginID in reference.manifest.remotePluginIDs {
+                let sourceRoot = reference.remoteCacheURL.appendingPathComponent(pluginID, isDirectory: true)
+                guard let source = latestValidPackage(
+                    pluginID: pluginID,
+                    sourceRoot: sourceRoot,
+                    fileManager: fileManager
+                ) else {
+                    throw MarketplaceError.missingPackage(pluginID)
+                }
+                try fileManager.copyItem(at: source, to: pluginsURL.appendingPathComponent(pluginID, isDirectory: true))
+                entries.append(
+                    MarketplaceManifest.Plugin(
+                        name: pluginID,
+                        source: .init(source: "local", path: "./plugins/\(pluginID)"),
+                        policy: .init(installation: "AVAILABLE")
+                    )
+                )
+            }
+
+            let manifest = MarketplaceManifest(name: name, plugins: entries)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(manifest).write(
+                to: manifestDirectory.appendingPathComponent("marketplace.json"),
+                options: .atomic
+            )
+            guard validate(marketplaceURL: stagingURL, expectedIDs: reference.manifest.remotePluginIDs, fileManager: fileManager) else {
+                throw MarketplaceError.verificationFailed
+            }
+
+            if fileManager.fileExists(atPath: marketplaceURL.path) {
+                try fileManager.moveItem(at: marketplaceURL, to: backupURL)
+            }
+            do {
+                try fileManager.moveItem(at: stagingURL, to: marketplaceURL)
+                guard validate(
+                    marketplaceURL: marketplaceURL,
+                    expectedIDs: reference.manifest.remotePluginIDs,
+                    fileManager: fileManager
+                ) else {
+                    throw MarketplaceError.verificationFailed
+                }
+                if fileManager.fileExists(atPath: backupURL.path) {
+                    try fileManager.removeItem(at: backupURL)
+                }
+            } catch {
+                if fileManager.fileExists(atPath: marketplaceURL.path) {
+                    try? fileManager.removeItem(at: marketplaceURL)
+                }
+                if fileManager.fileExists(atPath: backupURL.path) {
+                    try? fileManager.moveItem(at: backupURL, to: marketplaceURL)
+                }
+                throw error
+            }
+            return .prepared(marketplaceURL: marketplaceURL, pluginIDs: reference.manifest.remotePluginIDs)
+        } catch {
+            if fileManager.fileExists(atPath: stagingURL.path) {
+                try? fileManager.removeItem(at: stagingURL)
+            }
+            return .failed(reason: error.localizedDescription)
+        }
+    }
+
+    private static func latestValidPackage(
+        pluginID: String,
+        sourceRoot: URL,
+        fileManager: FileManager
+    ) -> URL? {
+        guard let versions = try? fileManager.contentsOfDirectory(
+            at: sourceRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+        return versions.sorted { $0.lastPathComponent > $1.lastPathComponent }.first { version in
+            let manifestURL = version.appendingPathComponent(".codex-plugin/plugin.json")
+            guard
+                let data = try? Data(contentsOf: manifestURL),
+                let manifest = try? JSONDecoder().decode(PluginIdentity.self, from: data)
+            else { return false }
+            return manifest.name == pluginID
+        }
+    }
+
+    private static func validate(
+        marketplaceURL: URL,
+        expectedIDs: [String],
+        fileManager: FileManager
+    ) -> Bool {
+        let manifestURL = marketplaceURL.appendingPathComponent(".agents/plugins/marketplace.json")
+        guard
+            let data = try? Data(contentsOf: manifestURL),
+            let manifest = try? JSONDecoder().decode(MarketplaceManifest.self, from: data),
+            manifest.name == name,
+            manifest.plugins.map(\.name).sorted() == expectedIDs.sorted()
+        else { return false }
+        return expectedIDs.allSatisfy { pluginID in
+            fileManager.fileExists(
+                atPath: marketplaceURL.appendingPathComponent("plugins/\(pluginID)/.codex-plugin/plugin.json").path
+            )
+        }
+    }
+
+    private struct PluginIdentity: Decodable {
+        let name: String
+    }
+
+    private struct MarketplaceManifest: Codable {
+        let name: String
+        let plugins: [Plugin]
+
+        struct Plugin: Codable {
+            let name: String
+            let source: Source
+            let policy: Policy
+        }
+
+        struct Source: Codable {
+            let source: String
+            let path: String
+        }
+
+        struct Policy: Codable {
+            let installation: String
+        }
+    }
+
+    private enum MarketplaceError: LocalizedError {
+        case missingPackage(String)
+        case verificationFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .missingPackage(let pluginID):
+                return "saved plugin package is invalid: \(pluginID)"
+            case .verificationFailed:
+                return "local reference marketplace verification failed"
+            }
+        }
     }
 }
 
@@ -719,21 +894,102 @@ enum ReferencePluginReconciler {
     }
 }
 
-enum CuratedPluginPlan {
-    static func commands(referenceIDs: [String], installedIDs: [String]) -> [[String]] {
+enum PluginInstallPlan {
+    static func commands(referenceIDs: [String], installedIDs: [String], marketplace: String) -> [[String]] {
+        guard isBarePluginID(marketplace) else { return [] }
         let reference = Set(referenceIDs.filter(isBarePluginID))
         let installed = Set(installedIDs.filter(isBarePluginID))
         let removals = installed.subtracting(reference).sorted().map {
-            ["plugin", "remove", "\($0)@openai-curated"]
+            ["plugin", "remove", "\($0)@\(marketplace)"]
         }
         let additions = reference.subtracting(installed).sorted().map {
-            ["plugin", "add", "\($0)@openai-curated"]
+            ["plugin", "add", "\($0)@\(marketplace)"]
         }
         return removals + additions
     }
 
     private static func isBarePluginID(_ id: String) -> Bool {
         !id.isEmpty && !id.contains("@") && !id.contains(where: \.isWhitespace)
+    }
+}
+
+enum CuratedPluginPlan {
+    static func commands(referenceIDs: [String], installedIDs: [String]) -> [[String]] {
+        PluginInstallPlan.commands(
+            referenceIDs: referenceIDs,
+            installedIDs: installedIDs,
+            marketplace: "openai-curated"
+        )
+    }
+}
+
+enum ReferenceMarketplacePluginReconciler {
+    enum ReconcileOutcome: Equatable {
+        case alreadyMatched
+        case applied(changes: Int)
+        case failed(reason: String)
+    }
+
+    static func reconcile(
+        homeDirectory: String,
+        reference: ReferencePluginStore.LoadedReference,
+        runCommand: ([String]) -> CommandResult
+    ) -> ReconcileOutcome {
+        let marketplaceURL: URL
+        let referenceIDs: [String]
+        switch ReferencePluginMarketplace.prepare(reference: reference) {
+        case .prepared(let url, let pluginIDs):
+            marketplaceURL = url
+            referenceIDs = pluginIDs
+        case .failed(let reason):
+            return .failed(reason: reason)
+        }
+
+        let configURL = URL(fileURLWithPath: homeDirectory).appendingPathComponent(".codex/config.toml")
+        guard var configText = try? String(contentsOf: configURL, encoding: .utf8) else {
+            return .failed(reason: "config.toml could not be read")
+        }
+        var changeCount = 0
+        let marketplaceHeader = "[marketplaces.\(ReferencePluginMarketplace.name)]"
+        if !configText.contains(marketplaceHeader) {
+            let result = runCommand(["plugin", "marketplace", "add", marketplaceURL.path])
+            guard result.status == 0 else {
+                return .failed(reason: "reference marketplace registration failed: \(result.output)")
+            }
+            changeCount += 1
+            guard let updatedConfig = try? String(contentsOf: configURL, encoding: .utf8) else {
+                return .failed(reason: "config.toml could not be read after marketplace registration")
+            }
+            configText = updatedConfig
+        }
+
+        let installedIDs = ReferencePluginInventory.pluginIDs(
+            configText: configText,
+            marketplace: ReferencePluginMarketplace.name
+        )
+        let commands = PluginInstallPlan.commands(
+            referenceIDs: referenceIDs,
+            installedIDs: installedIDs,
+            marketplace: ReferencePluginMarketplace.name
+        )
+        for arguments in commands {
+            let result = runCommand(arguments)
+            guard result.status == 0 else {
+                return .failed(reason: "\(arguments.joined(separator: " ")) failed: \(result.output)")
+            }
+            changeCount += 1
+        }
+
+        guard
+            let finalConfig = try? String(contentsOf: configURL, encoding: .utf8),
+            ReferencePluginInventory.pluginIDs(
+                configText: finalConfig,
+                marketplace: ReferencePluginMarketplace.name
+            ) == referenceIDs.sorted()
+        else {
+            return .failed(reason: "reference marketplace plugin verification failed")
+        }
+        return changeCount == 0 ? .alreadyMatched : .applied(changes: changeCount)
     }
 }
 
@@ -856,12 +1112,17 @@ enum ReferencePluginTransaction {
         let configURL = codexDirectory.appendingPathComponent("config.toml")
         let remoteCache = codexDirectory.appendingPathComponent("plugins/cache/openai-curated-remote", isDirectory: true)
         let curatedCache = codexDirectory.appendingPathComponent("plugins/cache/openai-curated", isDirectory: true)
+        let referenceCache = codexDirectory.appendingPathComponent(
+            "plugins/cache/\(ReferencePluginMarketplace.name)",
+            isDirectory: true
+        )
         let backupDirectory = codexDirectory.appendingPathComponent(
             ".reference-plugin-transaction.\(UUID().uuidString)",
             isDirectory: true
         )
         let backupRemote = backupDirectory.appendingPathComponent("openai-curated-remote", isDirectory: true)
         let backupCurated = backupDirectory.appendingPathComponent("openai-curated", isDirectory: true)
+        let backupReference = backupDirectory.appendingPathComponent(ReferencePluginMarketplace.name, isDirectory: true)
 
         let originalConfig: Data
         do {
@@ -871,8 +1132,10 @@ enum ReferencePluginTransaction {
         }
         let remoteExisted = fileManager.fileExists(atPath: remoteCache.path)
         let curatedExisted = fileManager.fileExists(atPath: curatedCache.path)
+        let referenceExisted = fileManager.fileExists(atPath: referenceCache.path)
         let originalRemoteDigest = ReferencePluginInventory.remoteTreeDigest(in: remoteCache, fileManager: fileManager)
         let originalCuratedDigest = ReferencePluginInventory.remoteTreeDigest(in: curatedCache, fileManager: fileManager)
+        let originalReferenceDigest = ReferencePluginInventory.remoteTreeDigest(in: referenceCache, fileManager: fileManager)
 
         do {
             try fileManager.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
@@ -881,6 +1144,9 @@ enum ReferencePluginTransaction {
             }
             if curatedExisted {
                 try fileManager.copyItem(at: curatedCache, to: backupCurated)
+            }
+            if referenceExisted {
+                try fileManager.copyItem(at: referenceCache, to: backupReference)
             }
         } catch {
             try? fileManager.removeItem(at: backupDirectory)
@@ -910,11 +1176,19 @@ enum ReferencePluginTransaction {
                 originallyExisted: curatedExisted,
                 fileManager: fileManager
             )
+            try restoreDirectory(
+                active: referenceCache,
+                backup: backupReference,
+                originallyExisted: referenceExisted,
+                fileManager: fileManager
+            )
             guard try Data(contentsOf: configURL) == originalConfig,
                   fileManager.fileExists(atPath: remoteCache.path) == remoteExisted,
                   fileManager.fileExists(atPath: curatedCache.path) == curatedExisted,
+                  fileManager.fileExists(atPath: referenceCache.path) == referenceExisted,
                   ReferencePluginInventory.remoteTreeDigest(in: remoteCache, fileManager: fileManager) == originalRemoteDigest,
-                  ReferencePluginInventory.remoteTreeDigest(in: curatedCache, fileManager: fileManager) == originalCuratedDigest else {
+                  ReferencePluginInventory.remoteTreeDigest(in: curatedCache, fileManager: fileManager) == originalCuratedDigest,
+                  ReferencePluginInventory.remoteTreeDigest(in: referenceCache, fileManager: fileManager) == originalReferenceDigest else {
                 throw ReferencePluginTransactionError.rollbackVerificationFailed
             }
             try fileManager.removeItem(at: backupDirectory)
