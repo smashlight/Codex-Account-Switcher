@@ -841,18 +841,158 @@ enum CuratedPluginReconciler {
     }
 }
 
+enum ReferencePluginTransaction {
+    enum Outcome: Equatable {
+        case applied
+        case failed(reason: String)
+    }
+
+    static func perform(
+        homeDirectory: String,
+        fileManager: FileManager = .default,
+        operation: () -> String?
+    ) -> Outcome {
+        let codexDirectory = URL(fileURLWithPath: homeDirectory).appendingPathComponent(".codex", isDirectory: true)
+        let configURL = codexDirectory.appendingPathComponent("config.toml")
+        let remoteCache = codexDirectory.appendingPathComponent("plugins/cache/openai-curated-remote", isDirectory: true)
+        let curatedCache = codexDirectory.appendingPathComponent("plugins/cache/openai-curated", isDirectory: true)
+        let backupDirectory = codexDirectory.appendingPathComponent(
+            ".reference-plugin-transaction.\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let backupRemote = backupDirectory.appendingPathComponent("openai-curated-remote", isDirectory: true)
+        let backupCurated = backupDirectory.appendingPathComponent("openai-curated", isDirectory: true)
+
+        let originalConfig: Data
+        do {
+            originalConfig = try Data(contentsOf: configURL)
+        } catch {
+            return .failed(reason: "plugin transaction could not read config.toml: \(error.localizedDescription)")
+        }
+        let remoteExisted = fileManager.fileExists(atPath: remoteCache.path)
+        let curatedExisted = fileManager.fileExists(atPath: curatedCache.path)
+        let originalRemoteDigest = ReferencePluginInventory.remoteTreeDigest(in: remoteCache, fileManager: fileManager)
+        let originalCuratedDigest = ReferencePluginInventory.remoteTreeDigest(in: curatedCache, fileManager: fileManager)
+
+        do {
+            try fileManager.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+            if remoteExisted {
+                try fileManager.copyItem(at: remoteCache, to: backupRemote)
+            }
+            if curatedExisted {
+                try fileManager.copyItem(at: curatedCache, to: backupCurated)
+            }
+        } catch {
+            try? fileManager.removeItem(at: backupDirectory)
+            return .failed(reason: "plugin transaction backup failed: \(error.localizedDescription)")
+        }
+
+        guard let failure = operation() else {
+            do {
+                try fileManager.removeItem(at: backupDirectory)
+                return .applied
+            } catch {
+                return .failed(reason: "plugins were applied but transaction backup cleanup failed: \(error.localizedDescription)")
+            }
+        }
+
+        do {
+            try originalConfig.write(to: configURL, options: .atomic)
+            try restoreDirectory(
+                active: remoteCache,
+                backup: backupRemote,
+                originallyExisted: remoteExisted,
+                fileManager: fileManager
+            )
+            try restoreDirectory(
+                active: curatedCache,
+                backup: backupCurated,
+                originallyExisted: curatedExisted,
+                fileManager: fileManager
+            )
+            guard try Data(contentsOf: configURL) == originalConfig,
+                  fileManager.fileExists(atPath: remoteCache.path) == remoteExisted,
+                  fileManager.fileExists(atPath: curatedCache.path) == curatedExisted,
+                  ReferencePluginInventory.remoteTreeDigest(in: remoteCache, fileManager: fileManager) == originalRemoteDigest,
+                  ReferencePluginInventory.remoteTreeDigest(in: curatedCache, fileManager: fileManager) == originalCuratedDigest else {
+                throw ReferencePluginTransactionError.rollbackVerificationFailed
+            }
+            try fileManager.removeItem(at: backupDirectory)
+            return .failed(reason: failure + "; previous plugin state restored")
+        } catch {
+            return .failed(
+                reason: failure + "; plugin transaction rollback failed: \(error.localizedDescription); backup kept at \(backupDirectory.path)"
+            )
+        }
+    }
+
+    private static func restoreDirectory(
+        active: URL,
+        backup: URL,
+        originallyExisted: Bool,
+        fileManager: FileManager
+    ) throws {
+        if fileManager.fileExists(atPath: active.path) {
+            try fileManager.removeItem(at: active)
+        }
+        if originallyExisted {
+            guard fileManager.fileExists(atPath: backup.path) else {
+                throw ReferencePluginTransactionError.rollbackVerificationFailed
+            }
+            try fileManager.createDirectory(at: active.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.copyItem(at: backup, to: active)
+        }
+    }
+
+    private enum ReferencePluginTransactionError: LocalizedError {
+        case rollbackVerificationFailed
+
+        var errorDescription: String? {
+            "plugin transaction rollback verification failed"
+        }
+    }
+}
+
+enum ProcessLookupPolicy {
+    enum Outcome: Equatable {
+        case matches([String])
+        case noMatches
+        case failed(reason: String)
+    }
+
+    static func parse(status: Int32, output: String) -> Outcome {
+        if status == 1 { return .noMatches }
+        guard status == 0 else {
+            return .failed(reason: output.isEmpty ? "pgrep failed with status \(status)" : output)
+        }
+        let processIDs = output.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
+        return processIDs.isEmpty ? .noMatches : .matches(processIDs)
+    }
+}
+
 struct PluginSyncStabilityTracker {
     private struct Observation: Equatable {
         let inventory: [String]
         let fingerprint: String?
     }
 
+    private let requiredStableObservations: Int
     private var previous: Observation?
+    private var matchingObservationCount = 0
+
+    init(requiredStableObservations: Int = 2) {
+        self.requiredStableObservations = max(2, requiredStableObservations)
+    }
 
     mutating func observe(inventory: [String], fingerprint: String?) -> Bool {
         let observation = Observation(inventory: inventory.sorted(), fingerprint: fingerprint)
-        defer { previous = observation }
-        return previous == observation
+        if previous == observation {
+            matchingObservationCount += 1
+        } else {
+            matchingObservationCount = 1
+        }
+        previous = observation
+        return matchingObservationCount >= requiredStableObservations
     }
 }
 

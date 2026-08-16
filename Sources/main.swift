@@ -5237,27 +5237,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
             }
             guard applyReferencePlugins(reference, transcript: &transcript) else {
+                _ = openCodexAndVerify(
+                    label: "Reopening \(codexDesktopAppName) after plugin restoration failure...",
+                    transcript: &transcript
+                )
                 return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
             }
 
             if let failure = openCodexAndVerify(label: "Opening \(codexDesktopAppName) with reference plugins...", transcript: &transcript) {
                 return failure
             }
-            _ = waitForRemotePluginSync(timeout: 6)
-            if verifyReferencePlugins(reference, transcript: &transcript) {
+            let finalSyncStable = waitForRemotePluginSync(timeout: 15)
+            if finalSyncStable, verifyReferencePlugins(reference, transcript: &transcript) {
                 return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
+            }
+            if !finalSyncStable {
+                transcript.append("Plugin sync did not stabilize during the final observation window.")
             }
 
             transcript.append("Codex changed plugins after launch; retrying once from a stopped state.")
             guard terminateCodexProcessTree(transcript: &transcript),
                   applyReferencePlugins(reference, transcript: &transcript) else {
+                _ = openCodexAndVerify(
+                    label: "Reopening \(codexDesktopAppName) after plugin retry failure...",
+                    transcript: &transcript
+                )
                 return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
             }
             if let failure = openCodexAndVerify(label: "Reopening \(codexDesktopAppName) after reference plugin retry...", transcript: &transcript) {
                 return failure
             }
-            _ = waitForRemotePluginSync(timeout: 6)
-            guard verifyReferencePlugins(reference, transcript: &transcript) else {
+            let retrySyncStable = waitForRemotePluginSync(timeout: 15)
+            guard retrySyncStable, verifyReferencePlugins(reference, transcript: &transcript) else {
+                if !retrySyncStable {
+                    transcript.append("Plugin sync did not stabilize after the retry.")
+                }
                 return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
             }
             return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
@@ -5273,18 +5287,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func terminateCodexProcessTree(transcript: inout [String]) -> Bool {
         transcript.append("Quitting \(codexDesktopAppName) process tree...")
         for attempt in 1...6 {
-            let pids = codexAppPIDs()
-            if pids.isEmpty { break }
+            let pids: [String]
+            switch codexAppPIDs() {
+            case .noMatches:
+                return true
+            case .matches(let matches):
+                pids = matches
+            case .failed(let reason):
+                transcript.append("Could not inspect Codex processes: \(reason)")
+                return false
+            }
             let signal = attempt == 1 ? "-TERM" : "-KILL"
             _ = run("/bin/kill", [signal] + pids)
             Thread.sleep(forTimeInterval: 1)
         }
-        let remaining = codexAppPIDs()
-        if !remaining.isEmpty {
+        switch codexAppPIDs() {
+        case .noMatches:
+            return true
+        case .matches(let remaining):
             transcript.append("Codex helper processes remained after force quit: \(remaining.joined(separator: ", ")).")
             return false
+        case .failed(let reason):
+            transcript.append("Could not verify Codex process termination: \(reason)")
+            return false
         }
-        return true
     }
 
     private func openCodexAndVerify(label: String, transcript: inout [String]) -> CommandResult? {
@@ -5313,61 +5339,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func waitForRemotePluginSync(timeout: TimeInterval) -> Bool {
         let cacheURL = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".codex/plugins/cache/openai-curated-remote", isDirectory: true)
-        var tracker = PluginSyncStabilityTracker()
+        var tracker = PluginSyncStabilityTracker(requiredStableObservations: 4)
         let deadline = Date().addingTimeInterval(timeout)
+        var stabilized = false
         Thread.sleep(forTimeInterval: 2)
         while Date() < deadline {
             let inventory = ReferencePluginInventory.remotePluginIDs(homeDirectory: NSHomeDirectory())
             let fingerprint = ReferencePluginInventory.remoteTreeDigest(in: cacheURL)
-            if tracker.observe(inventory: inventory, fingerprint: fingerprint) {
-                return true
-            }
+            stabilized = tracker.observe(inventory: inventory, fingerprint: fingerprint)
             Thread.sleep(forTimeInterval: 0.5)
         }
-        return false
+        return stabilized
     }
 
     private func applyReferencePlugins(
         _ reference: ReferencePluginStore.LoadedReference,
         transcript: inout [String]
     ) -> Bool {
-        let remoteOutcome = ReferencePluginReconciler.reconcile(
-            homeDirectory: NSHomeDirectory(),
-            reference: reference
-        )
-        switch remoteOutcome {
-        case .alreadyMatched:
-            transcript.append("Reference remote plugins already matched.")
-        case .applied(let added, let removed):
-            transcript.append("Reference remote plugins applied: +\(added.count), -\(removed.count).")
-        case .noReference:
-            transcript.append("Reference remote plugins unavailable.")
-            return false
-        case .failed(let reason):
-            transcript.append("Reference remote plugin reconciliation failed: \(reason)")
-            return false
-        }
+        var messages: [String] = []
+        let transaction = ReferencePluginTransaction.perform(homeDirectory: NSHomeDirectory()) {
+            let remoteOutcome = ReferencePluginReconciler.reconcile(
+                homeDirectory: NSHomeDirectory(),
+                reference: reference
+            )
+            switch remoteOutcome {
+            case .alreadyMatched:
+                messages.append("Reference remote plugins already matched.")
+            case .applied(let added, let removed):
+                messages.append("Reference remote plugins applied: +\(added.count), -\(removed.count).")
+            case .noReference:
+                return "reference remote plugins unavailable"
+            case .failed(let reason):
+                return "reference remote plugin reconciliation failed: \(reason)"
+            }
 
-        let bundledCodex = "\(codexDesktopResourcesPath)/codex"
-        guard FileManager.default.isExecutableFile(atPath: bundledCodex) else {
-            transcript.append("Reference curated plugin reconciliation failed: bundled codex CLI not found.")
-            return false
+            let bundledCodex = "\(codexDesktopResourcesPath)/codex"
+            guard FileManager.default.isExecutableFile(atPath: bundledCodex) else {
+                return "reference curated plugin reconciliation failed: bundled codex CLI not found"
+            }
+            let curatedOutcome = CuratedPluginReconciler.reconcile(
+                homeDirectory: NSHomeDirectory(),
+                referenceIDs: reference.manifest.curatedPluginIDs
+            ) { arguments in
+                self.run(bundledCodex, arguments)
+            }
+            switch curatedOutcome {
+            case .alreadyMatched:
+                messages.append("Reference curated plugins already matched.")
+                return nil
+            case .applied(let changes):
+                messages.append("Reference curated plugins applied: \(changes) change(s).")
+                return nil
+            case .failed(let reason):
+                return "reference curated plugin reconciliation failed: \(reason)"
+            }
         }
-        let curatedOutcome = CuratedPluginReconciler.reconcile(
-            homeDirectory: NSHomeDirectory(),
-            referenceIDs: reference.manifest.curatedPluginIDs
-        ) { arguments in
-            self.run(bundledCodex, arguments)
-        }
-        switch curatedOutcome {
-        case .alreadyMatched:
-            transcript.append("Reference curated plugins already matched.")
-            return true
-        case .applied(let changes):
-            transcript.append("Reference curated plugins applied: \(changes) change(s).")
+        transcript.append(contentsOf: messages)
+        switch transaction {
+        case .applied:
             return true
         case .failed(let reason):
-            transcript.append("Reference curated plugin reconciliation failed: \(reason)")
+            transcript.append("Reference plugin transaction failed: \(reason)")
             return false
         }
     }
@@ -5484,14 +5516,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func codexAppPIDs() -> [String] {
+    private func codexAppPIDs() -> ProcessLookupPolicy.Outcome {
         let escapedPath = NSRegularExpression.escapedPattern(for: codexDesktopAppPath)
         let result = run("/usr/bin/pgrep", ["-f", "\(escapedPath)/Contents/"])
-        guard result.status == 0 else { return [] }
-        return result.output
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .filter { !$0.isEmpty }
+        return ProcessLookupPolicy.parse(status: result.status, output: result.output)
     }
 
     private func parseAccounts(_ output: String, usageIsLive: Bool = true) -> [CodexAccount] {

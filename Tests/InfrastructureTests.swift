@@ -87,7 +87,9 @@ struct InfrastructureTests {
         try testReferencePluginReconcileReportsRollbackFailure()
         testCuratedPluginPlan()
         try testCuratedPluginReconcileRollsBackPartialFailure()
+        try testReferencePluginTransactionRollsBackBothLayers()
         testPluginSyncStabilityTracker()
+        testProcessLookupPolicy()
 
         if failures.isEmpty {
             print("Infrastructure tests passed (\(assertionCount) assertions).")
@@ -1462,5 +1464,56 @@ struct InfrastructureTests {
             !tracker.observe(inventory: ["canva", "posthog"], fingerprint: "digest-b"),
             "an inventory change should reset sync stability"
         )
+        var cautiousTracker = PluginSyncStabilityTracker(requiredStableObservations: 4)
+        expect(!cautiousTracker.observe(inventory: ["canva"], fingerprint: "digest-a"), "first cautious observation should wait")
+        expect(!cautiousTracker.observe(inventory: ["canva"], fingerprint: "digest-a"), "second cautious observation should wait")
+        expect(!cautiousTracker.observe(inventory: ["canva"], fingerprint: "digest-a"), "third cautious observation should wait")
+        expect(cautiousTracker.observe(inventory: ["canva"], fingerprint: "digest-a"), "fourth cautious observation should stabilize")
+    }
+
+    private static func testReferencePluginTransactionRollsBackBothLayers() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let configURL = home.appendingPathComponent(".codex/config.toml")
+        let remoteCache = home.appendingPathComponent(".codex/plugins/cache/openai-curated-remote")
+        let remotePayload = remoteCache.appendingPathComponent("canva/1.0.0/payload.txt")
+        let originalConfig = "[plugins.\"canva@openai-curated\"]\nenabled = true\n"
+        try FileManager.default.createDirectory(at: remotePayload.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try originalConfig.write(to: configURL, atomically: true, encoding: .utf8)
+        try Data("canva".utf8).write(to: remotePayload)
+
+        let outcome = ReferencePluginTransaction.perform(homeDirectory: home.path) {
+            try? FileManager.default.removeItem(at: remoteCache)
+            try? "".write(to: configURL, atomically: true, encoding: .utf8)
+            return "forced curated failure"
+        }
+
+        if case .failed(let reason) = outcome {
+            expect(reason.contains("restored"), "plugin transaction should report successful rollback")
+        } else {
+            expect(false, "plugin transaction should fail when its operation fails")
+        }
+        let restoredConfig = try String(contentsOf: configURL, encoding: .utf8)
+        let restoredPayload = try String(contentsOf: remotePayload, encoding: .utf8)
+        expect(
+            restoredConfig == originalConfig,
+            "plugin transaction should restore curated config"
+        )
+        expect(
+            restoredPayload == "canva",
+            "plugin transaction should restore remote cache files"
+        )
+    }
+
+    private static func testProcessLookupPolicy() {
+        expect(ProcessLookupPolicy.parse(status: 1, output: "") == .noMatches, "pgrep status 1 should mean no matches")
+        expect(
+            ProcessLookupPolicy.parse(status: 0, output: "12\n34\n") == .matches(["12", "34"]),
+            "successful pgrep output should return process IDs"
+        )
+        if case .failed = ProcessLookupPolicy.parse(status: 2, output: "usage error") {} else {
+            expect(false, "pgrep errors should not be treated as no matches")
+        }
     }
 }
