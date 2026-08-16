@@ -1,5 +1,21 @@
 import Foundation
 
+private final class FailingSecondMoveFileManager: FileManager, @unchecked Sendable {
+    private var moveCount = 0
+
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        moveCount += 1
+        if moveCount == 2 {
+            throw NSError(
+                domain: "ReferencePluginTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "forced staged swap failure"]
+            )
+        }
+        try super.moveItem(at: srcURL, to: dstURL)
+    }
+}
+
 @main
 struct InfrastructureTests {
     private static var failures: [String] = []
@@ -44,6 +60,10 @@ struct InfrastructureTests {
         try testReferencePluginInventory()
         try testReferencePluginCaptureRoundTrip()
         try testReferencePluginCapturePreservesPreviousReference()
+        try testReferencePluginReconcileExactMatch()
+        try testReferencePluginReconcileIdempotent()
+        try testReferencePluginReconcileWithoutReference()
+        try testReferencePluginReconcileRollsBackFailedSwap()
 
         if failures.isEmpty {
             print("Infrastructure tests passed (\(assertionCount) assertions).")
@@ -1112,6 +1132,120 @@ struct InfrastructureTests {
         expect(
             ReferencePluginStore.load(storeDirectory: store)?.manifest.remotePluginIDs == ["vercel"],
             "failed capture should preserve the previous reference"
+        )
+    }
+
+    private static func makeReferencePluginFixture(root: URL, remoteIDs: [String]) throws -> ReferencePluginStore.LoadedReference {
+        let canonicalHome = root.appendingPathComponent("canonical-home")
+        for id in remoteIDs {
+            let version = canonicalHome.appendingPathComponent(
+                ".codex/plugins/cache/openai-curated-remote/\(id)/1.0.0"
+            )
+            try FileManager.default.createDirectory(at: version, withIntermediateDirectories: true)
+            try Data(id.utf8).write(to: version.appendingPathComponent("payload.txt"))
+        }
+        try FileManager.default.createDirectory(
+            at: canonicalHome.appendingPathComponent(".codex"),
+            withIntermediateDirectories: true
+        )
+        try "".write(
+            to: canonicalHome.appendingPathComponent(".codex/config.toml"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let store = root.appendingPathComponent("reference-plugins")
+        _ = ReferencePluginStore.capture(homeDirectory: canonicalHome.path, storeDirectory: store)
+        return ReferencePluginStore.load(storeDirectory: store)!
+    }
+
+    private static func testReferencePluginReconcileExactMatch() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(
+            root: root,
+            remoteIDs: ["cloudflare", "product-design", "vercel"]
+        )
+        let targetHome = root.appendingPathComponent("target-home")
+        for id in ["canva", "posthog", "vercel"] {
+            try FileManager.default.createDirectory(
+                at: targetHome.appendingPathComponent(".codex/plugins/cache/openai-curated-remote/\(id)"),
+                withIntermediateDirectories: true
+            )
+        }
+
+        let outcome = ReferencePluginReconciler.reconcile(
+            homeDirectory: targetHome.path,
+            reference: reference
+        )
+
+        expect(
+            outcome == .applied(
+                added: ["cloudflare", "product-design"],
+                removed: ["canva", "posthog"]
+            ),
+            "reconcile should report exact additions and removals"
+        )
+        expect(
+            ReferencePluginInventory.remotePluginIDs(homeDirectory: targetHome.path) == ["cloudflare", "product-design", "vercel"],
+            "reconcile should make the active remote set exactly match the reference"
+        )
+    }
+
+    private static func testReferencePluginReconcileIdempotent() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(root: root, remoteIDs: ["cloudflare", "vercel"])
+        let targetHome = root.appendingPathComponent("target-home")
+        try FileManager.default.createDirectory(
+            at: targetHome.appendingPathComponent(".codex/plugins/cache/openai-curated-remote"),
+            withIntermediateDirectories: true
+        )
+
+        _ = ReferencePluginReconciler.reconcile(homeDirectory: targetHome.path, reference: reference)
+        let second = ReferencePluginReconciler.reconcile(homeDirectory: targetHome.path, reference: reference)
+
+        expect(second == .alreadyMatched, "repeated reconciliation should be a no-op")
+    }
+
+    private static func testReferencePluginReconcileWithoutReference() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".codex/plugins/cache/openai-curated-remote/canva"),
+            withIntermediateDirectories: true
+        )
+
+        let outcome = ReferencePluginReconciler.reconcile(homeDirectory: root.path, reference: nil)
+
+        expect(outcome == .noReference, "missing reference should be reported")
+        expect(
+            ReferencePluginInventory.remotePluginIDs(homeDirectory: root.path) == ["canva"],
+            "missing reference should leave the active cache unchanged"
+        )
+    }
+
+    private static func testReferencePluginReconcileRollsBackFailedSwap() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(root: root, remoteIDs: ["vercel"])
+        let targetHome = root.appendingPathComponent("target-home")
+        try FileManager.default.createDirectory(
+            at: targetHome.appendingPathComponent(".codex/plugins/cache/openai-curated-remote/canva"),
+            withIntermediateDirectories: true
+        )
+
+        let outcome = ReferencePluginReconciler.reconcile(
+            homeDirectory: targetHome.path,
+            reference: reference,
+            fileManager: FailingSecondMoveFileManager()
+        )
+
+        if case .failed = outcome {} else {
+            expect(false, "a staged swap failure should be reported")
+        }
+        expect(
+            ReferencePluginInventory.remotePluginIDs(homeDirectory: targetHome.path) == ["canva"],
+            "a staged swap failure should restore the target account cache"
         )
     }
 }

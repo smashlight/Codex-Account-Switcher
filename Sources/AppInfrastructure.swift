@@ -500,6 +500,107 @@ enum ReferencePluginStore {
     }
 }
 
+enum ReferencePluginReconciler {
+    enum ReconcileOutcome: Equatable {
+        case alreadyMatched
+        case applied(added: [String], removed: [String])
+        case noReference
+        case failed(reason: String)
+    }
+
+    static func reconcile(
+        homeDirectory: String,
+        reference: ReferencePluginStore.LoadedReference?,
+        fileManager: FileManager = .default
+    ) -> ReconcileOutcome {
+        guard let reference else { return .noReference }
+        let activeCache = URL(fileURLWithPath: homeDirectory)
+            .appendingPathComponent(".codex/plugins/cache/openai-curated-remote", isDirectory: true)
+        let cacheParent = activeCache.deletingLastPathComponent()
+        let currentIDs = ReferencePluginInventory.remotePluginIDs(in: activeCache, fileManager: fileManager)
+        let referenceIDs = reference.manifest.remotePluginIDs
+        guard currentIDs != referenceIDs else { return .alreadyMatched }
+
+        let currentSet = Set(currentIDs)
+        let referenceSet = Set(referenceIDs)
+        let added = referenceSet.subtracting(currentSet).sorted()
+        let removed = currentSet.subtracting(referenceSet).sorted()
+        let staging = cacheParent.appendingPathComponent(
+            "openai-curated-remote.staging.\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let backup = cacheParent.appendingPathComponent(
+            "openai-curated-remote.backup.\(Int(Date().timeIntervalSince1970)).\(UUID().uuidString)",
+            isDirectory: true
+        )
+        var activeWasMoved = false
+
+        do {
+            try fileManager.createDirectory(at: cacheParent, withIntermediateDirectories: true)
+            try fileManager.copyItem(at: reference.remoteCacheURL, to: staging)
+            guard ReferencePluginInventory.remotePluginIDs(in: staging, fileManager: fileManager) == referenceIDs else {
+                throw ReferencePluginReconcileError.verificationFailed
+            }
+            if fileManager.fileExists(atPath: activeCache.path) {
+                try fileManager.moveItem(at: activeCache, to: backup)
+                activeWasMoved = true
+            }
+            do {
+                try fileManager.moveItem(at: staging, to: activeCache)
+                guard ReferencePluginInventory.remotePluginIDs(in: activeCache, fileManager: fileManager) == referenceIDs else {
+                    throw ReferencePluginReconcileError.verificationFailed
+                }
+            } catch {
+                if fileManager.fileExists(atPath: activeCache.path) {
+                    try? fileManager.removeItem(at: activeCache)
+                }
+                if activeWasMoved, fileManager.fileExists(atPath: backup.path) {
+                    try? fileManager.moveItem(at: backup, to: activeCache)
+                }
+                throw error
+            }
+            pruneBackups(in: cacheParent, fileManager: fileManager)
+            return .applied(added: added, removed: removed)
+        } catch {
+            if fileManager.fileExists(atPath: staging.path) {
+                try? fileManager.removeItem(at: staging)
+            }
+            if activeWasMoved,
+               !fileManager.fileExists(atPath: activeCache.path),
+               fileManager.fileExists(atPath: backup.path) {
+                try? fileManager.moveItem(at: backup, to: activeCache)
+            }
+            return .failed(reason: error.localizedDescription)
+        }
+    }
+
+    private static func pruneBackups(in directory: URL, keeping keepCount: Int = 3, fileManager: FileManager) {
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let backups = entries
+            .filter { $0.lastPathComponent.hasPrefix("openai-curated-remote.backup.") }
+            .sorted { left, right in
+                let leftDate = (try? left.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let rightDate = (try? right.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return leftDate > rightDate
+            }
+        for backup in backups.dropFirst(keepCount) {
+            try? fileManager.removeItem(at: backup)
+        }
+    }
+
+    private enum ReferencePluginReconcileError: LocalizedError {
+        case verificationFailed
+
+        var errorDescription: String? {
+            "reference plugin reconciliation verification failed"
+        }
+    }
+}
+
 enum AuthBackupPruner {
     @discardableResult
     static func prune(in directory: URL, keepingPerAccount keepCount: Int = 10, fileManager: FileManager = .default) -> Int {
