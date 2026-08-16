@@ -15,9 +15,9 @@ Keep one account-independent reference set of user and integration plugins activ
 
 ## Scope
 
-The reference set covers:
+The reference set captures:
 
-- the complete `~/.codex/plugins/cache/openai-curated-remote` tree, including plugin versions and support packages;
+- the complete `~/.codex/plugins/cache/openai-curated-remote` tree as source material for an account-independent local marketplace;
 - explicitly installed `openai-curated` plugin identifiers that are part of the saved reference manifest.
 
 The reference set does not manage:
@@ -26,7 +26,7 @@ The reference set does not manage:
 - `openai-primary-runtime` plugins such as Documents, PDF, Presentations, Spreadsheets, and Template Creator;
 - OAuth grants or other account-bound authorization tokens.
 
-The initial reference is captured from the currently active canonical account. Its observed remote packages are `cloudflare`, `openai-templates`, `plugin-management`, `product-design`, `superpowers`, and `vercel`. GitHub is retained as the canonical explicitly installed curated plugin. The temporary duplicate local installation `superpowers@openai-curated` is not part of the reference because `superpowers` is already supplied by `openai-curated-remote`.
+The initial reference is captured from the currently active canonical account. Its observed remote packages are `cloudflare`, `openai-templates`, `plugin-management`, `product-design`, `superpowers`, and `vercel`. GitHub is retained as the canonical explicitly installed curated plugin. On every account, the six saved packages are installed from `account-switcher-reference`; the account-owned remote catalog may still advertise additional packages, but those are not part of the installed reference set.
 
 ## User Experience
 
@@ -55,7 +55,10 @@ Reference data lives outside `~/.codex` under the switcher's Application Support
 ```text
 ~/Library/Application Support/Codex Account Switcher/reference-plugins/
 ├── manifest.json
-└── openai-curated-remote/
+├── openai-curated-remote/
+└── local-marketplace/
+    ├── .agents/plugins/marketplace.json
+    └── plugins/
 ```
 
 `manifest.json` contains a schema version, capture timestamp, sorted remote package identifiers, and sorted explicitly installed `openai-curated` plugin identifiers. It contains no account IDs, email addresses, OAuth tokens, or other credentials.
@@ -80,16 +83,16 @@ Synchronization is considered settled when the remote cache inventory and modifi
 
 ## Reconciliation
 
-Remote packages use an atomic directory replacement:
+Remote packages are materialized as a local marketplace:
 
-1. copy the saved reference into a sibling staging directory;
-2. verify that the staged identifiers exactly match the manifest;
-3. move the active `openai-curated-remote` directory to a timestamped rollback path;
-4. move the staged reference into the active path;
-5. re-read the active inventory and require exact equality with the manifest;
-6. restore the rollback directory if any operation or verification fails.
+1. flatten the latest valid saved version of each package into a staged marketplace;
+2. verify every package manifest and write `marketplace.json` atomically;
+3. atomically replace the previous `account-switcher-reference` marketplace;
+4. register the marketplace through the bundled Codex CLI when needed;
+5. remove stale local-reference installations and install missing or content-changed packages;
+6. verify both enabled identifiers and installed package contents.
 
-This exact replacement removes target-account packages that are not in the reference and restores missing reference packages. Successful reconciliation keeps a bounded number of rollback snapshots; pruning never touches the active directory or the saved reference.
+The server-owned `openai-curated-remote` cache is never replaced. Configuration plus curated and local-reference caches remain under a transaction backup until the final Codex launch and content verification succeed. Any failure restores the pre-reconciliation state before Codex is reopened.
 
 Explicit `openai-curated` plugins are reconciled through the bundled Codex CLI. Missing reference identifiers use `codex plugin add`. Installed non-reference identifiers use `codex plugin remove`, except for protected system entries. Every command has a timeout and its result is included in the reconciliation outcome. A CLI failure triggers rollback of local configuration and cache changes where possible and reports the remaining discrepancy.
 
@@ -97,7 +100,7 @@ Explicit `openai-curated` plugins are reconciled through the bundled Codex CLI. 
 
 - Never read, copy, modify, or log `auth.json`, account registries, OAuth grants, or tokens.
 - Never mutate `openai-bundled` or `openai-primary-runtime` as part of reference reconciliation.
-- Never delete the active remote cache before a verified staging copy and rollback path exist.
+- Never modify the account-owned active remote cache during reference reconciliation.
 - Reference capture and application are idempotent.
 - A missing or corrupt reference prevents reconciliation and leaves the account-synchronized set untouched.
 - A repair failure does not roll back the authenticated account switch; it is reported as a plugin reconciliation failure.
@@ -110,7 +113,9 @@ Pure, AppKit-free infrastructure in `Sources/AppInfrastructure.swift`:
 - `ReferencePluginManifest`: Codable schema for reference metadata.
 - `ReferencePluginInventory`: discovers sorted remote and explicit curated plugin identifiers.
 - `ReferencePluginStore`: atomically captures and validates the saved reference.
-- `ReferencePluginReconciler`: stages, swaps, verifies, rolls back, and returns a structured outcome.
+- `ReferencePluginMarketplace`: atomically builds and verifies the saved local marketplace.
+- `ReferenceMarketplacePluginReconciler`: installs missing or content-changed saved packages through the bundled CLI.
+- `ReferencePluginTransaction`: retains and verifies rollback state through final launch verification.
 
 Thin integration in `Sources/main.swift`:
 
@@ -127,7 +132,7 @@ Infrastructure tests use temporary fixture trees and injected command runners. R
 - failed capture preserves the previous reference;
 - matching active/reference sets are a no-op;
 - missing reference packages are restored;
-- target-account-only packages are removed from the active set;
+- target-account-only packages are absent from the installed reference set;
 - missing and extra packages are reconciled together;
 - unavailable `product-design` is restored from the saved files without marketplace access;
 - staged-copy or post-swap verification failure restores the previous active set;
@@ -143,8 +148,8 @@ Verification requires `./run-tests.sh`, `./build.sh`, installation, installed-bu
 
 After switching to any saved account:
 
-- active user/integration plugin identifiers exactly equal the saved reference;
-- plugins supplied only by the target account are absent;
+- installed user/integration plugin identifiers exactly equal the saved reference;
+- plugins supplied only by the target account are not installed by reference reconciliation;
 - all bundled and primary-runtime plugins remain available;
 - reference packages unavailable from the current marketplace still work from the saved snapshot;
 - failures preserve either the pre-reconciliation active set or a verified rollback and produce a clear transcript entry.

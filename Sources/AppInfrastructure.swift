@@ -250,11 +250,20 @@ enum BundledMarketplaceRepairer {
         if let source {
             let stamp = Int(Date().timeIntervalSince1970)
             let backup = marketplaceDir.appendingPathComponent("bundled-marketplaces.bak.\(stamp)")
+            let snapshotExisted = fileManager.fileExists(atPath: snapshot.path)
             do {
-                try moveItem(source: snapshot, to: backup, fileManager: fileManager)
+                try fileManager.createDirectory(at: marketplaceDir, withIntermediateDirectories: true)
+                if snapshotExisted {
+                    try moveItem(source: snapshot, to: backup, fileManager: fileManager)
+                }
                 try fileManager.copyItem(at: source, to: snapshot)
             } catch {
-                restoreBackup(backup: backup, snapshot: snapshot, fileManager: fileManager)
+                restoreBackup(
+                    backup: backup,
+                    snapshot: snapshot,
+                    originallyExisted: snapshotExisted,
+                    fileManager: fileManager
+                )
                 return .failed(reason: "snapshot copy failed: \(error.localizedDescription)")
             }
 
@@ -264,7 +273,12 @@ enum BundledMarketplaceRepairer {
                 fileManager: fileManager
             )
             guard recheck == .ok else {
-                restoreBackup(backup: backup, snapshot: snapshot, fileManager: fileManager)
+                restoreBackup(
+                    backup: backup,
+                    snapshot: snapshot,
+                    originallyExisted: snapshotExisted,
+                    fileManager: fileManager
+                )
                 return .failed(reason: "snapshot verification failed after repair")
             }
 
@@ -279,6 +293,12 @@ enum BundledMarketplaceRepairer {
                 ) {
                     let result = runner(codexExecutable, ["plugin", "add", "\(id)@openai-bundled"], [:])
                     if result.status != 0 {
+                        restoreBackup(
+                            backup: backup,
+                            snapshot: snapshot,
+                            originallyExisted: snapshotExisted,
+                            fileManager: fileManager
+                        )
                         return .failed(reason: "snapshot repaired but plugin reinstall failed for \(id): \(result.output)")
                     }
                 }
@@ -321,12 +341,18 @@ enum BundledMarketplaceRepairer {
         }
     }
 
-    private static func restoreBackup(backup: URL, snapshot: URL, fileManager: FileManager) {
-        guard fileManager.fileExists(atPath: backup.path) else { return }
+    private static func restoreBackup(
+        backup: URL,
+        snapshot: URL,
+        originallyExisted: Bool,
+        fileManager: FileManager
+    ) {
         if fileManager.fileExists(atPath: snapshot.path) {
             try? fileManager.removeItem(at: snapshot)
         }
-        try? fileManager.moveItem(at: backup, to: snapshot)
+        if originallyExisted, fileManager.fileExists(atPath: backup.path) {
+            try? fileManager.moveItem(at: backup, to: snapshot)
+        }
     }
 }
 
@@ -515,6 +541,25 @@ enum ReferencePluginMarketplace {
         }
     }
 
+    static func staleInstalledPluginIDs(
+        marketplaceURL: URL,
+        installedCacheURL: URL,
+        pluginIDs: [String],
+        fileManager: FileManager = .default
+    ) -> [String] {
+        pluginIDs.filter { pluginID in
+            let referencePackage = marketplaceURL.appendingPathComponent("plugins/\(pluginID)", isDirectory: true)
+            let installedRoot = installedCacheURL.appendingPathComponent(pluginID, isDirectory: true)
+            guard let installedPackage = latestValidPackage(
+                pluginID: pluginID,
+                sourceRoot: installedRoot,
+                fileManager: fileManager
+            ) else { return true }
+            return ReferencePluginInventory.remoteTreeDigest(in: installedPackage, fileManager: fileManager)
+                != ReferencePluginInventory.remoteTreeDigest(in: referencePackage, fileManager: fileManager)
+        }.sorted()
+    }
+
     private static func latestValidPackage(
         pluginID: String,
         sourceRoot: URL,
@@ -525,7 +570,9 @@ enum ReferencePluginMarketplace {
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else { return nil }
-        return versions.sorted { $0.lastPathComponent > $1.lastPathComponent }.first { version in
+        return versions.sorted {
+            $0.lastPathComponent.compare($1.lastPathComponent, options: .numeric) == .orderedDescending
+        }.first { version in
             let manifestURL = version.appendingPathComponent(".codex-plugin/plugin.json")
             guard
                 let data = try? Data(contentsOf: manifestURL),
@@ -895,14 +942,20 @@ enum ReferencePluginReconciler {
 }
 
 enum PluginInstallPlan {
-    static func commands(referenceIDs: [String], installedIDs: [String], marketplace: String) -> [[String]] {
+    static func commands(
+        referenceIDs: [String],
+        installedIDs: [String],
+        staleIDs: [String] = [],
+        marketplace: String
+    ) -> [[String]] {
         guard isBarePluginID(marketplace) else { return [] }
         let reference = Set(referenceIDs.filter(isBarePluginID))
         let installed = Set(installedIDs.filter(isBarePluginID))
-        let removals = installed.subtracting(reference).sorted().map {
+        let stale = Set(staleIDs.filter(isBarePluginID)).intersection(reference).intersection(installed)
+        let removals = installed.subtracting(reference).union(stale).sorted().map {
             ["plugin", "remove", "\($0)@\(marketplace)"]
         }
-        let additions = reference.subtracting(installed).sorted().map {
+        let additions = reference.subtracting(installed).union(stale).sorted().map {
             ["plugin", "add", "\($0)@\(marketplace)"]
         }
         return removals + additions
@@ -967,9 +1020,19 @@ enum ReferenceMarketplacePluginReconciler {
             configText: configText,
             marketplace: ReferencePluginMarketplace.name
         )
+        let installedCache = URL(fileURLWithPath: homeDirectory).appendingPathComponent(
+            ".codex/plugins/cache/\(ReferencePluginMarketplace.name)",
+            isDirectory: true
+        )
+        let staleIDs = ReferencePluginMarketplace.staleInstalledPluginIDs(
+            marketplaceURL: marketplaceURL,
+            installedCacheURL: installedCache,
+            pluginIDs: referenceIDs
+        )
         let commands = PluginInstallPlan.commands(
             referenceIDs: referenceIDs,
             installedIDs: installedIDs,
+            staleIDs: staleIDs,
             marketplace: ReferencePluginMarketplace.name
         )
         for arguments in commands {
@@ -985,7 +1048,12 @@ enum ReferenceMarketplacePluginReconciler {
             ReferencePluginInventory.pluginIDs(
                 configText: finalConfig,
                 marketplace: ReferencePluginMarketplace.name
-            ) == referenceIDs.sorted()
+            ) == referenceIDs.sorted(),
+            ReferencePluginMarketplace.staleInstalledPluginIDs(
+                marketplaceURL: marketplaceURL,
+                installedCacheURL: installedCache,
+                pluginIDs: referenceIDs
+            ).isEmpty
         else {
             return .failed(reason: "reference marketplace plugin verification failed")
         }
@@ -1106,6 +1174,7 @@ enum ReferencePluginTransaction {
     static func perform(
         homeDirectory: String,
         fileManager: FileManager = .default,
+        finalize: () -> String? = { nil },
         operation: () -> String?
     ) -> Outcome {
         let codexDirectory = URL(fileURLWithPath: homeDirectory).appendingPathComponent(".codex", isDirectory: true)
@@ -1153,7 +1222,8 @@ enum ReferencePluginTransaction {
             return .failed(reason: "plugin transaction backup failed: \(error.localizedDescription)")
         }
 
-        guard let failure = operation() else {
+        let failure = operation() ?? finalize()
+        guard let failure else {
             do {
                 try fileManager.removeItem(at: backupDirectory)
                 return .applied

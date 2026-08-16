@@ -66,6 +66,7 @@ struct InfrastructureTests {
         try testBundledMarketplaceAppSource()
         try testBundledMarketplaceRepairNoop()
         try testBundledMarketplaceRepairFromApp()
+        try testBundledMarketplaceRepairRestoresAbsentSnapshot()
         try testBundledMarketplaceRepairRefreshesOutdatedSnapshot()
         try testBundledMarketplaceRepairNoApp()
         try testBundledMarketplaceRepairStaleMove()
@@ -80,6 +81,7 @@ struct InfrastructureTests {
         try testReferencePluginCaptureRequiresReadableConfig()
         try testReferencePluginLoadRejectsModifiedFiles()
         try testReferencePluginMarketplacePreparation()
+        try testReferencePluginMarketplaceDetectsChangedInstalledPackage()
         try testReferencePluginReconcileExactMatch()
         try testReferencePluginReconcileRestoresChangedFiles()
         try testReferencePluginReconcileIdempotent()
@@ -88,9 +90,13 @@ struct InfrastructureTests {
         try testReferencePluginReconcileReportsRollbackFailure()
         testCuratedPluginPlan()
         testReferenceMarketplacePluginPlan()
+        testReferenceMarketplacePluginPlanReinstallsChangedPackage()
         try testReferenceMarketplacePluginReconcile()
+        try testReferenceMarketplacePluginReconcileReinstallsChangedPackage()
+        try testReferenceMarketplacePluginReconcileReportsCLIError()
         try testCuratedPluginReconcileRollsBackPartialFailure()
         try testReferencePluginTransactionRollsBackBothLayers()
+        try testReferencePluginTransactionRollsBackFailedFinalization()
         testPluginSyncStabilityTracker()
         testProcessLookupPolicy()
 
@@ -897,6 +903,24 @@ struct InfrastructureTests {
         expect(backups.contains { $0.hasPrefix("bundled-marketplaces.bak.") }, "the stale snapshot should be moved to a backup before copying")
     }
 
+    private static func testBundledMarketplaceRepairRestoresAbsentSnapshot() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeHomeSnapshot(home: root)
+        let app = try makeFakeApp(home: root)
+        try makeCompleteMarketplace(
+            root: URL(fileURLWithPath: app).appendingPathComponent("Contents/Resources/plugins/openai-bundled")
+        )
+
+        let outcome = BundledMarketplaceRepairer.repairIfNeeded(homeDirectory: root.path, appPath: app)
+
+        expect(outcome == .repairedFromApp, "an absent bundled snapshot should be restored from the app")
+        expect(
+            BundledMarketplaceInspector.snapshotState(homeDirectory: root.path) == .ok,
+            "restoring an absent bundled snapshot should produce a complete marketplace"
+        )
+    }
+
     private static func testBundledMarketplaceRepairRefreshesOutdatedSnapshot() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1055,6 +1079,11 @@ struct InfrastructureTests {
         if case .failed = outcome {} else {
             expect(false, "a failed plugin reinstall should report failed")
         }
+        expect(
+            BundledMarketplaceInspector.snapshotState(homeDirectory: root.path)
+                == .incomplete(missing: ["browser", "computer-use"]),
+            "a failed bundled plugin reinstall should restore the previous snapshot"
+        )
     }
 
     private static func testReferencePluginInventory() throws {
@@ -1206,6 +1235,37 @@ struct InfrastructureTests {
                 "the local marketplace should flatten the saved version for \(id)"
             )
         }
+    }
+
+    private static func testReferencePluginMarketplaceDetectsChangedInstalledPackage() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(root: root, remoteIDs: ["cloudflare", "product-design"])
+        guard case .prepared(let marketplaceURL, _) = ReferencePluginMarketplace.prepare(reference: reference) else {
+            expect(false, "a valid reference should prepare before installed package comparison")
+            return
+        }
+        let installedCache = root.appendingPathComponent("installed-cache")
+        for id in ["cloudflare", "product-design"] {
+            let destination = installedCache.appendingPathComponent("\(id)/1.0.0")
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(
+                at: marketplaceURL.appendingPathComponent("plugins/\(id)"),
+                to: destination
+            )
+        }
+        try Data("stale".utf8).write(
+            to: installedCache.appendingPathComponent("cloudflare/1.0.0/payload.txt")
+        )
+
+        expect(
+            ReferencePluginMarketplace.staleInstalledPluginIDs(
+                marketplaceURL: marketplaceURL,
+                installedCacheURL: installedCache,
+                pluginIDs: ["cloudflare", "product-design"]
+            ) == ["cloudflare"],
+            "content comparison should mark only the changed installed package as stale"
+        )
     }
 
     private static func testReferencePluginCaptureReportsRollbackFailure() throws {
@@ -1483,6 +1543,21 @@ struct InfrastructureTests {
         )
     }
 
+    private static func testReferenceMarketplacePluginPlanReinstallsChangedPackage() {
+        expect(
+            PluginInstallPlan.commands(
+                referenceIDs: ["cloudflare", "product-design"],
+                installedIDs: ["cloudflare", "product-design"],
+                staleIDs: ["product-design"],
+                marketplace: ReferencePluginMarketplace.name
+            ) == [
+                ["plugin", "remove", "product-design@account-switcher-reference"],
+                ["plugin", "add", "product-design@account-switcher-reference"],
+            ],
+            "a changed saved package should be removed and reinstalled even when its ID is unchanged"
+        )
+    }
+
     private static func testReferenceMarketplacePluginReconcile() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1503,6 +1578,18 @@ struct InfrastructureTests {
                 config += "\n[marketplaces.account-switcher-reference]\nsource_type = \"local\"\n"
             } else if arguments.prefix(2) == ["plugin", "add"], let selector = arguments.last {
                 config += "\n[plugins.\"\(selector)\"]\nenabled = true\n"
+                let pluginID = selector.split(separator: "@", maxSplits: 1).first.map(String.init) ?? selector
+                let source = reference.remoteCacheURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("local-marketplace/plugins/\(pluginID)")
+                let destination = home.appendingPathComponent(
+                    ".codex/plugins/cache/account-switcher-reference/\(pluginID)/1.0.0"
+                )
+                try? FileManager.default.createDirectory(
+                    at: destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try? FileManager.default.copyItem(at: source, to: destination)
             }
             try? config.write(to: configURL, atomically: true, encoding: .utf8)
             return CommandResult(status: 0, output: "ok")
@@ -1516,6 +1603,90 @@ struct InfrastructureTests {
             ],
             "every saved remote plugin should be installed from the local reference marketplace"
         )
+    }
+
+    private static func testReferenceMarketplacePluginReconcileReinstallsChangedPackage() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(root: root, remoteIDs: ["cloudflare"])
+        let home = root.appendingPathComponent("target-home")
+        let configURL = home.appendingPathComponent(".codex/config.toml")
+        try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        [marketplaces.account-switcher-reference]
+        source_type = "local"
+
+        [plugins."cloudflare@account-switcher-reference"]
+        enabled = true
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        let installedCache = home.appendingPathComponent(".codex/plugins/cache/account-switcher-reference")
+        let installedPackage = installedCache.appendingPathComponent("cloudflare/0.9.0")
+        try FileManager.default.createDirectory(
+            at: installedPackage.appendingPathComponent(".codex-plugin"),
+            withIntermediateDirectories: true
+        )
+        try Data("{\"name\":\"cloudflare\",\"version\":\"0.9.0\"}".utf8).write(
+            to: installedPackage.appendingPathComponent(".codex-plugin/plugin.json")
+        )
+        try Data("stale".utf8).write(to: installedPackage.appendingPathComponent("payload.txt"))
+        var commands: [[String]] = []
+
+        let outcome = ReferenceMarketplacePluginReconciler.reconcile(
+            homeDirectory: home.path,
+            reference: reference
+        ) { arguments in
+            commands.append(arguments)
+            let cacheRoot = home.appendingPathComponent(".codex/plugins/cache/account-switcher-reference/cloudflare")
+            if arguments.prefix(2) == ["plugin", "remove"] {
+                try? FileManager.default.removeItem(at: cacheRoot)
+            } else if arguments.prefix(2) == ["plugin", "add"] {
+                let source = reference.remoteCacheURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("local-marketplace/plugins/cloudflare")
+                let destination = cacheRoot.appendingPathComponent("1.0.0")
+                try? FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
+                try? FileManager.default.copyItem(at: source, to: destination)
+            }
+            return CommandResult(status: 0, output: "ok")
+        }
+
+        expect(outcome == .applied(changes: 2), "a changed installed package should be reinstalled")
+        expect(
+            commands == [
+                ["plugin", "remove", "cloudflare@account-switcher-reference"],
+                ["plugin", "add", "cloudflare@account-switcher-reference"],
+            ],
+            "content drift should schedule remove then add for the same plugin ID"
+        )
+    }
+
+    private static func testReferenceMarketplacePluginReconcileReportsCLIError() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(root: root, remoteIDs: ["cloudflare"])
+        let home = root.appendingPathComponent("target-home")
+        let configURL = home.appendingPathComponent(".codex/config.toml")
+        try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        [marketplaces.account-switcher-reference]
+        source_type = "local"
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let outcome = ReferenceMarketplacePluginReconciler.reconcile(
+            homeDirectory: home.path,
+            reference: reference
+        ) { arguments in
+            CommandResult(status: 1, output: "forced failure: \(arguments.joined(separator: " "))")
+        }
+
+        if case .failed(let reason) = outcome {
+            expect(
+                reason.contains("plugin add cloudflare@account-switcher-reference failed"),
+                "a local marketplace CLI failure should identify the failed command"
+            )
+        } else {
+            expect(false, "a local marketplace CLI failure should fail reconciliation")
+        }
     }
 
     private static func testCuratedPluginReconcileRollsBackPartialFailure() throws {
@@ -1617,6 +1788,38 @@ struct InfrastructureTests {
         expect(
             restoredReferencePayload == "cloudflare",
             "plugin transaction should restore local reference cache files"
+        )
+    }
+
+    private static func testReferencePluginTransactionRollsBackFailedFinalization() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let configURL = home.appendingPathComponent(".codex/config.toml")
+        let originalConfig = "[plugins.\"github@openai-curated\"]\nenabled = true\n"
+        try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try originalConfig.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let outcome = ReferencePluginTransaction.perform(
+            homeDirectory: home.path,
+            finalize: {
+                "final plugin verification failed"
+            },
+            operation: {
+                try? "changed".write(to: configURL, atomically: true, encoding: .utf8)
+                return nil
+            }
+        )
+
+        if case .failed(let reason) = outcome {
+            expect(reason.contains("restored"), "failed finalization should report a verified rollback")
+        } else {
+            expect(false, "failed finalization should fail the transaction")
+        }
+        let restoredConfig = try String(contentsOf: configURL, encoding: .utf8)
+        expect(
+            restoredConfig == originalConfig,
+            "failed finalization should restore the pre-reconciliation config"
         )
     }
 

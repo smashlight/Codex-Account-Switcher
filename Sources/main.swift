@@ -2162,7 +2162,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             var transcript: [String] = []
             if let reference = ReferencePluginStore.load(storeDirectory: referencePluginStoreDirectory()),
                applyReferencePlugins(reference, transcript: &transcript) {
-                _ = verifyReferencePlugins(reference, transcript: &transcript)
             } else if ReferencePluginStore.load(storeDirectory: referencePluginStoreDirectory()) == nil {
                 transcript.append("Reference plugins are not saved or the saved reference is invalid.")
             }
@@ -5212,9 +5211,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.updateStatusTitle()
                 switch outcome {
                 case .captured(let remoteCount, let curatedCount):
+                    let manifest = ReferencePluginStore.load(
+                        storeDirectory: self.referencePluginStoreDirectory()
+                    )?.manifest
+                    let identifiers = ((manifest?.remotePluginIDs ?? []) + (manifest?.curatedPluginIDs ?? []))
+                        .sorted()
+                        .joined(separator: ", ")
                     self.showAlert(
                         title: "Reference plugins saved",
-                        message: "Saved \(remoteCount) remote packages and \(curatedCount) curated plugins. This exact set will be applied after account switches."
+                        message: "Saved \(remoteCount) remote packages and \(curatedCount) curated plugins: \(identifiers). This exact set will be applied after account switches."
                     )
                 case .failed(let reason):
                     self.showAlert(title: "Could not save reference plugins", message: reason)
@@ -5230,8 +5235,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
         }
 
-        if let pluginsMessage = ensureBundledPluginsHealthy() {
-            transcript.append(pluginsMessage)
+        let bundledOutcome = ensureBundledPluginsHealthy()
+        switch bundledOutcome {
+        case .ok:
+            transcript.append("Bundled plugins verified: \(BundledMarketplaceInspector.expectedPluginIDs().count) expected, all present.")
+        case .repairedFromApp:
+            transcript.append("Bundled plugins repaired: snapshot restored from ChatGPT.app.")
+        case .repairedByStaleMove:
+            transcript.append("Bundled plugins repaired: stale snapshot moved aside for regeneration.")
+        case .noAppFound:
+            break
+        case .failed(let reason):
+            transcript.append("Bundled plugins repair failed: \(reason)")
+            _ = openCodexAndVerify(label: "Reopening \(codexDesktopAppName) after bundled plugin repair failure...", transcript: &transcript)
+            return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
         }
 
         if let configMessage = ensureComputerUsePluginConfigured() {
@@ -5248,7 +5265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard terminateCodexProcessTree(transcript: &transcript) else {
                 return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
             }
-            guard applyReferencePlugins(reference, transcript: &transcript) else {
+            guard applyReferencePlugins(reference, transcript: &transcript, launchAfterApply: true) else {
                 _ = openCodexAndVerify(
                     label: "Reopening \(codexDesktopAppName) after plugin restoration failure...",
                     transcript: &transcript
@@ -5256,12 +5273,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
             }
 
-            if let failure = openCodexAndVerify(label: "Opening \(codexDesktopAppName) with reference plugins...", transcript: &transcript) {
-                return failure
-            }
-            guard verifyReferencePlugins(reference, transcript: &transcript) else {
-                return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
-            }
             return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
         }
 
@@ -5335,6 +5346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let inventory = ReferencePluginInventory.remotePluginIDs(homeDirectory: NSHomeDirectory())
             let fingerprint = ReferencePluginInventory.remoteTreeDigest(in: cacheURL)
             stabilized = tracker.observe(inventory: inventory, fingerprint: fingerprint)
+            if stabilized { return true }
             Thread.sleep(forTimeInterval: 0.5)
         }
         return stabilized
@@ -5342,45 +5354,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func applyReferencePlugins(
         _ reference: ReferencePluginStore.LoadedReference,
-        transcript: inout [String]
+        transcript: inout [String],
+        launchAfterApply: Bool = false
     ) -> Bool {
         var messages: [String] = []
-        let transaction = ReferencePluginTransaction.perform(homeDirectory: NSHomeDirectory()) {
-            let bundledCodex = "\(codexDesktopResourcesPath)/codex"
-            guard FileManager.default.isExecutableFile(atPath: bundledCodex) else {
-                return "reference plugin reconciliation failed: bundled codex CLI not found"
-            }
-            let marketplaceOutcome = ReferenceMarketplacePluginReconciler.reconcile(
-                homeDirectory: NSHomeDirectory(),
-                reference: reference
-            ) { arguments in
-                self.run(bundledCodex, arguments)
-            }
-            switch marketplaceOutcome {
-            case .alreadyMatched:
-                messages.append("Reference local plugins already matched.")
-            case .applied(let changes):
-                messages.append("Reference local plugins applied: \(changes) change(s).")
-            case .failed(let reason):
-                return "reference local plugin reconciliation failed: \(reason)"
-            }
-            let curatedOutcome = CuratedPluginReconciler.reconcile(
-                homeDirectory: NSHomeDirectory(),
-                referenceIDs: reference.manifest.curatedPluginIDs
-            ) { arguments in
-                self.run(bundledCodex, arguments)
-            }
-            switch curatedOutcome {
-            case .alreadyMatched:
-                messages.append("Reference curated plugins already matched.")
+        let transaction = ReferencePluginTransaction.perform(
+            homeDirectory: NSHomeDirectory(),
+            finalize: {
+                if launchAfterApply,
+                   let failure = self.openCodexAndVerify(
+                       label: "Opening \(self.codexDesktopAppName) with reference plugins...",
+                       transcript: &transcript
+                   ) {
+                    return "final Codex launch failed: \(failure.output)"
+                }
+                guard self.verifyReferencePlugins(reference, transcript: &transcript) else {
+                    if launchAfterApply {
+                        _ = self.terminateCodexProcessTree(transcript: &transcript)
+                    }
+                    return "final reference plugin verification failed"
+                }
                 return nil
-            case .applied(let changes):
-                messages.append("Reference curated plugins applied: \(changes) change(s).")
-                return nil
-            case .failed(let reason):
-                return "reference curated plugin reconciliation failed: \(reason)"
+            },
+            operation: {
+                let bundledCodex = "\(self.codexDesktopResourcesPath)/codex"
+                guard FileManager.default.isExecutableFile(atPath: bundledCodex) else {
+                    return "reference plugin reconciliation failed: bundled codex CLI not found"
+                }
+                let marketplaceOutcome = ReferenceMarketplacePluginReconciler.reconcile(
+                    homeDirectory: NSHomeDirectory(),
+                    reference: reference
+                ) { arguments in
+                    self.run(bundledCodex, arguments)
+                }
+                switch marketplaceOutcome {
+                case .alreadyMatched:
+                    messages.append("Reference local plugins already matched.")
+                case .applied(let changes):
+                    messages.append("Reference local plugins applied: \(changes) change(s).")
+                case .failed(let reason):
+                    return "reference local plugin reconciliation failed: \(reason)"
+                }
+                let curatedOutcome = CuratedPluginReconciler.reconcile(
+                    homeDirectory: NSHomeDirectory(),
+                    referenceIDs: reference.manifest.curatedPluginIDs
+                ) { arguments in
+                    self.run(bundledCodex, arguments)
+                }
+                switch curatedOutcome {
+                case .alreadyMatched:
+                    messages.append("Reference curated plugins already matched.")
+                    return nil
+                case .applied(let changes):
+                    messages.append("Reference curated plugins applied: \(changes) change(s).")
+                    return nil
+                case .failed(let reason):
+                    return "reference curated plugin reconciliation failed: \(reason)"
+                }
             }
-        }
+        )
         transcript.append(contentsOf: messages)
         switch transaction {
         case .applied:
@@ -5419,6 +5451,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             marketplace: ReferencePluginMarketplace.name
         ) == reference.manifest.remotePluginIDs.sorted() else {
             transcript.append("Reference local plugin configuration verification failed after launch.")
+            return false
+        }
+        let marketplaceURL = reference.remoteCacheURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("local-marketplace", isDirectory: true)
+        guard ReferencePluginMarketplace.staleInstalledPluginIDs(
+            marketplaceURL: marketplaceURL,
+            installedCacheURL: referenceCache,
+            pluginIDs: reference.manifest.remotePluginIDs
+        ).isEmpty else {
+            transcript.append("Reference local plugin content verification failed after launch.")
             return false
         }
         transcript.append("Reference plugin set verified after launch.")
@@ -5485,7 +5528,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return changed ? "Repaired Computer Use plugin config before Codex launch." : nil
     }
 
-    private func ensureBundledPluginsHealthy() -> String? {
+    private func ensureBundledPluginsHealthy() -> BundledMarketplaceRepairer.RepairOutcome {
         let bundledCodex = "\(codexDesktopResourcesPath)/codex"
         let outcome = BundledMarketplaceRepairer.repairIfNeeded(
             homeDirectory: NSHomeDirectory(),
@@ -5495,18 +5538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.run(executable, arguments)
             }
         )
-        switch outcome {
-        case .ok:
-            return "Bundled plugins verified: \(BundledMarketplaceInspector.expectedPluginIDs().count) expected, all present."
-        case .repairedFromApp:
-            return "Bundled plugins repaired: snapshot restored from ChatGPT.app."
-        case .repairedByStaleMove:
-            return "Bundled plugins repaired: stale snapshot moved aside for regeneration."
-        case .noAppFound:
-            return nil
-        case .failed(let reason):
-            return "Bundled plugins repair failed: \(reason)"
-        }
+        return outcome
     }
 
     private func codexAppPIDs() -> ProcessLookupPolicy.Outcome {

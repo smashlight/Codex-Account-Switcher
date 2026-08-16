@@ -6,7 +6,7 @@
 
 **Goal:** Make every Codex account switch finish with the same saved user/integration plugin set, removing target-account-only plugins while preserving system plugins.
 
-**Architecture:** AppKit-free infrastructure captures a versioned manifest plus an exact copy of `openai-curated-remote`, then reconciles that cache with an atomic staged swap and rollback. `main.swift` exposes explicit reference capture and changes relaunch into a bounded sync launch followed by reconciliation and a final launch.
+**Architecture:** AppKit-free infrastructure captures a versioned manifest plus an exact copy of `openai-curated-remote`, converts it into an atomic local `account-switcher-reference` marketplace, and installs saved packages through the bundled CLI. A transaction retains config/cache rollback through the final launch and content verification. The account-owned remote cache is observed for synchronization but never replaced.
 
 **Tech Stack:** Swift 6, Foundation `FileManager`/`Codable`, AppKit menu integration, existing `ProcessRunner`, existing standalone infrastructure test harness.
 
@@ -14,7 +14,7 @@
 
 - Never read, copy, modify, or log auth files, account registries, OAuth grants, tokens, account IDs, or email addresses.
 - Never reconcile `openai-bundled` or `openai-primary-runtime` through the reference set.
-- The active cache must have a verified rollback before replacement.
+- Installed plugin configuration and caches must have a verified rollback until final launch verification succeeds.
 - Reference capture is explicit; account switching never updates the saved reference.
 - OAuth-backed plugins may require authorization on each ChatGPT account.
 - Keep all new pure logic in `Sources/AppInfrastructure.swift` so `./run-tests.sh` covers it.
@@ -115,7 +115,7 @@ Capture builds a sibling staging directory, copies the remote cache, writes sort
 
 Expected: all infrastructure tests pass.
 
-### Task 2: Exact remote reconciliation and rollback
+### Task 2: Local reference marketplace and rollback
 
 **Files:**
 - Modify: `Sources/AppInfrastructure.swift`
@@ -123,50 +123,50 @@ Expected: all infrastructure tests pass.
 
 **Interfaces:**
 - Consumes: `ReferencePluginStore.LoadedReference`.
-- Produces: `ReferencePluginReconciler.reconcile(homeDirectory:reference:fileManager:) -> ReconcileOutcome`.
+- Produces: `ReferencePluginMarketplace.prepare(reference:fileManager:) -> PreparationOutcome`.
+- Produces: `ReferenceMarketplacePluginReconciler.reconcile(homeDirectory:reference:runCommand:) -> ReconcileOutcome`.
 
-- [ ] **Step 1: Write failing exact-match tests**
+- [ ] **Step 1: Write failing local-marketplace tests**
 
-Create a reference containing `cloudflare`, `product-design`, and `vercel`; create an active cache containing `canva`, `posthog`, and `vercel`. Assert reconciliation reports two additions and two removals and that active IDs equal the literal reference array exactly.
+Create a reference containing `cloudflare`, `product-design`, and `vercel`. Assert preparation flattens valid versioned packages into a local marketplace with an exact manifest, and reconciliation installs the three selectors under `account-switcher-reference`.
 
 - [ ] **Step 2: Run tests and verify RED**
 
-Expected: compilation fails because `ReferencePluginReconciler` is undefined.
+Expected: compilation fails because `ReferencePluginMarketplace` is undefined.
 
-- [ ] **Step 3: Implement staged remote-cache swap**
+- [ ] **Step 3: Implement staged local marketplace**
 
 Add:
 
 ```swift
-enum ReferencePluginReconciler {
+enum ReferenceMarketplacePluginReconciler {
     enum ReconcileOutcome: Equatable {
         case alreadyMatched
-        case applied(added: [String], removed: [String])
-        case noReference
+        case applied(changes: Int)
         case failed(reason: String)
     }
 
     static func reconcile(
         homeDirectory: String,
-        reference: ReferencePluginStore.LoadedReference?,
-        fileManager: FileManager = .default
+        reference: ReferencePluginStore.LoadedReference,
+        runCommand: ([String]) -> CommandResult
     ) -> ReconcileOutcome
 }
 ```
 
-The implementation compares literal inventories, copies the reference to staging, verifies staging, moves active cache to a timestamped rollback directory, installs staging, verifies exact equality, and restores rollback on failure. `openai-bundled` and `openai-primary-runtime` paths are never constructed.
+Preparation copies saved package versions into staging, verifies package identities, writes the marketplace manifest, and atomically replaces the prior local marketplace. Reconciliation registers it, removes stale installations, installs missing or content-changed packages, and verifies config plus installed content. `openai-curated-remote`, `openai-bundled`, and `openai-primary-runtime` are never mutated by this reconciler.
 
 - [ ] **Step 4: Run tests and verify GREEN**
 
-Expected: exact-match test passes.
+Expected: marketplace preparation and installation tests pass.
 
 - [ ] **Step 5: Write failing rollback and idempotency tests**
 
-Cover missing reference, corrupt manifest, failed staging copy, failed post-swap verification, and repeated reconciliation. Assert active fixtures remain byte-for-byte/inventory-equivalent after failure and second reconciliation returns `.alreadyMatched`.
+Cover missing/corrupt packages, failed staging replacement, CLI failures, content changes with identical IDs, failed final verification, and repeated reconciliation. Assert config and installed caches return to their pre-reconciliation state after failure.
 
 - [ ] **Step 6: Implement minimal rollback/error handling**
 
-Add only the branches needed by the failing tests. Preserve timestamped rollback directories outside the active cache and reuse the existing backup-pruning pattern with a fixed retention of three.
+Add only the branches needed by the failing tests. Keep transaction backups until final Codex launch and content verification succeed.
 
 - [ ] **Step 7: Run tests and verify GREEN**
 
@@ -237,7 +237,7 @@ After the first Codex launch, poll the remote cache inventory and directory modi
 
 - [ ] **Step 3: Integrate reconciliation and final relaunch**
 
-Terminate Codex after the sync launch, load the reference, reconcile remote cache, execute `CuratedPluginPlan` commands through the bundled CLI with existing timeouts, then launch Codex once more. Format one concise transcript line from every outcome.
+Terminate Codex after the sync launch, load the reference, prepare/register the local marketplace, install its packages, execute `CuratedPluginPlan` commands through the bundled CLI, then launch Codex once more. Commit the transaction only after content-level verification; otherwise roll back and reopen Codex. Format one concise transcript line from every outcome.
 
 - [ ] **Step 4: Verify compilation and tests**
 
@@ -274,7 +274,7 @@ Verify curated IDs are exactly `github`.
 
 - [ ] **Step 4: Switch to the non-canonical account**
 
-After the switch completes, verify active remote IDs exactly match the six reference IDs; `canva`, `data-analytics`, and `posthog` are absent; bundled and primary-runtime plugins remain installed.
+After the switch completes, verify the six reference IDs are installed and enabled from `account-switcher-reference`; account-catalog packages such as `canva`, `data-analytics`, and `posthog` are not installed by the reference reconciler; bundled and primary-runtime plugins remain installed.
 
 - [ ] **Step 5: Final verification**
 
