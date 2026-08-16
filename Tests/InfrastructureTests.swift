@@ -76,6 +76,7 @@ struct InfrastructureTests {
         try testReferencePluginInventory()
         try testReferencePluginCaptureRoundTrip()
         try testReferencePluginCapturePreservesPreviousReference()
+        try testReferencePluginCaptureReportsRollbackFailure()
         try testReferencePluginCaptureRequiresReadableConfig()
         try testReferencePluginLoadRejectsModifiedFiles()
         try testReferencePluginReconcileExactMatch()
@@ -1168,6 +1169,43 @@ struct InfrastructureTests {
         expect(
             ReferencePluginStore.load(storeDirectory: root.appendingPathComponent("reference-plugins")) == nil,
             "reference loading should reject modified plugin files even when IDs still match"
+        )
+    }
+
+    private static func testReferencePluginCaptureReportsRollbackFailure() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstHome = root.appendingPathComponent("first-home")
+        let secondHome = root.appendingPathComponent("second-home")
+        for (home, plugin) in [(firstHome, "vercel"), (secondHome, "cloudflare")] {
+            try FileManager.default.createDirectory(
+                at: home.appendingPathComponent(".codex/plugins/cache/openai-curated-remote/\(plugin)"),
+                withIntermediateDirectories: true
+            )
+            try "".write(
+                to: home.appendingPathComponent(".codex/config.toml"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        let store = root.appendingPathComponent("reference-plugins")
+        _ = ReferencePluginStore.capture(homeDirectory: firstHome.path, storeDirectory: store)
+
+        let outcome = ReferencePluginStore.capture(
+            homeDirectory: secondHome.path,
+            storeDirectory: store,
+            fileManager: FailingSwapAndRestoreFileManager()
+        )
+
+        if case .failed(let reason) = outcome {
+            expect(reason.contains("rollback failed"), "capture should report a failed reference rollback")
+        } else {
+            expect(false, "capture with a failed swap and restore should fail")
+        }
+        let parentEntries = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        expect(
+            parentEntries.contains(where: { $0.hasPrefix(".reference-plugins.backup.") }),
+            "capture should preserve an unrestored reference backup"
         )
     }
 

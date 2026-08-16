@@ -467,6 +467,8 @@ enum ReferencePluginStore {
         let parent = storeDirectory.deletingLastPathComponent()
         let staging = parent.appendingPathComponent(".reference-plugins.staging.\(UUID().uuidString)", isDirectory: true)
         let backup = parent.appendingPathComponent(".reference-plugins.backup.\(UUID().uuidString)", isDirectory: true)
+        let hadPreviousReference = fileManager.fileExists(atPath: storeDirectory.path)
+        let previousReference = load(storeDirectory: storeDirectory, fileManager: fileManager)
 
         do {
             try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -505,13 +507,36 @@ enum ReferencePluginStore {
                     try fileManager.removeItem(at: backup)
                 }
             } catch {
+                let swapFailure = error
                 if fileManager.fileExists(atPath: storeDirectory.path) {
-                    try? fileManager.removeItem(at: storeDirectory)
+                    do {
+                        try fileManager.removeItem(at: storeDirectory)
+                    } catch {
+                        return .failed(
+                            reason: "\(swapFailure.localizedDescription); rollback failed: \(error.localizedDescription); backup kept at \(backup.path)"
+                        )
+                    }
                 }
-                if fileManager.fileExists(atPath: backup.path) {
-                    try? fileManager.moveItem(at: backup, to: storeDirectory)
+                if hadPreviousReference {
+                    do {
+                        guard fileManager.fileExists(atPath: backup.path) else {
+                            throw ReferencePluginStoreError.rollbackVerificationFailed
+                        }
+                        try fileManager.moveItem(at: backup, to: storeDirectory)
+                        if let previousReference {
+                            guard load(storeDirectory: storeDirectory, fileManager: fileManager) == previousReference else {
+                                throw ReferencePluginStoreError.rollbackVerificationFailed
+                            }
+                        } else if !fileManager.fileExists(atPath: storeDirectory.path) {
+                            throw ReferencePluginStoreError.rollbackVerificationFailed
+                        }
+                    } catch {
+                        return .failed(
+                            reason: "\(swapFailure.localizedDescription); rollback failed: \(error.localizedDescription); backup kept at \(backup.path)"
+                        )
+                    }
                 }
-                throw error
+                return .failed(reason: "\(swapFailure.localizedDescription); previous reference restored")
             }
             return .captured(remoteCount: remoteIDs.count, curatedCount: curatedIDs.count)
         } catch {
@@ -548,9 +573,15 @@ enum ReferencePluginStore {
 
     private enum ReferencePluginStoreError: LocalizedError {
         case verificationFailed
+        case rollbackVerificationFailed
 
         var errorDescription: String? {
-            "reference plugin verification failed"
+            switch self {
+            case .verificationFailed:
+                return "reference plugin verification failed"
+            case .rollbackVerificationFailed:
+                return "reference plugin rollback verification failed"
+            }
         }
     }
 }
