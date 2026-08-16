@@ -4700,16 +4700,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             DispatchQueue.main.sync {
                 self.apiModeActive = false
-                self.isSwitching = false
                 self.refreshAccounts(force: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    guard let self, !self.isSwitching else { return }
-                    self.refreshAccounts(force: true)
-                }
             }
 
             let restartResult = self.restartCodexApp()
             DispatchQueue.main.async {
+                self.isSwitching = false
                 if restartResult.status != 0 {
                     self.recordSwitch(from: previous, to: target, automatic: automatic, reason: "desktop relaunch", result: "account changed; relaunch failed")
                     self.showAlert(title: "Codex relaunch failed", message: restartResult.output)
@@ -5218,7 +5214,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func restartCodexApp() -> CommandResult {
         var transcript: [String] = []
-        terminateCodexProcessTree(transcript: &transcript)
+        guard terminateCodexProcessTree(transcript: &transcript) else {
+            return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
+        }
 
         if let pluginsMessage = ensureBundledPluginsHealthy() {
             transcript.append(pluginsMessage)
@@ -5235,14 +5233,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             let stabilized = waitForRemotePluginSync(timeout: 15)
             transcript.append(stabilized ? "Account plugin sync stabilized." : "Account plugin sync wait timed out; applying the latest observed state.")
-            terminateCodexProcessTree(transcript: &transcript)
-            applyReferencePlugins(reference, transcript: &transcript)
+            guard terminateCodexProcessTree(transcript: &transcript) else {
+                return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
+            }
+            guard applyReferencePlugins(reference, transcript: &transcript) else {
+                return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
+            }
 
             if let failure = openCodexAndVerify(label: "Opening \(codexDesktopAppName) with reference plugins...", transcript: &transcript) {
                 return failure
             }
             _ = waitForRemotePluginSync(timeout: 6)
-            applyReferencePlugins(reference, transcript: &transcript)
+            if verifyReferencePlugins(reference, transcript: &transcript) {
+                return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
+            }
+
+            transcript.append("Codex changed plugins after launch; retrying once from a stopped state.")
+            guard terminateCodexProcessTree(transcript: &transcript),
+                  applyReferencePlugins(reference, transcript: &transcript) else {
+                return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
+            }
+            if let failure = openCodexAndVerify(label: "Reopening \(codexDesktopAppName) after reference plugin retry...", transcript: &transcript) {
+                return failure
+            }
+            _ = waitForRemotePluginSync(timeout: 6)
+            guard verifyReferencePlugins(reference, transcript: &transcript) else {
+                return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
+            }
             return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
         }
 
@@ -5253,7 +5270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
     }
 
-    private func terminateCodexProcessTree(transcript: inout [String]) {
+    private func terminateCodexProcessTree(transcript: inout [String]) -> Bool {
         transcript.append("Quitting \(codexDesktopAppName) process tree...")
         for attempt in 1...6 {
             let pids = codexAppPIDs()
@@ -5265,7 +5282,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let remaining = codexAppPIDs()
         if !remaining.isEmpty {
             transcript.append("Codex helper processes remained after force quit: \(remaining.joined(separator: ", ")).")
+            return false
         }
+        return true
     }
 
     private func openCodexAndVerify(label: String, transcript: inout [String]) -> CommandResult? {
@@ -5299,8 +5318,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Thread.sleep(forTimeInterval: 2)
         while Date() < deadline {
             let inventory = ReferencePluginInventory.remotePluginIDs(homeDirectory: NSHomeDirectory())
-            let modifiedAt = try? cacheURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-            if tracker.observe(inventory: inventory, modifiedAt: modifiedAt) {
+            let fingerprint = ReferencePluginInventory.remoteTreeDigest(in: cacheURL)
+            if tracker.observe(inventory: inventory, fingerprint: fingerprint) {
                 return true
             }
             Thread.sleep(forTimeInterval: 0.5)
@@ -5311,7 +5330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func applyReferencePlugins(
         _ reference: ReferencePluginStore.LoadedReference,
         transcript: inout [String]
-    ) {
+    ) -> Bool {
         let remoteOutcome = ReferencePluginReconciler.reconcile(
             homeDirectory: NSHomeDirectory(),
             reference: reference
@@ -5323,38 +5342,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             transcript.append("Reference remote plugins applied: +\(added.count), -\(removed.count).")
         case .noReference:
             transcript.append("Reference remote plugins unavailable.")
+            return false
         case .failed(let reason):
             transcript.append("Reference remote plugin reconciliation failed: \(reason)")
+            return false
         }
 
-        let configURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/config.toml")
-        let configText = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-        let installedCurated = ReferencePluginInventory.curatedPluginIDs(configText: configText)
-        let commands = CuratedPluginPlan.commands(
-            referenceIDs: reference.manifest.curatedPluginIDs,
-            installedIDs: installedCurated
-        )
-        guard !commands.isEmpty else {
-            transcript.append("Reference curated plugins already matched.")
-            return
-        }
         let bundledCodex = "\(codexDesktopResourcesPath)/codex"
         guard FileManager.default.isExecutableFile(atPath: bundledCodex) else {
             transcript.append("Reference curated plugin reconciliation failed: bundled codex CLI not found.")
-            return
+            return false
         }
-        var failures: [String] = []
-        for arguments in commands {
-            let result = run(bundledCodex, arguments)
-            if result.status != 0 {
-                failures.append(arguments.last ?? "unknown plugin")
-            }
+        let curatedOutcome = CuratedPluginReconciler.reconcile(
+            homeDirectory: NSHomeDirectory(),
+            referenceIDs: reference.manifest.curatedPluginIDs
+        ) { arguments in
+            self.run(bundledCodex, arguments)
         }
-        if failures.isEmpty {
-            transcript.append("Reference curated plugins applied: \(commands.count) change(s).")
-        } else {
-            transcript.append("Reference curated plugin reconciliation failed for: \(failures.joined(separator: ", ")).")
+        switch curatedOutcome {
+        case .alreadyMatched:
+            transcript.append("Reference curated plugins already matched.")
+            return true
+        case .applied(let changes):
+            transcript.append("Reference curated plugins applied: \(changes) change(s).")
+            return true
+        case .failed(let reason):
+            transcript.append("Reference curated plugin reconciliation failed: \(reason)")
+            return false
         }
+    }
+
+    private func verifyReferencePlugins(
+        _ reference: ReferencePluginStore.LoadedReference,
+        transcript: inout [String]
+    ) -> Bool {
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        let remoteCache = home.appendingPathComponent(
+            ".codex/plugins/cache/openai-curated-remote",
+            isDirectory: true
+        )
+        guard ReferencePluginInventory.remotePluginIDs(in: remoteCache) == reference.manifest.remotePluginIDs,
+              ReferencePluginInventory.remoteTreeDigest(in: remoteCache) == reference.manifest.remoteTreeDigest else {
+            transcript.append("Reference remote plugin verification failed after launch.")
+            return false
+        }
+        let configURL = home.appendingPathComponent(".codex/config.toml")
+        guard let configText = try? String(contentsOf: configURL, encoding: .utf8) else {
+            transcript.append("Reference curated plugin verification failed: config.toml could not be read.")
+            return false
+        }
+        guard ReferencePluginInventory.curatedPluginIDs(configText: configText)
+            == reference.manifest.curatedPluginIDs.sorted() else {
+            transcript.append("Reference curated plugin verification failed after launch.")
+            return false
+        }
+        transcript.append("Reference plugin set verified after launch.")
+        return true
     }
 
     private func ensureComputerUsePluginConfigured() -> String? {

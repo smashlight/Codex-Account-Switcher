@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CryptoKit
 
 struct CommandResult {
     let status: Int32
@@ -372,12 +373,56 @@ enum ReferencePluginInventory {
         }
         return Array(Set(enabledIDs)).sorted()
     }
+
+    static func remoteTreeDigest(in cache: URL, fileManager: FileManager = .default) -> String? {
+        guard let enumerator = fileManager.enumerator(
+            at: cache,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
+            options: []
+        ) else {
+            return nil
+        }
+        let normalizedRootPath = cache.resolvingSymlinksInPath().standardizedFileURL.path
+        let entries = enumerator.compactMap { value -> (url: URL, relativePath: String)? in
+            guard let url = value as? URL else { return nil }
+            let normalizedPath = url.standardizedFileURL.path
+            guard normalizedPath.hasPrefix(normalizedRootPath + "/") else { return nil }
+            return (url, String(normalizedPath.dropFirst(normalizedRootPath.count + 1)))
+        }.sorted { $0.relativePath < $1.relativePath }
+        var hasher = SHA256()
+        for entry in entries {
+            guard let values = try? entry.url.resourceValues(
+                forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+            ) else { return nil }
+            let marker: String
+            if values.isSymbolicLink == true {
+                marker = "L"
+            } else if values.isDirectory == true {
+                marker = "D"
+            } else if values.isRegularFile == true {
+                marker = "F"
+            } else {
+                marker = "O"
+            }
+            hasher.update(data: Data("\(marker):\(entry.relativePath)\u{0}".utf8))
+            if values.isSymbolicLink == true {
+                guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: entry.url.path) else { return nil }
+                hasher.update(data: Data(destination.utf8))
+            } else if values.isRegularFile == true {
+                guard let data = try? Data(contentsOf: entry.url) else { return nil }
+                hasher.update(data: data)
+            }
+            hasher.update(data: Data([0]))
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
 }
 
 struct ReferencePluginManifest: Codable, Equatable {
     let schemaVersion: Int
     let capturedAt: Date
     let remotePluginIDs: [String]
+    let remoteTreeDigest: String
     let curatedPluginIDs: [String]
 }
 
@@ -408,8 +453,16 @@ enum ReferencePluginStore {
         }
 
         let configURL = home.appendingPathComponent(".codex/config.toml")
-        let configText = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
+        let configText: String
+        do {
+            configText = try String(contentsOf: configURL, encoding: .utf8)
+        } catch {
+            return .failed(reason: "config.toml could not be read: \(error.localizedDescription)")
+        }
         let remoteIDs = ReferencePluginInventory.remotePluginIDs(in: sourceCache, fileManager: fileManager)
+        guard let remoteTreeDigest = ReferencePluginInventory.remoteTreeDigest(in: sourceCache, fileManager: fileManager) else {
+            return .failed(reason: "remote plugin cache could not be fingerprinted")
+        }
         let curatedIDs = ReferencePluginInventory.curatedPluginIDs(configText: configText)
         let parent = storeDirectory.deletingLastPathComponent()
         let staging = parent.appendingPathComponent(".reference-plugins.staging.\(UUID().uuidString)", isDirectory: true)
@@ -426,6 +479,7 @@ enum ReferencePluginStore {
                 schemaVersion: 1,
                 capturedAt: Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970)),
                 remotePluginIDs: remoteIDs,
+                remoteTreeDigest: remoteTreeDigest,
                 curatedPluginIDs: curatedIDs
             )
             let encoder = JSONEncoder()
@@ -478,7 +532,8 @@ enum ReferencePluginStore {
             let data = try? Data(contentsOf: manifestURL),
             let manifest = decodeManifest(data),
             manifest.schemaVersion == 1,
-            ReferencePluginInventory.remotePluginIDs(in: remoteCacheURL, fileManager: fileManager) == manifest.remotePluginIDs
+            ReferencePluginInventory.remotePluginIDs(in: remoteCacheURL, fileManager: fileManager) == manifest.remotePluginIDs,
+            ReferencePluginInventory.remoteTreeDigest(in: remoteCacheURL, fileManager: fileManager) == manifest.remoteTreeDigest
         else {
             return nil
         }
@@ -519,7 +574,10 @@ enum ReferencePluginReconciler {
         let cacheParent = activeCache.deletingLastPathComponent()
         let currentIDs = ReferencePluginInventory.remotePluginIDs(in: activeCache, fileManager: fileManager)
         let referenceIDs = reference.manifest.remotePluginIDs
-        guard currentIDs != referenceIDs else { return .alreadyMatched }
+        let currentDigest = ReferencePluginInventory.remoteTreeDigest(in: activeCache, fileManager: fileManager)
+        guard currentIDs != referenceIDs || currentDigest != reference.manifest.remoteTreeDigest else {
+            return .alreadyMatched
+        }
 
         let currentSet = Set(currentIDs)
         let referenceSet = Set(referenceIDs)
@@ -538,7 +596,10 @@ enum ReferencePluginReconciler {
         do {
             try fileManager.createDirectory(at: cacheParent, withIntermediateDirectories: true)
             try fileManager.copyItem(at: reference.remoteCacheURL, to: staging)
-            guard ReferencePluginInventory.remotePluginIDs(in: staging, fileManager: fileManager) == referenceIDs else {
+            guard
+                ReferencePluginInventory.remotePluginIDs(in: staging, fileManager: fileManager) == referenceIDs,
+                ReferencePluginInventory.remoteTreeDigest(in: staging, fileManager: fileManager) == reference.manifest.remoteTreeDigest
+            else {
                 throw ReferencePluginReconcileError.verificationFailed
             }
             if fileManager.fileExists(atPath: activeCache.path) {
@@ -547,28 +608,48 @@ enum ReferencePluginReconciler {
             }
             do {
                 try fileManager.moveItem(at: staging, to: activeCache)
-                guard ReferencePluginInventory.remotePluginIDs(in: activeCache, fileManager: fileManager) == referenceIDs else {
+                guard
+                    ReferencePluginInventory.remotePluginIDs(in: activeCache, fileManager: fileManager) == referenceIDs,
+                    ReferencePluginInventory.remoteTreeDigest(in: activeCache, fileManager: fileManager) == reference.manifest.remoteTreeDigest
+                else {
                     throw ReferencePluginReconcileError.verificationFailed
                 }
             } catch {
+                let swapFailure = error
                 if fileManager.fileExists(atPath: activeCache.path) {
-                    try? fileManager.removeItem(at: activeCache)
+                    do {
+                        try fileManager.removeItem(at: activeCache)
+                    } catch {
+                        return .failed(
+                            reason: "\(swapFailure.localizedDescription); rollback failed: \(error.localizedDescription); backup kept at \(backup.path)"
+                        )
+                    }
                 }
-                if activeWasMoved, fileManager.fileExists(atPath: backup.path) {
-                    try? fileManager.moveItem(at: backup, to: activeCache)
+                if activeWasMoved {
+                    do {
+                        guard fileManager.fileExists(atPath: backup.path) else {
+                            throw ReferencePluginReconcileError.rollbackVerificationFailed
+                        }
+                        try fileManager.moveItem(at: backup, to: activeCache)
+                        guard
+                            ReferencePluginInventory.remotePluginIDs(in: activeCache, fileManager: fileManager) == currentIDs,
+                            ReferencePluginInventory.remoteTreeDigest(in: activeCache, fileManager: fileManager) == currentDigest
+                        else {
+                            throw ReferencePluginReconcileError.rollbackVerificationFailed
+                        }
+                    } catch {
+                        return .failed(
+                            reason: "\(swapFailure.localizedDescription); rollback failed: \(error.localizedDescription); backup kept at \(backup.path)"
+                        )
+                    }
                 }
-                throw error
+                return .failed(reason: "\(swapFailure.localizedDescription); previous remote plugin state restored")
             }
             pruneBackups(in: cacheParent, fileManager: fileManager)
             return .applied(added: added, removed: removed)
         } catch {
             if fileManager.fileExists(atPath: staging.path) {
                 try? fileManager.removeItem(at: staging)
-            }
-            if activeWasMoved,
-               !fileManager.fileExists(atPath: activeCache.path),
-               fileManager.fileExists(atPath: backup.path) {
-                try? fileManager.moveItem(at: backup, to: activeCache)
             }
             return .failed(reason: error.localizedDescription)
         }
@@ -594,9 +675,15 @@ enum ReferencePluginReconciler {
 
     private enum ReferencePluginReconcileError: LocalizedError {
         case verificationFailed
+        case rollbackVerificationFailed
 
         var errorDescription: String? {
-            "reference plugin reconciliation verification failed"
+            switch self {
+            case .verificationFailed:
+                return "reference plugin reconciliation verification failed"
+            case .rollbackVerificationFailed:
+                return "reference plugin rollback verification failed"
+            }
         }
     }
 }
@@ -619,16 +706,120 @@ enum CuratedPluginPlan {
     }
 }
 
+enum CuratedPluginReconciler {
+    enum ReconcileOutcome: Equatable {
+        case alreadyMatched
+        case applied(changes: Int)
+        case failed(reason: String)
+    }
+
+    static func reconcile(
+        homeDirectory: String,
+        referenceIDs: [String],
+        fileManager: FileManager = .default,
+        runCommand: ([String]) -> CommandResult
+    ) -> ReconcileOutcome {
+        let codexDirectory = URL(fileURLWithPath: homeDirectory).appendingPathComponent(".codex", isDirectory: true)
+        let configURL = codexDirectory.appendingPathComponent("config.toml")
+        let curatedCache = codexDirectory.appendingPathComponent("plugins/cache/openai-curated", isDirectory: true)
+        let originalConfig: Data
+        do {
+            originalConfig = try Data(contentsOf: configURL)
+        } catch {
+            return .failed(reason: "config.toml could not be read: \(error.localizedDescription)")
+        }
+        guard let configText = String(data: originalConfig, encoding: .utf8) else {
+            return .failed(reason: "config.toml is not valid UTF-8")
+        }
+        let installedIDs = ReferencePluginInventory.curatedPluginIDs(configText: configText)
+        let commands = CuratedPluginPlan.commands(referenceIDs: referenceIDs, installedIDs: installedIDs)
+        guard !commands.isEmpty else { return .alreadyMatched }
+
+        let backupDirectory = codexDirectory.appendingPathComponent(
+            ".curated-plugin-backup.\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let backupCache = backupDirectory.appendingPathComponent("openai-curated", isDirectory: true)
+        let cacheExisted = fileManager.fileExists(atPath: curatedCache.path)
+        do {
+            try fileManager.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+            if cacheExisted {
+                try fileManager.copyItem(at: curatedCache, to: backupCache)
+            }
+        } catch {
+            try? fileManager.removeItem(at: backupDirectory)
+            return .failed(reason: "curated plugin backup failed: \(error.localizedDescription)")
+        }
+
+        func rollback(after failure: String) -> ReconcileOutcome {
+            do {
+                try originalConfig.write(to: configURL, options: .atomic)
+                if fileManager.fileExists(atPath: curatedCache.path) {
+                    try fileManager.removeItem(at: curatedCache)
+                }
+                if cacheExisted {
+                    try fileManager.createDirectory(at: curatedCache.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fileManager.copyItem(at: backupCache, to: curatedCache)
+                }
+                guard try Data(contentsOf: configURL) == originalConfig else {
+                    throw CuratedPluginReconcileError.rollbackVerificationFailed
+                }
+                let restoredCacheExists = fileManager.fileExists(atPath: curatedCache.path)
+                guard restoredCacheExists == cacheExisted else {
+                    throw CuratedPluginReconcileError.rollbackVerificationFailed
+                }
+                if cacheExisted {
+                    guard ReferencePluginInventory.remoteTreeDigest(in: curatedCache, fileManager: fileManager)
+                        == ReferencePluginInventory.remoteTreeDigest(in: backupCache, fileManager: fileManager) else {
+                        throw CuratedPluginReconcileError.rollbackVerificationFailed
+                    }
+                }
+                try fileManager.removeItem(at: backupDirectory)
+                return .failed(reason: failure + "; previous curated plugin state restored")
+            } catch {
+                return .failed(
+                    reason: failure + "; rollback failed: \(error.localizedDescription); backup kept at \(backupDirectory.path)"
+                )
+            }
+        }
+
+        for arguments in commands {
+            let result = runCommand(arguments)
+            guard result.status == 0 else {
+                return rollback(after: "\(arguments.joined(separator: " ")) failed: \(result.output)")
+            }
+        }
+        do {
+            let finalConfig = try String(contentsOf: configURL, encoding: .utf8)
+            guard ReferencePluginInventory.curatedPluginIDs(configText: finalConfig) == referenceIDs.sorted() else {
+                return rollback(after: "curated plugin verification failed")
+            }
+            try fileManager.removeItem(at: backupDirectory)
+            return .applied(changes: commands.count)
+        } catch {
+            return rollback(after: "curated plugin verification failed: \(error.localizedDescription)")
+        }
+    }
+
+    private enum CuratedPluginReconcileError: LocalizedError {
+        case rollbackVerificationFailed
+
+        var errorDescription: String? {
+            "curated plugin rollback verification failed"
+        }
+    }
+}
+
 struct PluginSyncStabilityTracker {
     private struct Observation: Equatable {
         let inventory: [String]
-        let modifiedAt: Date?
+        let fingerprint: String?
     }
 
     private var previous: Observation?
 
-    mutating func observe(inventory: [String], modifiedAt: Date?) -> Bool {
-        let observation = Observation(inventory: inventory.sorted(), modifiedAt: modifiedAt)
+    mutating func observe(inventory: [String], fingerprint: String?) -> Bool {
+        let observation = Observation(inventory: inventory.sorted(), fingerprint: fingerprint)
         defer { previous = observation }
         return previous == observation
     }

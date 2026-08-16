@@ -16,6 +16,22 @@ private final class FailingSecondMoveFileManager: FileManager, @unchecked Sendab
     }
 }
 
+private final class FailingSwapAndRestoreFileManager: FileManager, @unchecked Sendable {
+    private var moveCount = 0
+
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        moveCount += 1
+        if moveCount == 2 || moveCount == 3 {
+            throw NSError(
+                domain: "ReferencePluginTests",
+                code: moveCount,
+                userInfo: [NSLocalizedDescriptionKey: "forced move failure \(moveCount)"]
+            )
+        }
+        try super.moveItem(at: srcURL, to: dstURL)
+    }
+}
+
 @main
 struct InfrastructureTests {
     private static var failures: [String] = []
@@ -60,11 +76,16 @@ struct InfrastructureTests {
         try testReferencePluginInventory()
         try testReferencePluginCaptureRoundTrip()
         try testReferencePluginCapturePreservesPreviousReference()
+        try testReferencePluginCaptureRequiresReadableConfig()
+        try testReferencePluginLoadRejectsModifiedFiles()
         try testReferencePluginReconcileExactMatch()
+        try testReferencePluginReconcileRestoresChangedFiles()
         try testReferencePluginReconcileIdempotent()
         try testReferencePluginReconcileWithoutReference()
         try testReferencePluginReconcileRollsBackFailedSwap()
+        try testReferencePluginReconcileReportsRollbackFailure()
         testCuratedPluginPlan()
+        try testCuratedPluginReconcileRollsBackPartialFailure()
         testPluginSyncStabilityTracker()
 
         if failures.isEmpty {
@@ -1137,6 +1158,38 @@ struct InfrastructureTests {
         )
     }
 
+    private static func testReferencePluginLoadRejectsModifiedFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(root: root, remoteIDs: ["vercel"])
+        let payload = reference.remoteCacheURL.appendingPathComponent("vercel/1.0.0/payload.txt")
+        try Data("corrupt".utf8).write(to: payload)
+
+        expect(
+            ReferencePluginStore.load(storeDirectory: root.appendingPathComponent("reference-plugins")) == nil,
+            "reference loading should reject modified plugin files even when IDs still match"
+        )
+    }
+
+    private static func testReferencePluginCaptureRequiresReadableConfig() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent(".codex/plugins/cache/openai-curated-remote/vercel"),
+            withIntermediateDirectories: true
+        )
+
+        let outcome = ReferencePluginStore.capture(
+            homeDirectory: home.path,
+            storeDirectory: root.appendingPathComponent("reference-plugins")
+        )
+
+        if case .failed = outcome {} else {
+            expect(false, "capture should fail when config.toml cannot be read")
+        }
+    }
+
     private static func makeReferencePluginFixture(root: URL, remoteIDs: [String]) throws -> ReferencePluginStore.LoadedReference {
         let canonicalHome = root.appendingPathComponent("canonical-home")
         for id in remoteIDs {
@@ -1190,6 +1243,30 @@ struct InfrastructureTests {
         expect(
             ReferencePluginInventory.remotePluginIDs(homeDirectory: targetHome.path) == ["cloudflare", "product-design", "vercel"],
             "reconcile should make the active remote set exactly match the reference"
+        )
+    }
+
+    private static func testReferencePluginReconcileRestoresChangedFiles() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(root: root, remoteIDs: ["vercel"])
+        let targetHome = root.appendingPathComponent("target-home")
+        let targetPayload = targetHome.appendingPathComponent(
+            ".codex/plugins/cache/openai-curated-remote/vercel/1.0.0/payload.txt"
+        )
+        try FileManager.default.createDirectory(
+            at: targetPayload.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("wrong-version".utf8).write(to: targetPayload)
+
+        let outcome = ReferencePluginReconciler.reconcile(homeDirectory: targetHome.path, reference: reference)
+        let restoredPayload = try String(contentsOf: targetPayload, encoding: .utf8)
+
+        expect(outcome == .applied(added: [], removed: []), "changed reference files should trigger reconciliation")
+        expect(
+            restoredPayload == "vercel",
+            "reconciliation should restore the exact saved plugin files"
         )
     }
 
@@ -1251,6 +1328,35 @@ struct InfrastructureTests {
         )
     }
 
+    private static func testReferencePluginReconcileReportsRollbackFailure() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let reference = try makeReferencePluginFixture(root: root, remoteIDs: ["vercel"])
+        let targetHome = root.appendingPathComponent("target-home")
+        try FileManager.default.createDirectory(
+            at: targetHome.appendingPathComponent(".codex/plugins/cache/openai-curated-remote/canva"),
+            withIntermediateDirectories: true
+        )
+
+        let outcome = ReferencePluginReconciler.reconcile(
+            homeDirectory: targetHome.path,
+            reference: reference,
+            fileManager: FailingSwapAndRestoreFileManager()
+        )
+
+        if case .failed(let reason) = outcome {
+            expect(reason.contains("rollback failed"), "a failed restore should be reported explicitly")
+        } else {
+            expect(false, "a failed restore should fail reconciliation")
+        }
+        let cacheParent = targetHome.appendingPathComponent(".codex/plugins/cache")
+        let entries = try FileManager.default.contentsOfDirectory(atPath: cacheParent.path)
+        expect(
+            entries.contains(where: { $0.hasPrefix("openai-curated-remote.backup.") }),
+            "a failed restore should preserve the backup for recovery"
+        )
+    }
+
     private static func testCuratedPluginPlan() {
         expect(
             CuratedPluginPlan.commands(
@@ -1268,19 +1374,54 @@ struct InfrastructureTests {
         )
     }
 
+    private static func testCuratedPluginReconcileRollsBackPartialFailure() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let configURL = home.appendingPathComponent(".codex/config.toml")
+        let originalConfig = "[plugins.\"canva@openai-curated\"]\nenabled = true\n"
+        try FileManager.default.createDirectory(at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try originalConfig.write(to: configURL, atomically: true, encoding: .utf8)
+
+        var commandCount = 0
+        let outcome = CuratedPluginReconciler.reconcile(
+            homeDirectory: home.path,
+            referenceIDs: ["github"]
+        ) { arguments in
+            commandCount += 1
+            if commandCount == 1 {
+                try? "".write(to: configURL, atomically: true, encoding: .utf8)
+                return CommandResult(status: 0, output: "removed")
+            }
+            return CommandResult(status: 1, output: "forced add failure")
+        }
+
+        if case .failed = outcome {} else {
+            expect(false, "partial curated reconciliation should fail")
+        }
+        let restoredConfig = try String(contentsOf: configURL, encoding: .utf8)
+        expect(
+            restoredConfig == originalConfig,
+            "partial curated reconciliation should restore the original config"
+        )
+    }
+
     private static func testPluginSyncStabilityTracker() {
-        let timestamp = Date(timeIntervalSince1970: 100)
         var tracker = PluginSyncStabilityTracker()
         expect(
-            !tracker.observe(inventory: ["canva"], modifiedAt: timestamp),
+            !tracker.observe(inventory: ["canva"], fingerprint: "digest-a"),
             "the first sync observation should not be stable"
         )
         expect(
-            tracker.observe(inventory: ["canva"], modifiedAt: timestamp),
+            tracker.observe(inventory: ["canva"], fingerprint: "digest-a"),
             "two identical sync observations should be stable"
         )
         expect(
-            !tracker.observe(inventory: ["canva", "posthog"], modifiedAt: timestamp),
+            !tracker.observe(inventory: ["canva"], fingerprint: "digest-b"),
+            "a file content change should reset sync stability"
+        )
+        expect(
+            !tracker.observe(inventory: ["canva", "posthog"], fingerprint: "digest-b"),
             "an inventory change should reset sync stability"
         )
     }
