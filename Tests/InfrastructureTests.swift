@@ -41,6 +41,9 @@ struct InfrastructureTests {
         try testBundledMarketplaceRepairReinstall()
         try testBundledMarketplaceRepairReinstallsNewBundledPlugin()
         try testBundledMarketplaceRepairReinstallFailure()
+        try testReferencePluginInventory()
+        try testReferencePluginCaptureRoundTrip()
+        try testReferencePluginCapturePreservesPreviousReference()
 
         if failures.isEmpty {
             print("Infrastructure tests passed (\(assertionCount) assertions).")
@@ -1003,5 +1006,112 @@ struct InfrastructureTests {
         if case .failed = outcome {} else {
             expect(false, "a failed plugin reinstall should report failed")
         }
+    }
+
+    private static func testReferencePluginInventory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let remoteCache = root.appendingPathComponent(".codex/plugins/cache/openai-curated-remote")
+        for id in ["superpowers", "cloudflare", "product-design"] {
+            try FileManager.default.createDirectory(
+                at: remoteCache.appendingPathComponent(id),
+                withIntermediateDirectories: true
+            )
+        }
+
+        let remoteIDs = ReferencePluginInventory.remotePluginIDs(homeDirectory: root.path)
+        expect(
+            remoteIDs == ["cloudflare", "product-design", "superpowers"],
+            "remote reference inventory should contain sorted immediate cache directories"
+        )
+
+        let config = """
+        [plugins."github@openai-curated"]
+        enabled = true
+
+        [plugins."superpowers@openai-curated"]
+        enabled = false
+
+        [plugins."browser@openai-bundled"]
+        enabled = true
+
+        [plugins."documents@openai-primary-runtime"]
+        enabled = true
+        """
+        expect(
+            ReferencePluginInventory.curatedPluginIDs(configText: config) == ["github"],
+            "curated reference inventory should include only enabled openai-curated plugins"
+        )
+    }
+
+    private static func testReferencePluginCaptureRoundTrip() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        let remoteCache = home.appendingPathComponent(".codex/plugins/cache/openai-curated-remote")
+        try FileManager.default.createDirectory(
+            at: remoteCache.appendingPathComponent("product-design/0.1.52"),
+            withIntermediateDirectories: true
+        )
+        try Data("payload".utf8).write(to: remoteCache.appendingPathComponent("product-design/0.1.52/SKILL.md"))
+        try """
+        [plugins."github@openai-curated"]
+        enabled = true
+        """.write(
+            to: home.appendingPathComponent(".codex/config.toml"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let store = root.appendingPathComponent("reference-plugins")
+
+        let outcome = ReferencePluginStore.capture(homeDirectory: home.path, storeDirectory: store)
+        expect(outcome == .captured(remoteCount: 1, curatedCount: 1), "capture should report saved plugin counts")
+        guard let loaded = ReferencePluginStore.load(storeDirectory: store) else {
+            expect(false, "a captured reference should load")
+            return
+        }
+        expect(loaded.manifest.schemaVersion == 1, "captured reference should use schema version 1")
+        expect(loaded.manifest.remotePluginIDs == ["product-design"], "captured manifest should list remote plugins")
+        expect(loaded.manifest.curatedPluginIDs == ["github"], "captured manifest should list curated plugins")
+        expect(
+            FileManager.default.fileExists(
+                atPath: loaded.remoteCacheURL.appendingPathComponent("product-design/0.1.52/SKILL.md").path
+            ),
+            "capture should preserve remote plugin files"
+        )
+    }
+
+    private static func testReferencePluginCapturePreservesPreviousReference() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let validHome = root.appendingPathComponent("valid-home")
+        try FileManager.default.createDirectory(
+            at: validHome.appendingPathComponent(".codex/plugins/cache/openai-curated-remote/vercel"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: validHome.appendingPathComponent(".codex"),
+            withIntermediateDirectories: true
+        )
+        try "".write(
+            to: validHome.appendingPathComponent(".codex/config.toml"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let store = root.appendingPathComponent("reference-plugins")
+        _ = ReferencePluginStore.capture(homeDirectory: validHome.path, storeDirectory: store)
+
+        let outcome = ReferencePluginStore.capture(
+            homeDirectory: root.appendingPathComponent("missing-home").path,
+            storeDirectory: store
+        )
+
+        if case .failed = outcome {} else {
+            expect(false, "capture without a remote cache should fail")
+        }
+        expect(
+            ReferencePluginStore.load(storeDirectory: store)?.manifest.remotePluginIDs == ["vercel"],
+            "failed capture should preserve the previous reference"
+        )
     }
 }

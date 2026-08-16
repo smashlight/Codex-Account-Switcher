@@ -329,6 +329,177 @@ enum BundledMarketplaceRepairer {
     }
 }
 
+enum ReferencePluginInventory {
+    static func remotePluginIDs(homeDirectory: String, fileManager: FileManager = .default) -> [String] {
+        let cache = URL(fileURLWithPath: homeDirectory)
+            .appendingPathComponent(".codex/plugins/cache/openai-curated-remote", isDirectory: true)
+        return remotePluginIDs(in: cache, fileManager: fileManager)
+    }
+
+    static func remotePluginIDs(in cache: URL, fileManager: FileManager = .default) -> [String] {
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: cache,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return entries.compactMap { entry in
+            guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return nil }
+            return entry.lastPathComponent
+        }.sorted()
+    }
+
+    static func curatedPluginIDs(configText: String) -> [String] {
+        let prefix = "[plugins.\""
+        let suffix = "@openai-curated\"]"
+        var currentID: String?
+        var enabledIDs: [String] = []
+
+        for rawLine in configText.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                if line.hasPrefix(prefix), line.hasSuffix(suffix) {
+                    currentID = String(line.dropFirst(prefix.count).dropLast(suffix.count))
+                } else {
+                    currentID = nil
+                }
+                continue
+            }
+            if line == "enabled = true", let currentID {
+                enabledIDs.append(currentID)
+            }
+        }
+        return Array(Set(enabledIDs)).sorted()
+    }
+}
+
+struct ReferencePluginManifest: Codable, Equatable {
+    let schemaVersion: Int
+    let capturedAt: Date
+    let remotePluginIDs: [String]
+    let curatedPluginIDs: [String]
+}
+
+enum ReferencePluginStore {
+    struct LoadedReference: Equatable {
+        let manifest: ReferencePluginManifest
+        let remoteCacheURL: URL
+    }
+
+    enum CaptureOutcome: Equatable {
+        case captured(remoteCount: Int, curatedCount: Int)
+        case failed(reason: String)
+    }
+
+    static func capture(
+        homeDirectory: String,
+        storeDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> CaptureOutcome {
+        let home = URL(fileURLWithPath: homeDirectory)
+        let sourceCache = home.appendingPathComponent(
+            ".codex/plugins/cache/openai-curated-remote",
+            isDirectory: true
+        )
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: sourceCache.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return .failed(reason: "remote plugin cache is missing")
+        }
+
+        let configURL = home.appendingPathComponent(".codex/config.toml")
+        let configText = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
+        let remoteIDs = ReferencePluginInventory.remotePluginIDs(in: sourceCache, fileManager: fileManager)
+        let curatedIDs = ReferencePluginInventory.curatedPluginIDs(configText: configText)
+        let parent = storeDirectory.deletingLastPathComponent()
+        let staging = parent.appendingPathComponent(".reference-plugins.staging.\(UUID().uuidString)", isDirectory: true)
+        let backup = parent.appendingPathComponent(".reference-plugins.backup.\(UUID().uuidString)", isDirectory: true)
+
+        do {
+            try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+            try fileManager.copyItem(
+                at: sourceCache,
+                to: staging.appendingPathComponent("openai-curated-remote", isDirectory: true)
+            )
+            let manifest = ReferencePluginManifest(
+                schemaVersion: 1,
+                capturedAt: Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970)),
+                remotePluginIDs: remoteIDs,
+                curatedPluginIDs: curatedIDs
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(manifest).write(
+                to: staging.appendingPathComponent("manifest.json"),
+                options: .atomic
+            )
+            guard load(storeDirectory: staging, fileManager: fileManager)?.manifest == manifest else {
+                throw ReferencePluginStoreError.verificationFailed
+            }
+
+            if fileManager.fileExists(atPath: storeDirectory.path) {
+                try fileManager.moveItem(at: storeDirectory, to: backup)
+            }
+            do {
+                try fileManager.moveItem(at: staging, to: storeDirectory)
+                guard load(storeDirectory: storeDirectory, fileManager: fileManager)?.manifest == manifest else {
+                    throw ReferencePluginStoreError.verificationFailed
+                }
+                if fileManager.fileExists(atPath: backup.path) {
+                    try fileManager.removeItem(at: backup)
+                }
+            } catch {
+                if fileManager.fileExists(atPath: storeDirectory.path) {
+                    try? fileManager.removeItem(at: storeDirectory)
+                }
+                if fileManager.fileExists(atPath: backup.path) {
+                    try? fileManager.moveItem(at: backup, to: storeDirectory)
+                }
+                throw error
+            }
+            return .captured(remoteCount: remoteIDs.count, curatedCount: curatedIDs.count)
+        } catch {
+            if fileManager.fileExists(atPath: staging.path) {
+                try? fileManager.removeItem(at: staging)
+            }
+            return .failed(reason: error.localizedDescription)
+        }
+    }
+
+    static func load(
+        storeDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> LoadedReference? {
+        let manifestURL = storeDirectory.appendingPathComponent("manifest.json")
+        let remoteCacheURL = storeDirectory.appendingPathComponent("openai-curated-remote", isDirectory: true)
+        guard
+            let data = try? Data(contentsOf: manifestURL),
+            let manifest = decodeManifest(data),
+            manifest.schemaVersion == 1,
+            ReferencePluginInventory.remotePluginIDs(in: remoteCacheURL, fileManager: fileManager) == manifest.remotePluginIDs
+        else {
+            return nil
+        }
+        return LoadedReference(manifest: manifest, remoteCacheURL: remoteCacheURL)
+    }
+
+    private static func decodeManifest(_ data: Data) -> ReferencePluginManifest? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(ReferencePluginManifest.self, from: data)
+    }
+
+    private enum ReferencePluginStoreError: LocalizedError {
+        case verificationFailed
+
+        var errorDescription: String? {
+            "reference plugin verification failed"
+        }
+    }
+}
+
 enum AuthBackupPruner {
     @discardableResult
     static func prune(in directory: URL, keepingPerAccount keepCount: Int = 10, fileManager: FileManager = .default) -> Int {
