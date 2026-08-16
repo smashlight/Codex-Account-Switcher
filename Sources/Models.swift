@@ -151,6 +151,7 @@ enum SettingsPanelAction: String {
     case forceRefresh
     case checkUpdates
     case cleanBackups
+    case saveReferencePlugins
     case diagnostics
     case quit
 }

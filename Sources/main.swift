@@ -979,6 +979,7 @@ final class AccountSwitcherPanelView: NSView {
             ("Reminder", .editUsageReminder),
             ("Refresh rate", .editRefresh),
             ("Check update", .checkUpdates),
+            ("Save plugins", .saveReferencePlugins),
             ("Diagnostics", .diagnostics)
         ]
         let inset: CGFloat = 10
@@ -2977,6 +2978,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             checkForUpdates(showResult: true)
         case .cleanBackups:
             cleanAccountBackups()
+        case .saveReferencePlugins:
+            saveCurrentPluginsAsReference()
         case .diagnostics:
             showDiagnostics()
         case .quit:
@@ -5174,22 +5177,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func referencePluginStoreDirectory() -> URL {
+        let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return applicationSupport
+            .appendingPathComponent("Codex Account Switcher", isDirectory: true)
+            .appendingPathComponent("reference-plugins", isDirectory: true)
+    }
+
+    private func saveCurrentPluginsAsReference() {
+        guard !isSwitching else { return }
+        isSwitching = true
+        statusItem.button?.attributedTitle = NSAttributedString(string: "")
+        statusItem.button?.title = "Saving"
+        rebuildMenu()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let outcome = ReferencePluginStore.capture(
+                homeDirectory: NSHomeDirectory(),
+                storeDirectory: self.referencePluginStoreDirectory()
+            )
+            DispatchQueue.main.async {
+                self.isSwitching = false
+                self.updateStatusTitle()
+                switch outcome {
+                case .captured(let remoteCount, let curatedCount):
+                    self.showAlert(
+                        title: "Reference plugins saved",
+                        message: "Saved \(remoteCount) remote packages and \(curatedCount) curated plugins. This exact set will be applied after account switches."
+                    )
+                case .failed(let reason):
+                    self.showAlert(title: "Could not save reference plugins", message: reason)
+                }
+                self.rebuildMenu()
+            }
+        }
+    }
+
     private func restartCodexApp() -> CommandResult {
         var transcript: [String] = []
-        transcript.append("Quitting \(codexDesktopAppName) process tree...")
-
-        for attempt in 1...6 {
-            let pids = codexAppPIDs()
-            if pids.isEmpty { break }
-            let signal = attempt == 1 ? "-TERM" : "-KILL"
-            _ = run("/bin/kill", [signal] + pids)
-            Thread.sleep(forTimeInterval: 1)
-        }
-
-        let remaining = codexAppPIDs()
-        if !remaining.isEmpty {
-            transcript.append("Codex helper processes remained after force quit: \(remaining.joined(separator: ", ")). Opening Codex anyway.")
-        }
+        terminateCodexProcessTree(transcript: &transcript)
 
         if let pluginsMessage = ensureBundledPluginsHealthy() {
             transcript.append(pluginsMessage)
@@ -5199,24 +5228,133 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             transcript.append(configMessage)
         }
 
-        transcript.append("Opening \(codexDesktopAppName)...")
+        let reference = ReferencePluginStore.load(storeDirectory: referencePluginStoreDirectory())
+        if let reference {
+            if let failure = openCodexAndVerify(label: "Opening \(codexDesktopAppName) for account plugin sync...", transcript: &transcript) {
+                return failure
+            }
+            let stabilized = waitForRemotePluginSync(timeout: 15)
+            transcript.append(stabilized ? "Account plugin sync stabilized." : "Account plugin sync wait timed out; applying the latest observed state.")
+            terminateCodexProcessTree(transcript: &transcript)
+            applyReferencePlugins(reference, transcript: &transcript)
+
+            if let failure = openCodexAndVerify(label: "Opening \(codexDesktopAppName) with reference plugins...", transcript: &transcript) {
+                return failure
+            }
+            _ = waitForRemotePluginSync(timeout: 6)
+            applyReferencePlugins(reference, transcript: &transcript)
+            return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
+        }
+
+        transcript.append("Reference plugins not saved; keeping the account-synchronized user plugin set.")
+        if let failure = openCodexAndVerify(label: "Opening \(codexDesktopAppName)...", transcript: &transcript) {
+            return failure
+        }
+        return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
+    }
+
+    private func terminateCodexProcessTree(transcript: inout [String]) {
+        transcript.append("Quitting \(codexDesktopAppName) process tree...")
+        for attempt in 1...6 {
+            let pids = codexAppPIDs()
+            if pids.isEmpty { break }
+            let signal = attempt == 1 ? "-TERM" : "-KILL"
+            _ = run("/bin/kill", [signal] + pids)
+            Thread.sleep(forTimeInterval: 1)
+        }
+        let remaining = codexAppPIDs()
+        if !remaining.isEmpty {
+            transcript.append("Codex helper processes remained after force quit: \(remaining.joined(separator: ", ")).")
+        }
+    }
+
+    private func openCodexAndVerify(label: String, transcript: inout [String]) -> CommandResult? {
+        transcript.append(label)
         let openResult = run("/usr/bin/open", [codexDesktopAppPath])
         if openResult.status != 0 {
-            return CommandResult(status: openResult.status, output: transcript.joined(separator: "\n") + "\n" + openResult.output)
+            return CommandResult(
+                status: openResult.status,
+                output: transcript.joined(separator: "\n") + "\n" + openResult.output
+            )
         }
-
-        Thread.sleep(forTimeInterval: 4)
-        let runningResult = run("/usr/bin/osascript", ["-e", "application \"\(codexDesktopAppName)\" is running"])
-        if runningResult.output.trimmingCharacters(in: .whitespacesAndNewlines) != "true" {
-            transcript.append("\(codexDesktopAppName) did not report as running after launch.")
-            let stillRemaining = codexAppPIDs()
-            if !stillRemaining.isEmpty {
-                transcript.append("Remaining Codex process IDs: \(stillRemaining.joined(separator: ", "))")
+        for _ in 0..<8 {
+            Thread.sleep(forTimeInterval: 0.5)
+            let runningResult = run(
+                "/usr/bin/osascript",
+                ["-e", "application \"\(codexDesktopAppName)\" is running"]
+            )
+            if runningResult.output.trimmingCharacters(in: .whitespacesAndNewlines) == "true" {
+                return nil
             }
-            return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
+        }
+        transcript.append("\(codexDesktopAppName) did not report as running after launch.")
+        return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
+    }
+
+    private func waitForRemotePluginSync(timeout: TimeInterval) -> Bool {
+        let cacheURL = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".codex/plugins/cache/openai-curated-remote", isDirectory: true)
+        var tracker = PluginSyncStabilityTracker()
+        let deadline = Date().addingTimeInterval(timeout)
+        Thread.sleep(forTimeInterval: 2)
+        while Date() < deadline {
+            let inventory = ReferencePluginInventory.remotePluginIDs(homeDirectory: NSHomeDirectory())
+            let modifiedAt = try? cacheURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            if tracker.observe(inventory: inventory, modifiedAt: modifiedAt) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return false
+    }
+
+    private func applyReferencePlugins(
+        _ reference: ReferencePluginStore.LoadedReference,
+        transcript: inout [String]
+    ) {
+        let remoteOutcome = ReferencePluginReconciler.reconcile(
+            homeDirectory: NSHomeDirectory(),
+            reference: reference
+        )
+        switch remoteOutcome {
+        case .alreadyMatched:
+            transcript.append("Reference remote plugins already matched.")
+        case .applied(let added, let removed):
+            transcript.append("Reference remote plugins applied: +\(added.count), -\(removed.count).")
+        case .noReference:
+            transcript.append("Reference remote plugins unavailable.")
+        case .failed(let reason):
+            transcript.append("Reference remote plugin reconciliation failed: \(reason)")
         }
 
-        return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
+        let configURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/config.toml")
+        let configText = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
+        let installedCurated = ReferencePluginInventory.curatedPluginIDs(configText: configText)
+        let commands = CuratedPluginPlan.commands(
+            referenceIDs: reference.manifest.curatedPluginIDs,
+            installedIDs: installedCurated
+        )
+        guard !commands.isEmpty else {
+            transcript.append("Reference curated plugins already matched.")
+            return
+        }
+        let bundledCodex = "\(codexDesktopResourcesPath)/codex"
+        guard FileManager.default.isExecutableFile(atPath: bundledCodex) else {
+            transcript.append("Reference curated plugin reconciliation failed: bundled codex CLI not found.")
+            return
+        }
+        var failures: [String] = []
+        for arguments in commands {
+            let result = run(bundledCodex, arguments)
+            if result.status != 0 {
+                failures.append(arguments.last ?? "unknown plugin")
+            }
+        }
+        if failures.isEmpty {
+            transcript.append("Reference curated plugins applied: \(commands.count) change(s).")
+        } else {
+            transcript.append("Reference curated plugin reconciliation failed for: \(failures.joined(separator: ", ")).")
+        }
     }
 
     private func ensureComputerUsePluginConfigured() -> String? {
