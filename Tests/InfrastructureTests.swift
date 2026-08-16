@@ -82,6 +82,7 @@ struct InfrastructureTests {
         try testReferencePluginLoadRejectsModifiedFiles()
         try testReferencePluginMarketplacePreparation()
         try testReferencePluginMarketplaceDetectsChangedInstalledPackage()
+        testReferencePluginMarketplaceRejectsMissingDigests()
         try testReferencePluginReconcileExactMatch()
         try testReferencePluginReconcileRestoresChangedFiles()
         try testReferencePluginReconcileIdempotent()
@@ -1265,6 +1266,17 @@ struct InfrastructureTests {
                 pluginIDs: ["cloudflare", "product-design"]
             ) == ["cloudflare"],
             "content comparison should mark only the changed installed package as stale"
+        )
+    }
+
+    private static func testReferencePluginMarketplaceRejectsMissingDigests() {
+        expect(
+            !ReferencePluginMarketplace.packageDigestsMatch(installed: nil, reference: nil),
+            "two failed package fingerprints must not be treated as matching content"
+        )
+        expect(
+            ReferencePluginMarketplace.packageDigestsMatch(installed: "same", reference: "same"),
+            "two non-nil equal package fingerprints should match"
         )
     }
 

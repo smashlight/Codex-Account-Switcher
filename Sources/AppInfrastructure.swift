@@ -555,9 +555,16 @@ enum ReferencePluginMarketplace {
                 sourceRoot: installedRoot,
                 fileManager: fileManager
             ) else { return true }
-            return ReferencePluginInventory.remoteTreeDigest(in: installedPackage, fileManager: fileManager)
-                != ReferencePluginInventory.remoteTreeDigest(in: referencePackage, fileManager: fileManager)
+            return !packageDigestsMatch(
+                installed: ReferencePluginInventory.remoteTreeDigest(in: installedPackage, fileManager: fileManager),
+                reference: ReferencePluginInventory.remoteTreeDigest(in: referencePackage, fileManager: fileManager)
+            )
         }.sorted()
+    }
+
+    static func packageDigestsMatch(installed: String?, reference: String?) -> Bool {
+        guard let installed, let reference else { return false }
+        return installed == reference
     }
 
     private static func latestValidPackage(

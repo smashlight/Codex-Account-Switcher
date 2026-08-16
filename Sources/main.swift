@@ -5366,6 +5366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                        label: "Opening \(self.codexDesktopAppName) with reference plugins...",
                        transcript: &transcript
                    ) {
+                    _ = self.terminateCodexProcessTree(transcript: &transcript)
                     return "final Codex launch failed: \(failure.output)"
                 }
                 guard self.verifyReferencePlugins(reference, transcript: &transcript) else {
