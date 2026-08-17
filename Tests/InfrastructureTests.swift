@@ -813,30 +813,40 @@ struct InfrastructureTests {
 
     private static func testPoolVerdict() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let reset = now.addingTimeInterval(3 * 24 * 3600)
-        let eolSoon = now.addingTimeInterval(1 * 24 * 3600)
-        expect(
-            PoolVerdict.evaluate(poolTotal: 46, burnPerDay: 33, eolDate: eolSoon, resetDate: reset, accountCount: 5, now: now)
-                == .notEnoughBeforeReset(eolDate: eolSoon, resetDate: reset),
-            "EOL before reset should be reported as not-enough-before-reset")
-        let eolLater = now.addingTimeInterval(5 * 24 * 3600)
-        expect(
-            PoolVerdict.evaluate(poolTotal: 400, burnPerDay: 33, eolDate: eolLater, resetDate: reset, accountCount: 5, now: now)
-                == .enough(burnPerDay: 33, limitPerDay: 500.0 / 7.0, resetDate: reset),
-            "burn below the weekly limit with reset before EOL should be enough")
-        expect(
-            PoolVerdict.evaluate(poolTotal: 400, burnPerDay: 120, eolDate: eolLater, resetDate: reset, accountCount: 5, now: now)
-                == .burnExceedsLimit(burnPerDay: 120, limitPerDay: 500.0 / 7.0),
-            "burn above the weekly limit should exceed even with a reset in sight")
-        expect(
-            PoolVerdict.evaluate(poolTotal: 400, burnPerDay: 33, eolDate: eolLater, resetDate: nil, accountCount: 5, now: now)
-                == .unknown,
-            "a missing reset date should fall back to unknown")
-        let linearEOL = now.addingTimeInterval(46.0 / 33.0 * 24 * 3600)
-        expect(
-            PoolVerdict.evaluate(poolTotal: 46, burnPerDay: 33, eolDate: nil, resetDate: reset, accountCount: 5, now: now)
-                == .notEnoughBeforeReset(eolDate: linearEOL, resetDate: reset),
-            "a linear EOL fallback should be used when the forecast EOL is nil")
+        let reset = now.addingTimeInterval(3 * 86_400)
+        let eolSoon = now.addingTimeInterval(2 * 86_400)
+        let eolLater = now.addingTimeInterval(5 * 86_400)
+
+        let deficit = PoolVerdict.evaluate(poolTotal: 200, burnPerDay: 100, eolDate: eolSoon, resetDate: reset, hasSufficientHistory: true, now: now)
+        expect(deficit.kind == .notEnough, "exhaustion before reset should be not enough")
+        expect(deficit.resetInterval == 3 * 86_400, "reset interval should use the captured now")
+        expect(deficit.exhaustionInterval == 2 * 86_400, "exhaustion interval should use the captured now")
+        expect(deficit.margin == -86_400, "exhaustion before reset should have a negative margin")
+
+        let buffer = PoolVerdict.evaluate(poolTotal: 500, burnPerDay: 120, eolDate: eolLater, resetDate: reset, hasSufficientHistory: true, now: now)
+        expect(buffer.kind == .enough, "high burn should still be enough when exhaustion follows reset")
+        expect(buffer.margin == 2 * 86_400, "exhaustion after reset should have a positive margin")
+
+        let boundary = PoolVerdict.evaluate(poolTotal: 300, burnPerDay: 100, eolDate: reset, resetDate: reset, hasSufficientHistory: true, now: now)
+        expect(boundary.kind == .enough, "an exhaustion event exactly at reset should not be negative")
+        expect(boundary.margin == 0, "equal events should have a zero margin")
+
+        let fallbackEOL = now.addingTimeInterval(2 * 86_400)
+        let fallback = PoolVerdict.evaluate(poolTotal: 200, burnPerDay: 100, eolDate: nil, resetDate: reset, hasSufficientHistory: true, now: now)
+        expect(fallback.exhaustionInterval == fallbackEOL.timeIntervalSince(now), "missing forecast EOL should use the linear pool/burn fallback")
+
+        let collectingInputs: [PoolVerdict] = [
+            PoolVerdict.evaluate(poolTotal: 200, burnPerDay: 100, eolDate: eolLater, resetDate: reset, hasSufficientHistory: false, now: now),
+            PoolVerdict.evaluate(poolTotal: 200, burnPerDay: nil, eolDate: eolLater, resetDate: reset, hasSufficientHistory: true, now: now),
+            PoolVerdict.evaluate(poolTotal: 200, burnPerDay: 0, eolDate: eolLater, resetDate: reset, hasSufficientHistory: true, now: now),
+            PoolVerdict.evaluate(poolTotal: .infinity, burnPerDay: 100, eolDate: eolLater, resetDate: reset, hasSufficientHistory: true, now: now),
+            PoolVerdict.evaluate(poolTotal: 200, burnPerDay: .nan, eolDate: eolLater, resetDate: reset, hasSufficientHistory: true, now: now),
+            PoolVerdict.evaluate(poolTotal: 200, burnPerDay: 100, eolDate: eolLater, resetDate: nil, hasSufficientHistory: true, now: now),
+            PoolVerdict.evaluate(poolTotal: 200, burnPerDay: 100, eolDate: now.addingTimeInterval(-1), resetDate: reset, hasSufficientHistory: true, now: now),
+            PoolVerdict.evaluate(poolTotal: 200, burnPerDay: 100, eolDate: eolLater, resetDate: now, hasSufficientHistory: true, now: now)
+        ]
+        expect(collectingInputs.allSatisfy { $0.kind == .collecting }, "incomplete, non-finite, and invalid dates should collect")
+        expect(collectingInputs.allSatisfy { $0.margin == nil }, "collecting must not expose display intervals")
     }
 
     private static func testPoolHistorySampleResetsAtCoding() {

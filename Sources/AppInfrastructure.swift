@@ -2322,34 +2322,53 @@ enum PaceEstimator {
     }
 }
 
-/// The forecast row's verdict: does the pool last until the next weekly reset,
-/// and is the daily burn below the weekly limit per day?
-enum PoolVerdict: Equatable {
-    case enough(burnPerDay: Double, limitPerDay: Double, resetDate: Date)
-    case notEnoughBeforeReset(eolDate: Date, resetDate: Date)
-    case burnExceedsLimit(burnPerDay: Double, limitPerDay: Double)
-    case unknown
+enum PoolVerdictKind: Equatable {
+    case enough
+    case notEnough
+    case collecting
+}
+
+struct PoolVerdict: Equatable {
+    let kind: PoolVerdictKind
+    let resetInterval: TimeInterval?
+    let exhaustionInterval: TimeInterval?
+    let margin: TimeInterval?
+
+    static let collecting = PoolVerdict(
+        kind: .collecting,
+        resetInterval: nil,
+        exhaustionInterval: nil,
+        margin: nil
+    )
 
     static func evaluate(
         poolTotal: Double,
         burnPerDay: Double?,
         eolDate: Date?,
         resetDate: Date?,
-        accountCount: Int,
-        now: Date = Date()
+        hasSufficientHistory: Bool,
+        now: Date
     ) -> PoolVerdict {
-        guard let resetDate, let burnPerDay, burnPerDay > 1e-9, poolTotal > 0 else {
-            return .unknown
+        guard hasSufficientHistory,
+              poolTotal.isFinite, poolTotal > 0,
+              let burnPerDay, burnPerDay.isFinite, burnPerDay > 1e-9,
+              let resetDate else {
+            return .collecting
         }
-        let limitPerDay = Double(max(1, accountCount)) * 100.0 / 7.0
-        let effectiveEOL = eolDate ?? now.addingTimeInterval(poolTotal / burnPerDay * (24 * 60 * 60))
-        if effectiveEOL < resetDate {
-            return .notEnoughBeforeReset(eolDate: effectiveEOL, resetDate: resetDate)
+        let effectiveEOL = eolDate ?? now.addingTimeInterval(poolTotal / burnPerDay * 86_400)
+        let resetInterval = resetDate.timeIntervalSince(now)
+        let exhaustionInterval = effectiveEOL.timeIntervalSince(now)
+        guard resetInterval.isFinite, exhaustionInterval.isFinite,
+              resetInterval > 0, exhaustionInterval >= 0 else {
+            return .collecting
         }
-        if burnPerDay > limitPerDay {
-            return .burnExceedsLimit(burnPerDay: burnPerDay, limitPerDay: limitPerDay)
-        }
-        return .enough(burnPerDay: burnPerDay, limitPerDay: limitPerDay, resetDate: resetDate)
+        let margin = exhaustionInterval - resetInterval
+        return PoolVerdict(
+            kind: margin >= 0 ? .enough : .notEnough,
+            resetInterval: resetInterval,
+            exhaustionInterval: exhaustionInterval,
+            margin: margin
+        )
     }
 }
 
