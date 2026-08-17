@@ -48,13 +48,6 @@ enum AccountListPresentationPolicy {
         let normalHeight = Double(visibleRows) * rowHeight + Double(max(0, visibleRows - 1)) * rowGap
         guard showsConfirmation else { return min(maximumHeight, normalHeight) }
 
-        let allVisibleExpandedHeight = confirmationRowHeight
-            + Double(max(0, visibleRows - 1)) * rowHeight
-            + Double(max(0, visibleRows - 1)) * rowGap
-        if accountCount <= visibleRows, allVisibleExpandedHeight <= maximumHeight {
-            return allVisibleExpandedHeight
-        }
-
         let completeRows = max(1, visibleRows - 1)
         let compactExpandedHeight = confirmationRowHeight
             + Double(max(0, completeRows - 1)) * rowHeight

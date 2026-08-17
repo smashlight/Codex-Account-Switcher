@@ -171,9 +171,9 @@ struct InfrastructureTests {
     }
 
     private static func testAccountListViewportHeightPolicy() {
-        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 2, visibleRowCount: 2, maximumHeight: 132, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 132, "short lists should grow to fit the expanded row")
-        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 426, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 402, "height-limited lists should show only complete rows")
-        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 456, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 456, "tall screens should preserve all rows while expanding")
+        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 2, visibleRowCount: 2, maximumHeight: 102, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 78, "confirmation should temporarily hide a non-fitting second row")
+        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 426, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 402, "confirmation should show only complete rows")
+        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 456, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 402, "confirmation viewport should stay compact even when more height is available")
         expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 456, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: false) == 426, "normal lists should retain their compact height")
     }
 
