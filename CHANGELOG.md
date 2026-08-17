@@ -3,7 +3,8 @@
 ## 1.8.5 - 2026-08-15
 
 - Add a pool-wide usage pace forecast for the five-hour window: the app samples the remaining pool of all saved accounts every 30 minutes into a local 56-day JSONL history, then draws a CodexBar-style utilization chart (capped bars over a full track, coloured by remaining level) at the bottom of the account panel.
-- Show the predicted EOL, the average burn rate against the pool limit, and the weekly reset schedule; a verdict badge states whether the remaining pool is enough to reach the next reset.
+- Replace raw pool/burn forecast text with an ordered Enough / Not Enough / Collecting verdict card.
+- Add immediate Russian/English switching for the main panel, defaulting to Russian for new installations.
 - Persist the weekly reset timestamps captured from live usage snapshots so the forecast can compare EOL against the actual reset date.
 
 ## 1.8.4 - 2026-08-15
