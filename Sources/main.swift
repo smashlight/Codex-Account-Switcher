@@ -65,7 +65,7 @@ struct PoolPaceChartData {
             labelText: .secondary,
             forecastText: "",
             forecastColor: .secondary,
-            verdict: .unknown
+            verdict: .collecting
         )
     }
 }
@@ -238,12 +238,12 @@ struct PoolPaceChartView: View {
     }
 
     private var verdictBadge: (label: String, color: Color)? {
-        switch data.verdict {
+        switch data.verdict.kind {
         case .enough:
             return ("Enough", Color(.systemGreen))
-        case .notEnoughBeforeReset, .burnExceedsLimit:
+        case .notEnough:
             return ("Not enough", Color(.systemRed))
-        case .unknown:
+        case .collecting:
             return nil
         }
     }
@@ -1461,50 +1461,58 @@ final class AccountSwitcherPanelView: NSView {
         guard let forecast = state.forecast, !forecast.insufficientData else {
             return "collecting history… · pool \(total)% (\(composition))\(burnText)"
         }
-        switch self.poolVerdict(for: state) {
-        case .enough(let burnPerDay, let limitPerDay, let reset):
-            return "✓ enough: burn ~\(Self.roundedInt(burnPerDay))% < limit \(Self.roundedInt(limitPerDay))%/day · reset \(Self.shortDayTime(reset))"
-        case .notEnoughBeforeReset(let eolDate, let reset):
+        let now = Date()
+        let verdict = self.poolVerdict(for: state, now: now)
+        switch verdict.kind {
+        case .enough:
+            guard let resetInterval = verdict.resetInterval,
+                  let exhaustionInterval = verdict.exhaustionInterval else { break }
+            let reset = now.addingTimeInterval(resetInterval)
+            let eolDate = now.addingTimeInterval(exhaustionInterval)
+            if let burn {
+                return "✓ enough: EOL ~\(Self.shortDayTime(eolDate)) after reset (\(Self.shortDayTime(reset))) · burn ~\(Self.roundedInt(burn))%/day"
+            }
+            return "✓ enough: EOL ~\(Self.shortDayTime(eolDate)) after reset (\(Self.shortDayTime(reset)))"
+        case .notEnough:
+            guard let resetInterval = verdict.resetInterval,
+                  let exhaustionInterval = verdict.exhaustionInterval else { break }
+            let reset = now.addingTimeInterval(resetInterval)
+            let eolDate = now.addingTimeInterval(exhaustionInterval)
             if let burn {
                 return "EOL ~\(Self.shortDayTime(eolDate)) before reset (\(Self.shortDayTime(reset))) · burn ~\(Self.roundedInt(burn))%/day"
             }
             return "EOL ~\(Self.shortDayTime(eolDate)) before reset (\(Self.shortDayTime(reset)))"
-        case .burnExceedsLimit(let burnPerDay, let limitPerDay):
-            if let reset = self.poolResetDate(for: state) {
-                return "burn ~\(Self.roundedInt(burnPerDay))% > limit \(Self.roundedInt(limitPerDay))%/day · reset \(Self.shortDayTime(reset))"
-            }
-            return "burn ~\(Self.roundedInt(burnPerDay))% > limit \(Self.roundedInt(limitPerDay))%/day"
-        case .unknown:
-            let now = Date()
-            var hint = ""
-            if forecast.historyDays < 7 {
-                hint = " · approx"
-            }
-            if let eol = forecast.eolDate {
-                let days = max(1, Int(ceil(eol.timeIntervalSince(now) / (24 * 60 * 60))))
-                let daysText = days == 1 ? "~1 day" : "~\(days) days"
-                return "EOL ~\(Self.shortDayTime(eol)) · pool \(total)% (\(composition)) · \(daysText)\(hint)\(burnText)"
-            }
-            return "won't hit 0 this week · pool \(total)% (\(composition))\(hint)\(burnText)"
+        case .collecting:
+            break
         }
+        var hint = ""
+        if forecast.historyDays < 7 {
+            hint = " · approx"
+        }
+        if let eol = forecast.eolDate {
+            let days = max(1, Int(ceil(eol.timeIntervalSince(now) / (24 * 60 * 60))))
+            let daysText = days == 1 ? "~1 day" : "~\(days) days"
+            return "EOL ~\(Self.shortDayTime(eol)) · pool \(total)% (\(composition)) · \(daysText)\(hint)\(burnText)"
+        }
+        return "won't hit 0 this week · pool \(total)% (\(composition))\(hint)\(burnText)"
     }
 
     /// Shared verdict used by both the forecast row and the badge.
-    private func poolVerdict(for state: PaceDisplayState) -> PoolVerdict {
-        guard let forecast = state.forecast, !forecast.insufficientData else { return .unknown }
+    private func poolVerdict(for state: PaceDisplayState, now: Date = Date()) -> PoolVerdict {
+        let forecast = state.forecast
         return PoolVerdict.evaluate(
             poolTotal: state.poolTotal,
             burnPerDay: self.poolBurnRatePerDay(state.history),
-            eolDate: forecast.eolDate,
-            resetDate: self.poolResetDate(for: state),
-            accountCount: state.accountCount,
-            now: Date()
+            eolDate: forecast?.eolDate,
+            resetDate: self.poolResetDate(for: state, now: now),
+            hasSufficientHistory: forecast.map { !$0.insufficientData } ?? false,
+            now: now
         )
     }
 
-    private func poolResetDate(for state: PaceDisplayState) -> Date? {
+    private func poolResetDate(for state: PaceDisplayState, now: Date) -> Date? {
         guard let anchor = state.history.last?.resetsAt else { return nil }
-        return Self.nextResetDate(after: anchor, now: Date())
+        return Self.nextResetDate(after: anchor, now: now)
     }
 
     /// Average pool burn per day over the last 7 days (positive = pool draining).
