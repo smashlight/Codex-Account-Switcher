@@ -150,3 +150,137 @@ enum LocalizedText {
         }
     }
 }
+
+enum LocalizedIntervalFormatter {
+    private enum Unit { case hour, day }
+
+    static func duration(_ interval: TimeInterval, language: AppLanguage) -> String {
+        let safeInterval = max(0, interval)
+        let unit: Unit = safeInterval < 86_400 ? .hour : .day
+        let divisor: Double = unit == .hour ? 3_600 : 86_400
+        let value = safeInterval / divisor
+        if value < 0.1 {
+            return language == .russian
+                ? "<0,1 \(unit == .hour ? "часа" : "дня")"
+                : "<0.1 \(unit == .hour ? "hours" : "days")"
+        }
+        let rounded = (value * 10).rounded() / 10
+        let number = numberText(rounded, language: language)
+        return "\(number) \(unitText(unit, value: rounded, language: language))"
+    }
+
+    static func signedMargin(_ interval: TimeInterval, language: AppLanguage) -> String {
+        let sign = interval < 0 ? "−" : "+"
+        let days = abs(interval) / 86_400
+        if days < 0.1 {
+            return sign + (language == .russian ? "<0,1 дня" : "<0.1 days")
+        }
+        let rounded = (days * 10).rounded() / 10
+        return sign + numberText(rounded, language: language)
+            + " " + unitText(.day, value: rounded, language: language)
+    }
+
+    private static func numberText(_ value: Double, language: AppLanguage) -> String {
+        let isWhole = abs(value.rounded() - value) < 1e-9
+        let text = isWhole ? String(Int(value.rounded())) : String(format: "%.1f", value)
+        return language == .russian ? text.replacingOccurrences(of: ".", with: ",") : text
+    }
+
+    private static func unitText(_ unit: Unit, value: Double, language: AppLanguage) -> String {
+        guard language == .russian else {
+            let singular = abs(value - 1) < 1e-9
+            return unit == .hour ? (singular ? "hour" : "hours") : (singular ? "day" : "days")
+        }
+        guard abs(value.rounded() - value) < 1e-9 else { return unit == .hour ? "часа" : "дня" }
+        let integer = Int(value.rounded())
+        let lastTwo = integer % 100
+        let last = integer % 10
+        if last == 1, lastTwo != 11 { return unit == .hour ? "час" : "день" }
+        if (2...4).contains(last), !(12...14).contains(lastTwo) { return unit == .hour ? "часа" : "дня" }
+        return unit == .hour ? "часов" : "дней"
+    }
+}
+
+enum PoolVerdictEventKind: Equatable {
+    case now
+    case reset
+    case exhaustion
+}
+
+struct PoolVerdictEventPresentation: Equatable {
+    let kind: PoolVerdictEventKind
+    let title: String
+    let intervalText: String?
+}
+
+struct PoolVerdictPresentation: Equatable {
+    let kind: PoolVerdictKind
+    let language: AppLanguage
+    let resetInterval: TimeInterval?
+    let exhaustionInterval: TimeInterval?
+    let margin: TimeInterval?
+    let title: String
+    let detail: String
+    let marginBadge: String?
+    let accessibilityLabel: String
+    let events: [PoolVerdictEventPresentation]
+}
+
+enum PoolVerdictPresenter {
+    static func make(verdict: PoolVerdict, language: AppLanguage) -> PoolVerdictPresentation {
+        switch verdict.kind {
+        case .collecting:
+            return PoolVerdictPresentation(
+                kind: .collecting,
+                language: language,
+                resetInterval: nil,
+                exhaustionInterval: nil,
+                margin: nil,
+                title: LocalizedText.value(.verdictCollectingTitle, language: language),
+                detail: LocalizedText.value(.verdictCollectingDetail, language: language),
+                marginBadge: nil,
+                accessibilityLabel: LocalizedText.value(.collectingAccessibility, language: language),
+                events: []
+            )
+        case .enough, .notEnough:
+            guard let reset = verdict.resetInterval,
+                  let exhaustion = verdict.exhaustionInterval,
+                  let margin = verdict.margin else {
+                return make(verdict: .collecting, language: language)
+            }
+            let resetEvent = event(.reset, interval: reset, language: language)
+            let exhaustionEvent = event(.exhaustion, interval: exhaustion, language: language)
+            let events = [event(.now, interval: nil, language: language)]
+                + (verdict.kind == .enough ? [resetEvent, exhaustionEvent] : [exhaustionEvent, resetEvent])
+            return PoolVerdictPresentation(
+                kind: verdict.kind,
+                language: language,
+                resetInterval: reset,
+                exhaustionInterval: exhaustion,
+                margin: margin,
+                title: LocalizedText.value(verdict.kind == .enough ? .verdictEnoughTitle : .verdictNotEnoughTitle, language: language),
+                detail: LocalizedText.value(verdict.kind == .enough ? .verdictEnoughDetail : .verdictNotEnoughDetail, language: language),
+                marginBadge: LocalizedIntervalFormatter.signedMargin(margin, language: language),
+                accessibilityLabel: LocalizedText.value(verdict.kind == .enough ? .enoughAccessibility : .notEnoughAccessibility, language: language),
+                events: events
+            )
+        }
+    }
+
+    private static func event(
+        _ kind: PoolVerdictEventKind,
+        interval: TimeInterval?,
+        language: AppLanguage
+    ) -> PoolVerdictEventPresentation {
+        let key: LocalizedTextKey = kind == .now ? .nowEvent : (kind == .reset ? .resetEvent : .exhaustionEvent)
+        let intervalText = interval.map {
+            let duration = LocalizedIntervalFormatter.duration($0, language: language)
+            return language == .russian ? "через \(duration)" : "in \(duration)"
+        }
+        return PoolVerdictEventPresentation(
+            kind: kind,
+            title: LocalizedText.value(key, language: language),
+            intervalText: intervalText
+        )
+    }
+}
