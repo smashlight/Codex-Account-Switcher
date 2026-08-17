@@ -41,6 +41,7 @@ struct InfrastructureTests {
         testResetRefreshPolicy()
         testUsageRefreshPolicy()
         testWeeklyRemainingBand()
+        testAccountListPresentationPolicy()
         testLastKnownGoodSnapshotPolicy()
         testToolbarStatusFormatting()
         try testComputerUsePluginDiscovery()
@@ -145,6 +146,17 @@ struct InfrastructureTests {
         expect(WeeklyRemainingBand.classify(26) == .healthy, "twenty-six percent remaining should be healthy")
         expect(WeeklyRemainingBand.classify(100) == .healthy, "full remaining usage should be healthy")
         expect(WeeklyRemainingBand.classify(101) == .healthy, "over-reported remaining usage should clamp into healthy")
+    }
+
+    private static func testAccountListPresentationPolicy() {
+        expect(AccountListPresentationPolicy.visibleRowCount(accountCount: 0, availableRowCapacity: 10) == 0, "empty accounts should have no rows")
+        expect(AccountListPresentationPolicy.visibleRowCount(accountCount: 2, availableRowCapacity: 10) == 2, "two accounts should show two rows")
+        expect(AccountListPresentationPolicy.visibleRowCount(accountCount: 10, availableRowCapacity: 10) == 10, "ten accounts should fit without scrolling")
+        expect(AccountListPresentationPolicy.visibleRowCount(accountCount: 11, availableRowCapacity: 10) == 10, "eleven accounts should cap the viewport at ten rows")
+        expect(AccountListPresentationPolicy.visibleRowCount(accountCount: 10, availableRowCapacity: 6) == 6, "short screens should lower visible capacity")
+        expect(!AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 10), "ten rows should not scroll on a tall screen")
+        expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 11, availableRowCapacity: 10), "eleven rows should scroll")
+        expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 6), "short screens should scroll earlier")
     }
 
     private static func testLastKnownGoodSnapshotPolicy() {

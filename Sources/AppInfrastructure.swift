@@ -22,6 +22,18 @@ enum WeeklyRemainingBand: Equatable {
     }
 }
 
+enum AccountListPresentationPolicy {
+    static let maximumRowsWithoutScrolling = 10
+
+    static func visibleRowCount(accountCount: Int, availableRowCapacity: Int) -> Int {
+        min(max(0, accountCount), min(maximumRowsWithoutScrolling, max(0, availableRowCapacity)))
+    }
+
+    static func requiresScrolling(accountCount: Int, availableRowCapacity: Int) -> Bool {
+        accountCount > visibleRowCount(accountCount: accountCount, availableRowCapacity: availableRowCapacity)
+    }
+}
+
 enum ProcessRunner {
     private final class DataBox: @unchecked Sendable {
         private let lock = NSLock()
