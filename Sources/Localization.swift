@@ -149,6 +149,51 @@ enum LocalizedText {
             }
         }
     }
+
+    static func sampleChartDetail(date: Date, remainingPercent: Int, language: AppLanguage) -> String {
+        let dateStyle = Date.FormatStyle(locale: language.locale)
+            .day()
+            .month(language == .russian ? .wide : .abbreviated)
+        let timeStyle = Date.FormatStyle(locale: language.locale)
+            .hour()
+            .minute()
+        let dateText = date.formatted(dateStyle)
+        let timeText = date.formatted(timeStyle)
+            .replacingOccurrences(of: "\u{202F}", with: " ")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+        switch language {
+        case .russian:
+            return "\(dateText), \(timeText) · осталось \(remainingPercent)%"
+        case .english:
+            return "\(dateText), \(timeText) · \(remainingPercent)% left"
+        }
+    }
+
+    static func dailyChartDetail(
+        date: Date,
+        lowPercent: Int,
+        endPercent: Int?,
+        isToday: Bool,
+        language: AppLanguage
+    ) -> String {
+        let dateText = date.formatted(
+            Date.FormatStyle(locale: language.locale)
+                .day()
+                .month(.abbreviated)
+        )
+        switch language {
+        case .russian:
+            var text = "\(dateText) · минимум \(lowPercent)%"
+            if let endPercent { text += " · конец \(endPercent)%" }
+            if isToday { text += " · сегодня" }
+            return text
+        case .english:
+            var text = "\(dateText) · low \(lowPercent)%"
+            if let endPercent { text += " · end \(endPercent)%" }
+            if isToday { text += " · today" }
+            return text
+        }
+    }
 }
 
 enum LocalizedIntervalFormatter {

@@ -17,8 +17,6 @@ private enum AccountPanelLayout {
     static let rowGap: CGFloat = 6
     static let paceTopGap: CGFloat = 8
     static let paceChartHeight: CGFloat = 104
-    static let paceChartToRowGap: CGFloat = 2
-    static let paceRowHeight: CGFloat = 16
     static let verdictTopGap: CGFloat = 8
     static let verdictCardHeight: CGFloat = 142
     static var verdictSectionHeight: CGFloat { verdictTopGap + verdictCardHeight }
@@ -53,27 +51,12 @@ struct PoolPaceChartData {
     let tint: Color
     let gridLine: Color
     let labelText: Color
-    let forecastText: String
-    let forecastColor: Color
-    let verdict: PoolVerdict
-
-    static func empty() -> PoolPaceChartData {
-        PoolPaceChartData(
-            history: [],
-            resolution: .samples,
-            tint: .secondary,
-            gridLine: .secondary,
-            labelText: .secondary,
-            forecastText: "",
-            forecastColor: .secondary,
-            verdict: .collecting
-        )
-    }
+    let language: AppLanguage
 }
 
 /// CodexBar-style utilization bars: a muted capacity track (0...100) with a
 /// tinted remaining-pool fill per sample, date labels on the X axis, a dashed
-/// hover rule, and a detail line that swaps the forecast text while hovering.
+/// hover rule, and localized detail text for the selected bar.
 
 struct PoolPaceChartView: View {
     struct Bar: Identifiable {
@@ -111,34 +94,19 @@ struct PoolPaceChartView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AccountPanelLayout.paceChartToRowGap) {
-            if bars.isEmpty {
+        if bars.isEmpty {
+            VStack {
                 Spacer()
-                Text("История пула набирается…")
+                Text(LocalizedText.value(.poolHistoryCollecting, language: data.language))
                     .font(.system(size: 11))
                     .foregroundStyle(data.labelText)
                     .frame(maxWidth: .infinity, alignment: .center)
                 Spacer()
-            } else {
-                chart
             }
-            HStack(spacing: 8) {
-                Text(detailLine)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(hoveredIndex != nil ? data.labelText : data.forecastColor)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if let badge = verdictBadge {
-                    Text(badge.label)
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(badge.color)
-                        .fixedSize()
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: AccountPanelLayout.paceRowHeight)
+            .frame(height: AccountPanelLayout.paceChartHeight)
+        } else {
+            chart
         }
-        .frame(maxWidth: .infinity)
     }
 
     private var chart: some View {
@@ -207,6 +175,7 @@ struct PoolPaceChartView: View {
             }
         }
         .frame(height: AccountPanelLayout.paceChartHeight)
+        .accessibilityValue(detailLine)
     }
 
     private func barStyle(for value: Double) -> AnyShapeStyle {
@@ -238,48 +207,38 @@ struct PoolPaceChartView: View {
         return indexes.sorted().map(Double.init)
     }
 
-    private var verdictBadge: (label: String, color: Color)? {
-        switch data.verdict.kind {
-        case .enough:
-            return ("Enough", Color(.systemGreen))
-        case .notEnough:
-            return ("Not enough", Color(.systemRed))
-        case .collecting:
-            return nil
-        }
-    }
-
     private var detailLine: String {
-        guard let hoveredIndex, bars.indices.contains(hoveredIndex) else {
-            return data.forecastText
-        }
+        guard let hoveredIndex, bars.indices.contains(hoveredIndex) else { return "" }
         let bar = bars[hoveredIndex]
         switch data.resolution {
         case .daily:
-            var text = "\(bar.date.formatted(.dateTime.month(.abbreviated).day())) · low \(Int(bar.value.rounded()))%"
-            if let endValue = bar.endValue {
-                text += " · end \(Int(endValue.rounded()))%"
-            }
-            if bar.isToday {
-                text += " · today"
-            }
-            return text
+            return LocalizedText.dailyChartDetail(
+                date: bar.date,
+                lowPercent: Int(bar.value.rounded()),
+                endPercent: bar.endValue.map { Int($0.rounded()) },
+                isToday: bar.isToday,
+                language: data.language
+            )
         case .samples:
-            return "\(bar.date.formatted(.dateTime.month().day().hour().minute())) · \(Int(bar.value.rounded()))% left"
+            return LocalizedText.sampleChartDetail(
+                date: bar.date,
+                remainingPercent: Int(bar.value.rounded()),
+                language: data.language
+            )
         }
     }
 }
 struct PaceDisplayState {
     let history: [PoolHistorySample]
-    let forecast: PaceEstimator.Forecast?
-    let poolTotal: Double
-    let accountCount: Int
+    let now: Date
+    let verdict: PoolVerdict
 }
 
 final class AccountSwitcherPanelView: NSView {
     private let accounts: [CodexAccount]
     private let activeAccount: CodexAccount?
     private let mode: AccountPanelMode
+    private let language: AppLanguage
     private let lastUpdatedText: String
     private let lastError: String?
     private let isSwitching: Bool
@@ -334,6 +293,7 @@ final class AccountSwitcherPanelView: NSView {
         accounts: [CodexAccount],
         activeAccount: CodexAccount?,
         mode: AccountPanelMode,
+        language: AppLanguage,
         lastUpdatedText: String,
         lastError: String?,
         isSwitching: Bool,
@@ -376,6 +336,7 @@ final class AccountSwitcherPanelView: NSView {
         self.accounts = accounts
         self.activeAccount = activeAccount
         self.mode = mode
+        self.language = language
         self.lastUpdatedText = lastUpdatedText
         self.lastError = lastError
         self.isSwitching = isSwitching
@@ -505,7 +466,14 @@ final class AccountSwitcherPanelView: NSView {
 
         var listBottom = resetChanceY
         if let pace {
-            let paceTop = resetChanceY - AccountPanelLayout.paceTopGap - AccountPanelLayout.paceSectionHeight
+            let verdictY = resetChanceY - AccountPanelLayout.verdictSectionHeight
+            addSubview(verdictSection(pace, frame: NSRect(
+                x: usageInset,
+                y: verdictY + AccountPanelLayout.verdictTopGap,
+                width: contentWidth,
+                height: AccountPanelLayout.verdictCardHeight
+            )))
+            let paceTop = verdictY - AccountPanelLayout.paceTopGap - AccountPanelLayout.paceSectionHeight
             addSubview(paceSection(pace, frame: NSRect(x: usageInset, y: paceTop, width: contentWidth, height: AccountPanelLayout.paceSectionHeight)))
             listBottom = paceTop
         }
@@ -1409,6 +1377,14 @@ final class AccountSwitcherPanelView: NSView {
         return container
     }
 
+    private func pacePresentation(_ state: PaceDisplayState) -> PoolVerdictPresentation {
+        PoolVerdictPresenter.make(verdict: state.verdict, language: language)
+    }
+
+    private func verdictSection(_ state: PaceDisplayState, frame: NSRect) -> NSView {
+        PoolVerdictCardView(frame: frame, presentation: pacePresentation(state), theme: theme)
+    }
+
     private func paceChartData(_ state: PaceDisplayState) -> PoolPaceChartData {
         let dailyPoints = DailyPoolAggregator.dailyPoints(from: state.history)
         let resolution: PoolResolution = dailyPoints.count >= 2 ? .daily : .samples
@@ -1436,9 +1412,7 @@ final class AccountSwitcherPanelView: NSView {
             tint: paceTint(for: state),
             gridLine: Color(theme.divider),
             labelText: Color(theme.secondaryText),
-            forecastText: paceForecastText(state),
-            forecastColor: Color(paceForecastColor(state)),
-            verdict: poolVerdict(for: state)
+            language: language
         )
     }
 
@@ -1456,117 +1430,6 @@ final class AccountSwitcherPanelView: NSView {
         case .unknown:
             return .secondary
         }
-    }
-
-    private func paceForecastText(_ state: PaceDisplayState) -> String {
-        let total = Int(state.poolTotal.rounded())
-        let composition = "\(state.accountCount) acc."
-        let burn = self.poolBurnRatePerDay(state.history)
-        let burnText = self.poolBurnText(burn)
-        guard let forecast = state.forecast, !forecast.insufficientData else {
-            return "collecting history… · pool \(total)% (\(composition))\(burnText)"
-        }
-        let now = Date()
-        let verdict = self.poolVerdict(for: state, now: now)
-        switch verdict.kind {
-        case .enough:
-            guard let resetInterval = verdict.resetInterval,
-                  let exhaustionInterval = verdict.exhaustionInterval else { break }
-            let reset = now.addingTimeInterval(resetInterval)
-            let eolDate = now.addingTimeInterval(exhaustionInterval)
-            if let burn {
-                return "✓ enough: EOL ~\(Self.shortDayTime(eolDate)) after reset (\(Self.shortDayTime(reset))) · burn ~\(Self.roundedInt(burn))%/day"
-            }
-            return "✓ enough: EOL ~\(Self.shortDayTime(eolDate)) after reset (\(Self.shortDayTime(reset)))"
-        case .notEnough:
-            guard let resetInterval = verdict.resetInterval,
-                  let exhaustionInterval = verdict.exhaustionInterval else { break }
-            let reset = now.addingTimeInterval(resetInterval)
-            let eolDate = now.addingTimeInterval(exhaustionInterval)
-            if let burn {
-                return "EOL ~\(Self.shortDayTime(eolDate)) before reset (\(Self.shortDayTime(reset))) · burn ~\(Self.roundedInt(burn))%/day"
-            }
-            return "EOL ~\(Self.shortDayTime(eolDate)) before reset (\(Self.shortDayTime(reset)))"
-        case .collecting:
-            break
-        }
-        var hint = ""
-        if forecast.historyDays < 7 {
-            hint = " · approx"
-        }
-        if let eol = forecast.eolDate {
-            let days = max(1, Int(ceil(eol.timeIntervalSince(now) / (24 * 60 * 60))))
-            let daysText = days == 1 ? "~1 day" : "~\(days) days"
-            return "EOL ~\(Self.shortDayTime(eol)) · pool \(total)% (\(composition)) · \(daysText)\(hint)\(burnText)"
-        }
-        return "won't hit 0 this week · pool \(total)% (\(composition))\(hint)\(burnText)"
-    }
-
-    /// Shared verdict used by both the forecast row and the badge.
-    private func poolVerdict(for state: PaceDisplayState, now: Date = Date()) -> PoolVerdict {
-        let forecast = state.forecast
-        return PoolVerdict.evaluate(
-            poolTotal: state.poolTotal,
-            burnPerDay: self.poolBurnRatePerDay(state.history),
-            eolDate: forecast?.eolDate,
-            resetDate: self.poolResetDate(for: state, now: now),
-            hasSufficientHistory: forecast.map { !$0.insufficientData } ?? false,
-            now: now
-        )
-    }
-
-    private func poolResetDate(for state: PaceDisplayState, now: Date) -> Date? {
-        guard let anchor = state.history.last?.resetsAt else { return nil }
-        return Self.nextResetDate(after: anchor, now: now)
-    }
-
-    /// Average pool burn per day over the last 7 days (positive = pool draining).
-    private func poolBurnRatePerDay(_ history: [PoolHistorySample]) -> Double? {
-        guard let last = history.last, history.count >= 2 else { return nil }
-        let cutoff = last.ts.addingTimeInterval(-7 * 24 * 3600)
-        let recent = history.filter { $0.ts >= cutoff }
-        guard let first = recent.first, first.ts < last.ts else { return nil }
-        let days = max(0.5, last.ts.timeIntervalSince(first.ts) / (24 * 3600))
-        return (first.poolTotal - last.poolTotal) / days
-    }
-
-    private func poolBurnText(_ burn: Double?) -> String {
-        guard let burn, abs(burn) >= 1 else { return "" }
-        if burn < 0 {
-            return " · burn -\(Int(abs(burn).rounded()))%/day"
-        }
-        return " · burn ~\(Int(burn.rounded()))%/day"
-    }
-
-    /// Anchor is the earliest weekly reset seen in the sample; roll forward in
-    /// whole weeks when it has passed since the sample was recorded.
-    private static func nextResetDate(after anchor: Date, now: Date) -> Date {
-        let week: TimeInterval = 7 * 24 * 3600
-        guard anchor <= now else { return anchor }
-        let cycles = ceil(now.timeIntervalSince(anchor) / week)
-        return anchor.addingTimeInterval(cycles * week)
-    }
-
-    private static func shortDayTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "EEE HH:mm"
-        return formatter.string(from: date)
-    }
-
-    private static func roundedInt(_ value: Double) -> Int {
-        Int(value.rounded())
-    }
-
-    private func paceForecastColor(_ state: PaceDisplayState) -> NSColor {
-        guard let forecast = state.forecast, !forecast.insufficientData else {
-            return theme.secondaryText
-        }
-        if let probability = forecast.runOutProbability {
-            if probability >= 0.75 { return .systemRed }
-            if probability >= 0.5 { return .systemOrange }
-        }
-        return theme.secondaryText
     }
 
     private func bottomBar(frame: NSRect) -> NSView {
@@ -1882,6 +1745,7 @@ final class AccountFloatingPanel: NSPanel {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private let languageStore = AppLanguagePreferenceStore()
     private var accountPanel: NSPanel?
     private var accountPanelMode: AccountPanelMode = .usage
     private let timerTickInterval: TimeInterval = 5
@@ -2525,20 +2389,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// Current pool display state for the panel: history loaded from disk and
-    /// a fresh forecast. Nil when there is no history yet — the chart section
-    /// is simply hidden in that case.
-    private func poolPaceState() -> PaceDisplayState? {
+    /// Current pool display state for the panel, evaluated from one instant.
+    private func poolPaceState(now: Date) -> PaceDisplayState? {
         guard !accounts.isEmpty else { return nil }
         let history = PoolHistoryStore.load()
-        guard let last = history.last else { return nil }
-        let forecast = PaceEstimator.forecast(samples: history)
+        guard let last = history.last else {
+            return PaceDisplayState(history: [], now: now, verdict: .collecting)
+        }
+        let forecast = PaceEstimator.forecast(samples: history, now: now)
+        let resetDate = last.resetsAt.map { Self.nextResetDate(after: $0, now: now) }
+        let burn = poolBurnRatePerDay(history)
+        let verdict = PoolVerdict.evaluate(
+            poolTotal: last.poolTotal,
+            burnPerDay: burn,
+            eolDate: forecast.eolDate,
+            resetDate: resetDate,
+            hasSufficientHistory: !forecast.insufficientData,
+            now: now
+        )
         return PaceDisplayState(
             history: history,
-            forecast: forecast,
-            poolTotal: last.poolTotal,
-            accountCount: last.n
+            now: now,
+            verdict: verdict
         )
+    }
+
+    /// Average pool burn per day over the last 7 days (positive = pool draining).
+    private func poolBurnRatePerDay(_ history: [PoolHistorySample]) -> Double? {
+        guard let last = history.last, history.count >= 2 else { return nil }
+        let cutoff = last.ts.addingTimeInterval(-7 * 24 * 3600)
+        let recent = history.filter { $0.ts >= cutoff }
+        guard let first = recent.first, first.ts < last.ts else { return nil }
+        let days = max(0.5, last.ts.timeIntervalSince(first.ts) / (24 * 3600))
+        return (first.poolTotal - last.poolTotal) / days
+    }
+
+    /// Anchor is the earliest weekly reset seen in the sample; roll forward in
+    /// whole weeks when it has passed since the sample was recorded.
+    private static func nextResetDate(after anchor: Date, now: Date) -> Date {
+        let week: TimeInterval = 7 * 24 * 3600
+        guard anchor <= now else { return anchor }
+        let cycles = ceil(now.timeIntervalSince(anchor) / week)
+        return anchor.addingTimeInterval(cycles * week)
     }
 
     private func rebuildMenu() {
@@ -2752,7 +2644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AccountSwitcherPanelView.preferredSize(
             mode: accountPanelMode,
             accountCount: toolbarAccounts().count,
-            showsPace: poolPaceState() != nil,
+            showsPace: !accounts.isEmpty,
             maximumHeight: maximumAccountPanelHeight()
         )
     }
@@ -2763,12 +2655,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func refreshAccountPanelContent() {
+        let now = Date()
+        let paceState = poolPaceState(now: now)
         refreshNotificationHealth()
-        let paceState = poolPaceState()
         let panel = AccountSwitcherPanelView(
             accounts: toolbarAccounts(),
             activeAccount: accounts.first(where: { $0.isActive }),
             mode: accountPanelMode,
+            language: languageStore.load(),
             lastUpdatedText: lastUpdatedText(),
             lastError: lastError,
             isSwitching: isSwitching,

@@ -50,6 +50,7 @@ struct InfrastructureTests {
         testToolbarStatusFormatting()
         testAppLanguagePreference()
         testLocalizedTextCompleteness()
+        testLocalizedChartDetails()
         testLocalizedIntervalFormatting()
         testPoolVerdictPresentation()
         try testComputerUsePluginDiscovery()
@@ -167,6 +168,36 @@ struct InfrastructureTests {
         expect(LocalizedText.value(.languageLabel, language: .english) == "Язык / Language", "the language label should stay bilingual in English mode")
         expect(LocalizedText.value(.russianOption, language: .english) == "Русский", "the Russian option should remain self-identifying")
         expect(LocalizedText.value(.englishOption, language: .russian) == "English", "the English option should remain self-identifying")
+    }
+
+    private static func testLocalizedChartDetails() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        guard let date = calendar.date(from: DateComponents(year: 2026, month: 8, day: 17, hour: 14, minute: 30)) else {
+            expect(false, "chart detail tests should create a fixed local date")
+            return
+        }
+
+        expect(
+            LocalizedText.sampleChartDetail(date: date, remainingPercent: 42, language: .russian) == "17 августа, 14:30 · осталось 42%",
+            "sample chart details should use the complete Russian sentence"
+        )
+        expect(
+            LocalizedText.sampleChartDetail(date: date, remainingPercent: 42, language: .english) == "Aug 17, 2:30 PM · 42% left",
+            "sample chart details should use the complete English sentence"
+        )
+        expect(
+            LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: 48, isToday: true, language: .russian) == "17 авг. · минимум 42% · конец 48% · сегодня",
+            "daily chart details should include the Russian end value and today marker"
+        )
+        expect(
+            LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: 48, isToday: true, language: .english) == "Aug 17 · low 42% · end 48% · today",
+            "daily chart details should include the English end value and today marker"
+        )
+        expect(
+            LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: nil, isToday: false, language: .english) == "Aug 17 · low 42%",
+            "daily chart details should omit unavailable optional values"
+        )
     }
 
     private static func testLocalizedIntervalFormatting() {
