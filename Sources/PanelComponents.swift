@@ -267,16 +267,31 @@ final class DotView: NSView {
 }
 
 final class ProgressLineView: NSView {
-    private let color: NSColor
+    private let startColor: NSColor
+    private let endColor: NSColor
     private let trackColor: NSColor
     private let percent: CGFloat
-    private let isMeter: Bool
 
     init(frame: NSRect, color: NSColor, trackColor: NSColor = NSColor.white.withAlphaComponent(0.11), percent: CGFloat, isMeter: Bool = false) {
-        self.color = color
+        self.startColor = color
+        self.endColor = isMeter && color == .meterBlue ? .meterBlueDeep : color
         self.trackColor = trackColor
         self.percent = max(0, min(1, percent))
-        self.isMeter = isMeter
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    init(
+        frame: NSRect,
+        startColor: NSColor,
+        endColor: NSColor,
+        trackColor: NSColor = NSColor.white.withAlphaComponent(0.11),
+        percent: CGFloat
+    ) {
+        self.startColor = startColor
+        self.endColor = endColor
+        self.trackColor = trackColor
+        self.percent = max(0, min(1, percent))
         super.init(frame: frame)
         wantsLayer = true
     }
@@ -290,19 +305,13 @@ final class ProgressLineView: NSView {
         trackColor.setFill()
         track.roundedPath(radius: track.height / 2).fill()
         let fill = NSRect(x: track.minX, y: track.minY, width: track.width * percent, height: track.height)
-
-        if isMeter, color == .meterBlue {
-            // CodexBar-style teal-blue gradient meter.
-            let clip = fill.roundedPath(radius: track.height / 2)
-            let gradient = NSGradient(starting: .meterBlue, ending: .meterBlueDeep)
-            NSGraphicsContext.saveGraphicsState()
-            clip.addClip()
-            gradient?.draw(in: fill, angle: -90)
-            NSGraphicsContext.restoreGraphicsState()
-        } else {
-            color.withAlphaComponent(min(color.alphaComponent, 0.92)).setFill()
-            fill.roundedPath(radius: track.height / 2).fill()
-        }
+        guard fill.width > 0 else { return }
+        let clip = fill.roundedPath(radius: track.height / 2)
+        let gradient = NSGradient(starting: startColor, ending: endColor)
+        NSGraphicsContext.saveGraphicsState()
+        clip.addClip()
+        gradient?.draw(in: fill, angle: 0)
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 

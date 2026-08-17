@@ -208,9 +208,16 @@ struct PoolPaceChartView: View {
     }
 
     private func barColor(for value: Double) -> Color {
-        if value > 50 { return Color(.systemGreen) }
-        if value > 10 { return Color(.systemOrange) }
-        return Color(.systemRed)
+        switch WeeklyRemainingBand.classify(Int(value.rounded())) {
+        case .healthy:
+            return Color(.nativeMint)
+        case .warning:
+            return Color(.nativeOrange)
+        case .critical:
+            return Color(.nativeRed)
+        case .unknown:
+            return .secondary
+        }
     }
 
     private var axisIndexes: [Double] {
@@ -306,6 +313,12 @@ final class AccountSwitcherPanelView: NSView {
     private let pace: PaceDisplayState?
     private let resetChance: ResetChanceForecast?
     private var theme: PanelTheme { PanelTheme.current(for: effectiveAppearance) }
+
+    private struct MeterGradient {
+        let start: NSColor
+        let end: NSColor
+        let label: NSColor
+    }
     private let outerInset: CGFloat = 18
     private let usageInset: CGFloat = 14
     private let cardGap: CGFloat = 12
@@ -1027,9 +1040,8 @@ final class AccountSwitcherPanelView: NSView {
 
     private func accountListRow(_ account: CodexAccount, frame: NSRect) -> NSView {
         let weeklyPercent = account.weeklyUsedPercent
-        let usedPercent = weeklyPercent.map { 100 - $0 }
         let weeklyColor = accentColor(for: weeklyPercent, isActive: account.isActive)
-        let barColor = statusBarColor(for: weeklyPercent)
+        let gradient = meterGradient(for: weeklyPercent)
         let card = RoundedPanelView(
             frame: frame,
             fillColor: cardFillColor(for: account),
@@ -1062,8 +1074,14 @@ final class AccountSwitcherPanelView: NSView {
         card.addSubview(emailLabel)
 
         let barWidth: CGFloat = 144
-        card.addSubview(ProgressLineView(frame: NSRect(x: 16, y: 27, width: barWidth, height: 8), color: barColor, trackColor: theme.progressTrack, percent: CGFloat(usedPercent ?? 0) / 100))
-        card.addSubview(label(percentText(weeklyPercent), frame: NSRect(x: 168, y: 25, width: 38, height: 16), size: 10.5, weight: account.isActive ? .bold : .semibold, color: barColor))
+        card.addSubview(ProgressLineView(
+            frame: NSRect(x: 16, y: 27, width: barWidth, height: 8),
+            startColor: gradient.start,
+            endColor: gradient.end,
+            trackColor: theme.progressTrack,
+            percent: CGFloat(weeklyPercent ?? 0) / 100
+        ))
+        card.addSubview(label(percentText(weeklyPercent), frame: NSRect(x: 168, y: 25, width: 38, height: 16), size: 10.5, weight: account.isActive ? .bold : .semibold, color: gradient.label))
 
         let resetX: CGFloat = 214
         let resetWidth = frame.width - resetX - switchButtonWidth - 24
@@ -1451,9 +1469,16 @@ final class AccountSwitcherPanelView: NSView {
         let remaining = state.history.last.map {
             PoolHistoryStore.poolAverage(n: $0.n, poolTotal: $0.poolTotal)
         } ?? 0
-        if remaining > 50 { return Color(.systemGreen) }
-        if remaining > 10 { return Color(.systemOrange) }
-        return Color(.systemRed)
+        switch WeeklyRemainingBand.classify(Int(remaining.rounded())) {
+        case .healthy:
+            return Color(.nativeMint)
+        case .warning:
+            return Color(.nativeOrange)
+        case .critical:
+            return Color(.nativeRed)
+        case .unknown:
+            return .secondary
+        }
     }
 
     private func paceForecastText(_ state: PaceDisplayState) -> String {
@@ -1710,6 +1735,20 @@ final class AccountSwitcherPanelView: NSView {
         if percent <= 10 { return .warmRed }
         if percent <= 25 { return .warmAmber }
         return .meterBlue
+    }
+
+    private func meterGradient(for remainingPercent: Int?) -> MeterGradient {
+        switch WeeklyRemainingBand.classify(remainingPercent) {
+        case .healthy:
+            return MeterGradient(start: .nativeMint, end: .nativeBlue, label: .nativeMint)
+        case .warning:
+            return MeterGradient(start: .nativeGold, end: .nativeOrange, label: .nativeOrange)
+        case .critical:
+            return MeterGradient(start: .nativeCoral, end: .nativeRed, label: .nativeRed)
+        case .unknown:
+            let neutral = theme.secondaryText.withAlphaComponent(0.65)
+            return MeterGradient(start: neutral, end: neutral, label: neutral)
+        }
     }
 
     private func statusBarColor(for remaining: Int?) -> NSColor {

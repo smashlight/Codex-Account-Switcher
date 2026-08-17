@@ -166,6 +166,12 @@ func usageStatusColor(for percent: Int?) -> NSColor {
 // MARK: - Warm glass palette
 
 extension NSColor {
+    static let nativeMint = NSColor(red: CGFloat(0x47) / 255.0, green: CGFloat(0xD7) / 255.0, blue: CGFloat(0xA5) / 255.0, alpha: 1)
+    static let nativeBlue = NSColor(red: CGFloat(0x64) / 255.0, green: CGFloat(0xB9) / 255.0, blue: CGFloat(0xFF) / 255.0, alpha: 1)
+    static let nativeGold = NSColor(red: CGFloat(0xFF) / 255.0, green: CGFloat(0xD1) / 255.0, blue: CGFloat(0x66) / 255.0, alpha: 1)
+    static let nativeOrange = NSColor(red: CGFloat(0xFF) / 255.0, green: CGFloat(0x8F) / 255.0, blue: CGFloat(0x3F) / 255.0, alpha: 1)
+    static let nativeCoral = NSColor(red: CGFloat(0xFF) / 255.0, green: CGFloat(0x8A) / 255.0, blue: CGFloat(0x7A) / 255.0, alpha: 1)
+    static let nativeRed = NSColor(red: CGFloat(0xE8) / 255.0, green: CGFloat(0x3F) / 255.0, blue: CGFloat(0x54) / 255.0, alpha: 1)
     /// CodexBar-style teal-blue meter fill (#4FB6C3).
     static let meterBlue = NSColor(red: 0.310, green: 0.714, blue: 0.765, alpha: 1)
     /// Deeper variant of the meter gradient (#3584A3).
