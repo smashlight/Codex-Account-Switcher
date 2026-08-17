@@ -40,6 +40,7 @@ struct InfrastructureTests {
     static func main() throws {
         testResetRefreshPolicy()
         testUsageRefreshPolicy()
+        testWeeklyRemainingBand()
         testLastKnownGoodSnapshotPolicy()
         testToolbarStatusFormatting()
         try testComputerUsePluginDiscovery()
@@ -132,6 +133,18 @@ struct InfrastructureTests {
         expect(!UsageRefreshPolicy.shouldRefresh(lastRefresh: now.addingTimeInterval(-29), now: now, ttl: 30, force: false), "fresh usage snapshot should stay cached")
         expect(UsageRefreshPolicy.shouldRefresh(lastRefresh: now.addingTimeInterval(-30), now: now, ttl: 30, force: false), "expired usage snapshot should refresh")
         expect(UsageRefreshPolicy.shouldRefresh(lastRefresh: now, now: now, ttl: 30, force: true), "forced usage refresh should bypass cache")
+    }
+
+    private static func testWeeklyRemainingBand() {
+        expect(WeeklyRemainingBand.classify(nil) == .unknown, "missing remaining usage should be neutral")
+        expect(WeeklyRemainingBand.classify(-1) == .critical, "negative remaining usage should clamp into critical")
+        expect(WeeklyRemainingBand.classify(0) == .critical, "zero remaining should be critical")
+        expect(WeeklyRemainingBand.classify(10) == .critical, "ten percent remaining should be critical")
+        expect(WeeklyRemainingBand.classify(11) == .warning, "eleven percent remaining should be warning")
+        expect(WeeklyRemainingBand.classify(25) == .warning, "twenty-five percent remaining should be warning")
+        expect(WeeklyRemainingBand.classify(26) == .healthy, "twenty-six percent remaining should be healthy")
+        expect(WeeklyRemainingBand.classify(100) == .healthy, "full remaining usage should be healthy")
+        expect(WeeklyRemainingBand.classify(101) == .healthy, "over-reported remaining usage should clamp into healthy")
     }
 
     private static func testLastKnownGoodSnapshotPolicy() {

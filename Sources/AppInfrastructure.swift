@@ -7,6 +7,21 @@ struct CommandResult {
     let output: String
 }
 
+enum WeeklyRemainingBand: Equatable {
+    case unknown
+    case healthy
+    case warning
+    case critical
+
+    static func classify(_ remainingPercent: Int?) -> WeeklyRemainingBand {
+        guard let remainingPercent else { return .unknown }
+        let clamped = min(100, max(0, remainingPercent))
+        if clamped <= 10 { return .critical }
+        if clamped <= 25 { return .warning }
+        return .healthy
+    }
+}
+
 enum ProcessRunner {
     private final class DataBox: @unchecked Sendable {
         private let lock = NSLock()
