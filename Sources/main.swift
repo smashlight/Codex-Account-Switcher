@@ -13,6 +13,7 @@ private enum AccountPanelLayout {
     static let bottomBarTopGap: CGFloat = 10
     static let bottomBarHeight: CGFloat = 44
     static let rowHeight: CGFloat = 48
+    static let confirmationRowHeight: CGFloat = 104
     static let rowGap: CGFloat = 6
     static let paceTopGap: CGFloat = 8
     static let paceChartHeight: CGFloat = 104
@@ -284,7 +285,6 @@ final class AccountSwitcherPanelView: NSView {
     private let autoSwitchEnabled: Bool
     private let autoSwitchThreshold: Int
     private let autoSwitchMode: AutoSwitchMode
-    private let confirmBeforeSwitching: Bool
     private let armedSwitchEmail: String?
     private let protectFrontmostCodex: Bool
     private let apiModeActive: Bool
@@ -299,6 +299,7 @@ final class AccountSwitcherPanelView: NSView {
     private let labelForAccount: (CodexAccount) -> String
     private let compactEmail: (String) -> String
     private let switchAccount: (String) -> Void
+    private let cancelSwitchConfirmation: () -> Void
     private let refresh: () -> Void
     private let showSettings: () -> Void
     private let checkUpdates: () -> Void
@@ -337,7 +338,6 @@ final class AccountSwitcherPanelView: NSView {
         autoSwitchEnabled: Bool,
         autoSwitchThreshold: Int,
         autoSwitchMode: AutoSwitchMode,
-        confirmBeforeSwitching: Bool,
         armedSwitchEmail: String?,
         protectFrontmostCodex: Bool,
         apiModeActive: Bool,
@@ -352,6 +352,7 @@ final class AccountSwitcherPanelView: NSView {
         labelForAccount: @escaping (CodexAccount) -> String,
         compactEmail: @escaping (String) -> String,
         switchAccount: @escaping (String) -> Void,
+        cancelSwitchConfirmation: @escaping () -> Void,
         refresh: @escaping () -> Void,
         showSettings: @escaping () -> Void,
         checkUpdates: @escaping () -> Void,
@@ -378,7 +379,6 @@ final class AccountSwitcherPanelView: NSView {
         self.autoSwitchEnabled = autoSwitchEnabled
         self.autoSwitchThreshold = autoSwitchThreshold
         self.autoSwitchMode = autoSwitchMode
-        self.confirmBeforeSwitching = confirmBeforeSwitching
         self.armedSwitchEmail = armedSwitchEmail
         self.protectFrontmostCodex = protectFrontmostCodex
         self.apiModeActive = apiModeActive
@@ -393,6 +393,7 @@ final class AccountSwitcherPanelView: NSView {
         self.labelForAccount = labelForAccount
         self.compactEmail = compactEmail
         self.switchAccount = switchAccount
+        self.cancelSwitchConfirmation = cancelSwitchConfirmation
         self.refresh = refresh
         self.showSettings = showSettings
         self.checkUpdates = checkUpdates
@@ -457,7 +458,7 @@ final class AccountSwitcherPanelView: NSView {
             )
         }
         if mode == .settings {
-            return NSSize(width: 432, height: 592)
+            return NSSize(width: 432, height: 556)
         }
         if mode == .resets && accountCount >= 3 {
             return NSSize(width: 468, height: 640)
@@ -522,26 +523,34 @@ final class AccountSwitcherPanelView: NSView {
             1,
             Int((frame.height + AccountPanelLayout.rowGap) / (AccountPanelLayout.rowHeight + AccountPanelLayout.rowGap))
         )
-        scrollView.hasVerticalScroller = AccountListPresentationPolicy.requiresScrolling(
+        let policyRequiresScrolling = AccountListPresentationPolicy.requiresScrolling(
             accountCount: orderedAccounts.count,
             availableRowCapacity: rowCapacity
         )
 
-        let contentHeight = CGFloat(orderedAccounts.count) * AccountPanelLayout.rowHeight
+        let rowHeights = orderedAccounts.map { account in
+            armedSwitchEmail == account.email && !account.isActive
+                ? AccountPanelLayout.confirmationRowHeight
+                : AccountPanelLayout.rowHeight
+        }
+        let contentHeight = rowHeights.reduce(0, +)
             + CGFloat(max(0, orderedAccounts.count - 1)) * AccountPanelLayout.rowGap
+        scrollView.hasVerticalScroller = policyRequiresScrolling || contentHeight > frame.height
         let document = FlippedContainerView(frame: NSRect(
             x: 0,
             y: 0,
             width: frame.width,
             height: max(frame.height, contentHeight)
         ))
+        var y: CGFloat = 0
         for (index, account) in orderedAccounts.enumerated() {
-            let y = CGFloat(index) * (AccountPanelLayout.rowHeight + AccountPanelLayout.rowGap)
+            let rowHeight = rowHeights[index]
             document.addSubview(accountListRow(
                 account,
                 displayIndex: index + 1,
-                frame: NSRect(x: 0, y: y, width: frame.width, height: AccountPanelLayout.rowHeight)
+                frame: NSRect(x: 0, y: y, width: frame.width, height: rowHeight)
             ))
+            y += rowHeight + AccountPanelLayout.rowGap
         }
         scrollView.documentView = document
         return scrollView
@@ -558,16 +567,15 @@ final class AccountSwitcherPanelView: NSView {
         ]))
         addSubview(displaySection)
 
-        let automationSection = settingsSection(frame: NSRect(x: outerInset, y: 158, width: contentWidth, height: 220), title: "Automation")
+        let automationSection = settingsSection(frame: NSRect(x: outerInset, y: 158, width: contentWidth, height: 184), title: "Automation")
         automationSection.addSubview(settingToggleRow(title: "Follow Codex / ChatGPT", detail: "Show only while either app is open", isOn: launchAtLoginEnabled, action: .toggleLaunchAtLogin, frame: NSRect(x: 16, y: 34, width: contentWidth - 32, height: 34)))
         automationSection.addSubview(settingToggleRow(title: "Usage reminder", detail: "Alert at \(reminderThreshold)%", isOn: remindersEnabled, action: .toggleUsageReminder, frame: NSRect(x: 16, y: 70, width: contentWidth - 32, height: 34)))
         automationSection.addSubview(settingToggleRow(title: "Credit expiry", detail: "Alert 3 days before reset credits expire", isOn: creditExpiryNotificationsEnabled, action: .toggleCreditExpiryNotifications, frame: NSRect(x: 16, y: 106, width: contentWidth - 32, height: 34)))
         automationSection.addSubview(settingToggleRow(title: "Auto switch", detail: autoSwitchDetailText(), isOn: autoSwitchEnabled, action: .editAutoSwitch, frame: NSRect(x: 16, y: 142, width: contentWidth - 32, height: 34)))
-        automationSection.addSubview(settingToggleRow(title: "Confirm before switching", detail: "Arm the account card before relaunch", isOn: confirmBeforeSwitching, action: .toggleConfirmSwitch, frame: NSRect(x: 16, y: 178, width: contentWidth - 32, height: 34)))
         addSubview(automationSection)
 
-        addSubview(healthSection(frame: NSRect(x: outerInset, y: 386, width: contentWidth, height: 104)))
-        addSubview(settingsFooter(frame: NSRect(x: outerInset, y: 498, width: contentWidth, height: 76)))
+        addSubview(healthSection(frame: NSRect(x: outerInset, y: 350, width: contentWidth, height: 104)))
+        addSubview(settingsFooter(frame: NSRect(x: outerInset, y: 462, width: contentWidth, height: 76)))
     }
 
     private func buildResetCreditsContent() {
@@ -1047,13 +1055,14 @@ final class AccountSwitcherPanelView: NSView {
     private func accountListRow(_ account: CodexAccount, displayIndex: Int, frame: NSRect) -> NSView {
         let weeklyPercent = account.weeklyUsedPercent
         let gradient = meterGradient(for: weeklyPercent)
+        let isArmed = armedSwitchEmail == account.email && !account.isActive
         let card = RoundedPanelView(
             frame: frame,
             fillColor: cardFillColor(for: account),
             borderColor: cardBorderColor(for: account),
             cornerRadius: 16,
-            hoverFillColor: account.isActive || isSwitching ? nil : theme.inactiveCardHoverFill,
-            clickAction: account.isActive || isSwitching ? nil : { [weak self] in
+            hoverFillColor: account.isActive || isSwitching || isArmed ? nil : theme.inactiveCardHoverFill,
+            clickAction: account.isActive || isSwitching || isArmed ? nil : { [weak self] in
                 self?.switchAccount(account.email)
             },
             shadowOpacity: account.isActive ? 0.18 : 0.09,
@@ -1083,6 +1092,23 @@ final class AccountSwitcherPanelView: NSView {
         let emailLabel = label(account.email, frame: NSRect(x: 52, y: 7, width: 216, height: 16), size: 11.5, weight: account.isActive ? .semibold : .medium, color: theme.primaryText)
         emailLabel.toolTip = account.email
         card.addSubview(emailLabel)
+
+        if isArmed {
+            card.addSubview(label("Switch to this account?", frame: NSRect(x: 52, y: 31, width: 190, height: 17), size: 12, weight: .semibold, color: theme.primaryText))
+            card.addSubview(label("Codex will relaunch", frame: NSRect(x: 52, y: 52, width: 190, height: 16), size: 10.5, weight: .medium, color: theme.tertiaryText))
+
+            let cancelButton = SettingsActionButton(frame: NSRect(x: frame.width - 190, y: 62, width: 78, height: 30), title: "Cancel", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+            cancelButton.target = self
+            cancelButton.action = #selector(cancelSwitchPressed)
+            card.addSubview(cancelButton)
+
+            let switchButton = SettingsActionButton(frame: NSRect(x: frame.width - 102, y: 62, width: 88, height: 30), title: "Switch", color: gradient.end.withAlphaComponent(0.82), textColor: theme.primaryText)
+            switchButton.identifier = NSUserInterfaceItemIdentifier(account.email)
+            switchButton.target = self
+            switchButton.action = #selector(accountSwitchPressed(_:))
+            card.addSubview(switchButton)
+            return card
+        }
 
         let barWidth: CGFloat = 144
         card.addSubview(ProgressLineView(
@@ -1115,7 +1141,7 @@ final class AccountSwitcherPanelView: NSView {
         )
         let labelText = labelForAccount(account)
 
-        let isArmed = confirmBeforeSwitching && armedSwitchEmail == account.email && !account.isActive
+        let isArmed = armedSwitchEmail == account.email && !account.isActive
         let statusTitle = account.isActive ? "  ACTIVE" : (isSwitching ? "SWITCHING..." : (isArmed ? "CONFIRM" : "SWITCH"))
         let buttonColor = account.isActive ? fiveHourColor : (isArmed ? NSColor.systemBlue : theme.usageInactiveButtonFill)
         let switchButtonWidth: CGFloat = account.isActive ? 74 : (isArmed ? 80 : 66)
@@ -1895,6 +1921,10 @@ final class AccountSwitcherPanelView: NSView {
         switchAccount(email)
     }
 
+    @objc private func cancelSwitchPressed() {
+        cancelSwitchConfirmation()
+    }
+
     @objc private func settingsActionPressed(_ sender: NSControl) {
         guard let rawValue = sender.identifier?.rawValue else { return }
         guard let action = SettingsPanelAction(rawValue: rawValue) else { return }
@@ -1938,7 +1968,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let autoSwitchEnabledDefaultsKey = "autoSwitchEnabled"
     private let autoSwitchThresholdDefaultsKey = "autoSwitchThreshold"
     private let autoSwitchModeDefaultsKey = "autoSwitchMode"
-    private let confirmBeforeSwitchingDefaultsKey = "confirmBeforeSwitching"
     private let refreshIntervalDefaultsKey = "refreshIntervalSeconds"
     private let idleRefreshIntervalDefaultsKey = "idleRefreshIntervalSeconds"
     private let protectFrontmostCodexDefaultsKey = "protectFrontmostCodex"
@@ -2079,14 +2108,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         set {
             UserDefaults.standard.set(max(1, min(99, newValue)), forKey: autoSwitchThresholdDefaultsKey)
-        }
-    }
-    private var confirmBeforeSwitching: Bool {
-        get {
-            UserDefaults.standard.bool(forKey: confirmBeforeSwitchingDefaultsKey)
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: confirmBeforeSwitchingDefaultsKey)
         }
     }
     private var activeRefreshInterval: Int {
@@ -2660,12 +2681,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         reminderItem.target = self
         menu.addItem(reminderItem)
 
-        let confirmItem = NSMenuItem(title: "Confirm Panel Switches", action: #selector(toggleConfirmBeforeSwitching), keyEquivalent: "")
-        confirmItem.target = self
-        confirmItem.state = confirmBeforeSwitching ? .on : .off
-        confirmItem.isEnabled = !isSwitching
-        menu.addItem(confirmItem)
-
         let refreshSettings = NSMenuItem(title: "Refresh Settings", action: #selector(showRefreshSettingsDialog), keyEquivalent: "")
         refreshSettings.target = self
         menu.addItem(refreshSettings)
@@ -2835,7 +2850,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             autoSwitchEnabled: autoSwitchEnabled,
             autoSwitchThreshold: autoSwitchThreshold,
             autoSwitchMode: autoSwitchMode,
-            confirmBeforeSwitching: confirmBeforeSwitching,
             armedSwitchEmail: armedSwitchEmail,
             protectFrontmostCodex: protectFrontmostCodex,
             apiModeActive: apiModeActive,
@@ -2855,6 +2869,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             switchAccount: { [weak self] email in
                 self?.handlePanelSwitchRequest(email)
+            },
+            cancelSwitchConfirmation: { [weak self] in
+                self?.clearArmedSwitch()
+                self?.refreshAccountPanelContentIfVisible()
             },
             refresh: { [weak self] in
                 self?.refreshAccounts(force: true)
@@ -2896,20 +2914,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handlePanelSwitchRequest(_ email: String) {
-        guard !isSwitching else { return }
-        if confirmBeforeSwitching {
-            if armedSwitchEmail == email {
-                clearArmedSwitch()
-                closeAccountPanel()
-                switchTo(query: email)
-            } else {
-                armSwitchConfirmation(for: email)
-            }
+        let target = accounts.first { $0.email == email || $0.selector == email }
+        let decision = InlineSwitchConfirmationPolicy.decision(
+            armedEmail: armedSwitchEmail,
+            requestedEmail: email,
+            isActive: target?.isActive ?? false,
+            isSwitching: isSwitching
+        )
+        switch decision {
+        case .ignore:
             return
+        case .arm:
+            armSwitchConfirmation(for: email)
+        case .confirm:
+            clearArmedSwitch()
+            closeAccountPanel()
+            switchTo(query: email)
         }
-
-        closeAccountPanel()
-        switchTo(query: email)
     }
 
     private func armSwitchConfirmation(for email: String) {
@@ -3035,8 +3056,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             toggleAutoSwitch()
         case .editAutoSwitch:
             showAutoSwitchDialog()
-        case .toggleConfirmSwitch:
-            toggleConfirmBeforeSwitching()
         case .toggleProtectCodex:
             toggleProtectFrontmostCodex()
         case .editRefresh:
@@ -4540,12 +4559,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         rebuildMenu()
     }
 
-    @objc private func toggleConfirmBeforeSwitching() {
-        confirmBeforeSwitching.toggle()
-        clearArmedSwitch()
-        rebuildMenu()
-    }
-
     @objc private func toggleProtectFrontmostCodex() {
         protectFrontmostCodex.toggle()
         rebuildMenu()
@@ -4695,15 +4708,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switchTo(query: query)
     }
 
-    private func confirmSwitchPreview(for account: CodexAccount) -> Bool {
-        let alert = NSAlert()
-        alert.messageText = "Switch to \(displayLabel(for: account))?"
-        alert.informativeText = "5H \(remainingPercentText(fromUsed: account.fiveHourUsedPercent)) left · Weekly \(remainingPercentText(fromUsed: account.weeklyUsedPercent)) left\n\nCodex will relaunch after switching."
-        alert.addButton(withTitle: "Switch")
-        alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn
-    }
-
     private func switchTo(query: String, automatic: Bool = false) {
         guard !isSwitching else { return }
         clearArmedSwitch()
@@ -4714,9 +4718,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 message: "Account \(displayLabel(for: target)) has an expired Codex session. Re-login it with Add Account, then refresh."
             )
             refreshAccounts(force: true)
-            return
-        }
-        if let target, !target.isActive, !automatic, !confirmBeforeSwitching, !confirmSwitchPreview(for: target) {
             return
         }
         isSwitching = true

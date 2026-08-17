@@ -34,6 +34,26 @@ enum AccountListPresentationPolicy {
     }
 }
 
+enum InlineSwitchDecision: Equatable {
+    case ignore
+    case arm
+    case confirm
+}
+
+enum InlineSwitchConfirmationPolicy {
+    static func decision(
+        armedEmail: String?,
+        requestedEmail: String,
+        isActive: Bool,
+        isSwitching: Bool
+    ) -> InlineSwitchDecision {
+        if isActive || isSwitching {
+            return .ignore
+        }
+        return armedEmail == requestedEmail ? .confirm : .arm
+    }
+}
+
 enum ProcessRunner {
     private final class DataBox: @unchecked Sendable {
         private let lock = NSLock()

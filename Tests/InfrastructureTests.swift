@@ -42,6 +42,7 @@ struct InfrastructureTests {
         testUsageRefreshPolicy()
         testWeeklyRemainingBand()
         testAccountListPresentationPolicy()
+        testInlineSwitchConfirmationPolicy()
         testLastKnownGoodSnapshotPolicy()
         testToolbarStatusFormatting()
         try testComputerUsePluginDiscovery()
@@ -157,6 +158,14 @@ struct InfrastructureTests {
         expect(!AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 10), "ten rows should not scroll on a tall screen")
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 11, availableRowCapacity: 10), "eleven rows should scroll")
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 6), "short screens should scroll earlier")
+    }
+
+    private static func testInlineSwitchConfirmationPolicy() {
+        expect(InlineSwitchConfirmationPolicy.decision(armedEmail: nil, requestedEmail: "two@example.com", isActive: false, isSwitching: false) == .arm, "first click should arm confirmation")
+        expect(InlineSwitchConfirmationPolicy.decision(armedEmail: "two@example.com", requestedEmail: "two@example.com", isActive: false, isSwitching: false) == .confirm, "confirmed target should switch")
+        expect(InlineSwitchConfirmationPolicy.decision(armedEmail: "two@example.com", requestedEmail: "three@example.com", isActive: false, isSwitching: false) == .arm, "different target should replace confirmation")
+        expect(InlineSwitchConfirmationPolicy.decision(armedEmail: nil, requestedEmail: "one@example.com", isActive: true, isSwitching: false) == .ignore, "active account should not arm")
+        expect(InlineSwitchConfirmationPolicy.decision(armedEmail: nil, requestedEmail: "two@example.com", isActive: false, isSwitching: true) == .ignore, "switching state should ignore clicks")
     }
 
     private static func testLastKnownGoodSnapshotPolicy() {

@@ -145,7 +145,6 @@ enum SettingsPanelAction: String {
     case editUsageReminder
     case toggleAutoSwitch
     case editAutoSwitch
-    case toggleConfirmSwitch
     case toggleProtectCodex
     case editRefresh
     case forceRefresh
