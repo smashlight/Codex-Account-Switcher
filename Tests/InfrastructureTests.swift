@@ -48,6 +48,8 @@ struct InfrastructureTests {
         testInlineQuitConfirmationPolicy()
         testLastKnownGoodSnapshotPolicy()
         testToolbarStatusFormatting()
+        testAppLanguagePreference()
+        testLocalizedTextCompleteness()
         try testComputerUsePluginDiscovery()
         try testBackupPruning()
         testProcessRunner()
@@ -122,6 +124,47 @@ struct InfrastructureTests {
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         assertionCount += 1
         if !condition() { failures.append(message) }
+    }
+
+    private static func testAppLanguagePreference() {
+        let suiteName = "CodexAccountSwitcher.LanguageTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            expect(false, "language tests should create an isolated defaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = AppLanguagePreferenceStore(defaults: defaults)
+
+        expect(store.load() == .russian, "missing language should default to Russian")
+        defaults.set("", forKey: AppLanguagePreferenceStore.defaultsKey)
+        expect(store.load() == .russian, "empty language should default to Russian")
+        defaults.set("de", forKey: AppLanguagePreferenceStore.defaultsKey)
+        expect(store.load() == .russian, "unknown language should default to Russian")
+
+        store.save(.english)
+        expect(defaults.string(forKey: AppLanguagePreferenceStore.defaultsKey) == "en", "English should persist with a stable raw value")
+        expect(store.load() == .english, "English should restore from defaults")
+        store.save(.russian)
+        expect(defaults.string(forKey: AppLanguagePreferenceStore.defaultsKey) == "ru", "Russian should persist with a stable raw value")
+
+        var rebuildCount = 0
+        expect(!store.select(.russian) { rebuildCount += 1 }, "selecting the current language should be a no-op")
+        expect(rebuildCount == 0, "an unchanged language should not rebuild the panel")
+        expect(store.select(.english) { rebuildCount += 1 }, "selecting another language should report a change")
+        expect(rebuildCount == 1, "a changed language should rebuild exactly once")
+    }
+
+    private static func testLocalizedTextCompleteness() {
+        for key in LocalizedTextKey.allCases {
+            for language in AppLanguage.allCases {
+                let value = LocalizedText.value(key, language: language)
+                expect(!value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "\(key) should be translated for \(language)")
+            }
+        }
+        expect(LocalizedText.value(.languageLabel, language: .russian) == "Язык / Language", "the language label should stay bilingual")
+        expect(LocalizedText.value(.languageLabel, language: .english) == "Язык / Language", "the language label should stay bilingual in English mode")
+        expect(LocalizedText.value(.russianOption, language: .english) == "Русский", "the Russian option should remain self-identifying")
+        expect(LocalizedText.value(.englishOption, language: .russian) == "English", "the English option should remain self-identifying")
     }
 
     private static func testResetRefreshPolicy() {

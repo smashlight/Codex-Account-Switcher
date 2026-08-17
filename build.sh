@@ -34,6 +34,7 @@ CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR" swiftc "$LIFECYCLE_MONITOR_SOURCE" \
   -o "$RESOURCES_DIR/CodexLifecycleMonitor"
 
 CLANG_MODULE_CACHE_PATH="$MODULE_CACHE_DIR" swiftc \
+  "$ROOT_DIR/Sources/Localization.swift" \
   "$ROOT_DIR/Sources/AppInfrastructure.swift" \
   "$ROOT_DIR/Sources/Models.swift" \
   "$ROOT_DIR/Sources/PanelComponents.swift" \
