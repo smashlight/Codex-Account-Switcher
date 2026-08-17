@@ -61,6 +61,7 @@ final class RoundedPanelView: NSView {
     private let cornerRadius: CGFloat
     private let clickAction: (() -> Void)?
     private var trackingArea: NSTrackingArea?
+    private var isHovering = false
 
     init(frame: NSRect, fillColor: NSColor, borderColor: NSColor, cornerRadius: CGFloat = 18, hoverFillColor: NSColor? = nil, clickAction: (() -> Void)? = nil, shadowOpacity: Float = 0.12, shadowRadius: CGFloat = 12) {
         self.fillColor = fillColor
@@ -99,10 +100,12 @@ final class RoundedPanelView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         guard let hoverFillColor else { return }
+        isHovering = true
         layer?.backgroundColor = hoverFillColor.cgColor
     }
 
     override func mouseExited(with event: NSEvent) {
+        isHovering = false
         layer?.backgroundColor = fillColor.cgColor
     }
 
@@ -115,7 +118,14 @@ final class RoundedPanelView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         if let clickAction {
+            let base = hoverFillColor ?? fillColor
+            let pressed = base.blended(withFraction: 0.12, of: .white) ?? base
+            layer?.backgroundColor = pressed.cgColor
             clickAction()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.layer?.backgroundColor = (self.isHovering ? self.hoverFillColor : nil)?.cgColor ?? self.fillColor.cgColor
+            }
         } else {
             super.mouseDown(with: event)
         }

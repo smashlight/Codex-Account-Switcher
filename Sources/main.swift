@@ -11,7 +11,7 @@ private enum AccountPanelLayout {
     static let usageWidth: CGFloat = 520
     static let usageInset: CGFloat = 14
     static let bottomBarTopGap: CGFloat = 10
-    static let bottomBarHeight: CGFloat = 44
+    static let bottomBarHeight: CGFloat = 52
     static let rowHeight: CGFloat = 48
     static let confirmationRowHeight: CGFloat = 104
     static let rowGap: CGFloat = 6
@@ -322,7 +322,7 @@ final class AccountSwitcherPanelView: NSView {
     private let usageInset: CGFloat = 14
     private let cardGap: CGFloat = 10
     private let bottomBarTopGap: CGFloat = 10
-    private let bottomBarHeight: CGFloat = 44
+    private let bottomBarHeight: CGFloat = 52
 
     init(
         accounts: [CodexAccount],
@@ -1620,20 +1620,20 @@ final class AccountSwitcherPanelView: NSView {
 
     private func bottomBar(frame: NSRect) -> NSView {
         let bar = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 16)
-        let toolbarInset: CGFloat = 16
-        let toolbarGap: CGFloat = 16
-        let iconSize: CGFloat = 24
+        let toolbarInset: CGFloat = 14
+        let toolbarGap: CGFloat = 8
+        let iconSize: CGFloat = 36
         let clockSize: CGFloat = 20
         let iconY = (frame.height - iconSize) / 2
         let clockY = (frame.height - clockSize) / 2
 
-        let settingsButton = iconButton(symbol: "gearshape", frame: NSRect(x: toolbarInset, y: iconY, width: iconSize, height: iconSize), action: #selector(settingsPressed(_:)), toolTip: "Open settings")
+        let settingsButton = iconButton(symbol: "gearshape", frame: NSRect(x: toolbarInset, y: iconY, width: iconSize, height: iconSize), action: #selector(settingsPressed(_:)), toolTip: "Open settings", pointSize: 21)
         bar.addSubview(settingsButton)
 
-        let addButton = iconButton(symbol: "plus", frame: NSRect(x: toolbarInset + iconSize + 10, y: iconY, width: iconSize, height: iconSize), action: #selector(addAccountPressed(_:)), toolTip: "Add account")
+        let addButton = iconButton(symbol: "plus", frame: NSRect(x: toolbarInset + iconSize + 8, y: iconY, width: iconSize, height: iconSize), action: #selector(addAccountPressed(_:)), toolTip: "Add account", pointSize: 21)
         bar.addSubview(addButton)
 
-        let leftDivider = NSView(frame: NSRect(x: toolbarInset + iconSize * 2 + 24, y: 10, width: 1, height: frame.height - 20))
+        let leftDivider = NSView(frame: NSRect(x: toolbarInset + iconSize * 2 + 20, y: 12, width: 1, height: frame.height - 24))
         leftDivider.wantsLayer = true
         leftDivider.layer?.backgroundColor = theme.divider.cgColor
         bar.addSubview(leftDivider)
@@ -1649,21 +1649,21 @@ final class AccountSwitcherPanelView: NSView {
         let updatedWidth = max(46, resetX - updatedX - 8)
         bar.addSubview(CenteredTextView(frame: NSRect(x: updatedX, y: (frame.height - 22) / 2, width: updatedWidth, height: 22), text: lastUpdatedText, size: 12.2, weight: .medium, color: theme.primaryText, alignment: .left))
 
-        let resetButton = SettingsActionButton(frame: NSRect(x: resetX, y: 8, width: resetWidth, height: 26), title: resetCreditsButtonTitle(), color: resetCreditsButtonColor(), textColor: resetCreditsButtonTextColor())
+        let resetButton = SettingsActionButton(frame: NSRect(x: resetX, y: 11, width: resetWidth, height: 30), title: resetCreditsButtonTitle(), color: resetCreditsButtonColor(), textColor: resetCreditsButtonTextColor())
         resetButton.target = self
         resetButton.action = #selector(resetCreditsPressed(_:))
         resetButton.toolTip = resetCreditsTooltip()
         bar.addSubview(resetButton)
 
-        let refreshButton = iconButton(symbol: "arrow.clockwise", frame: NSRect(x: refreshX, y: iconY, width: iconSize, height: iconSize), action: #selector(refreshPressed), toolTip: "Refresh usage for all saved accounts")
+        let refreshButton = iconButton(symbol: "arrow.clockwise", frame: NSRect(x: refreshX, y: iconY, width: iconSize, height: iconSize), action: #selector(refreshPressed), toolTip: "Refresh usage for all saved accounts", pointSize: 21)
         bar.addSubview(refreshButton)
 
-        let rightDivider = NSView(frame: NSRect(x: refreshX + iconSize + 10, y: 10, width: 1, height: frame.height - 20))
+        let rightDivider = NSView(frame: NSRect(x: refreshX + iconSize + 5, y: 12, width: 1, height: frame.height - 24))
         rightDivider.wantsLayer = true
         rightDivider.layer?.backgroundColor = theme.divider.cgColor
         bar.addSubview(rightDivider)
 
-        let closeButton = iconButton(symbol: "xmark", frame: NSRect(x: closeX, y: iconY, width: iconSize, height: iconSize), action: #selector(closePressed), toolTip: "Quit Account Switcher")
+        let closeButton = iconButton(symbol: "xmark", frame: NSRect(x: closeX, y: iconY, width: iconSize, height: iconSize), action: #selector(closePressed), toolTip: "Quit Account Switcher", pointSize: 21)
         closeButton.toolTip = "Quit Account Switcher"
         bar.addSubview(closeButton)
         return bar
@@ -1821,13 +1821,12 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func cardFillColor(for account: CodexAccount) -> NSColor {
-        guard account.isActive else { return theme.inactiveCardFill }
-        return activeCardFillColor(for: account.fiveHourUsedPercent)
+        account.isActive ? theme.activeCardFill : theme.inactiveCardFill
     }
 
     private func cardBorderColor(for account: CodexAccount) -> NSColor {
         guard account.isActive else { return theme.inactiveCardBorder }
-        return usageColor(for: account.fiveHourUsedPercent).withAlphaComponent(theme.isDark ? 0.48 : 0.40)
+        return meterGradient(for: account.weeklyUsedPercent).start.withAlphaComponent(theme.isDark ? 0.48 : 0.40)
     }
 
     private func activeCardFillColor(for percent: Int?) -> NSColor {
@@ -1859,12 +1858,12 @@ final class AccountSwitcherPanelView: NSView {
         return field
     }
 
-    private func iconButton(symbol: String, frame: NSRect, action: Selector, toolTip: String? = nil) -> NSButton {
+    private func iconButton(symbol: String, frame: NSRect, action: Selector, toolTip: String? = nil, pointSize: CGFloat = 18) -> NSButton {
         let button = NSButton(frame: frame)
         button.bezelStyle = .regularSquare
         button.isBordered = false
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        image?.size = NSSize(width: 18, height: 18)
+        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
         button.image = image
         button.imagePosition = .imageOnly
         button.contentTintColor = theme.iconTint
