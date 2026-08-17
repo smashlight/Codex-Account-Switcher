@@ -1119,12 +1119,15 @@ final class AccountSwitcherPanelView: NSView {
             card.addSubview(label(LocalizedText.value(.switchRelaunchDetail, language: language), frame: NSRect(x: 52, y: 52, width: 190, height: 16), size: 10.5, weight: .medium, color: theme.tertiaryText))
 
             let buttonY = (frame.height - 30) / 2
-            let cancelButton = SettingsActionButton(frame: NSRect(x: frame.width - 166, y: buttonY, width: 68, height: 30), title: LocalizedText.value(.cancelButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
+            let switchWidth: CGFloat = 100
+            let switchX = frame.width - 14 - switchWidth
+            let cancelWidth: CGFloat = 68
+            let cancelButton = SettingsActionButton(frame: NSRect(x: switchX - 8 - cancelWidth, y: buttonY, width: cancelWidth, height: 30), title: LocalizedText.value(.cancelButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
             cancelButton.target = self
             cancelButton.action = #selector(cancelSwitchPressed)
             card.addSubview(cancelButton)
 
-            let switchButton = SettingsActionButton(frame: NSRect(x: frame.width - 90, y: buttonY, width: 76, height: 30), title: LocalizedText.value(.switchButton, language: language), color: gradient.end.withAlphaComponent(0.82), textColor: theme.primaryText)
+            let switchButton = SettingsActionButton(frame: NSRect(x: switchX, y: buttonY, width: switchWidth, height: 30), title: LocalizedText.value(.switchButton, language: language), color: gradient.end.withAlphaComponent(0.82), textColor: theme.primaryText)
             switchButton.identifier = NSUserInterfaceItemIdentifier(account.email)
             switchButton.target = self
             switchButton.action = #selector(accountSwitchPressed(_:))
@@ -1479,13 +1482,16 @@ final class AccountSwitcherPanelView: NSView {
         let settingsButton = iconButton(symbol: "gearshape", frame: NSRect(x: toolbarInset, y: iconY, width: iconSize, height: iconSize), action: #selector(settingsPressed(_:)), toolTip: LocalizedText.value(.settingsTooltip, language: language), pointSize: 17)
         bar.addSubview(settingsButton)
 
-        let addButton = SettingsActionButton(frame: NSRect(x: 46, y: 7, width: 42, height: 26), title: LocalizedText.value(.addButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        let addX: CGFloat = 46
+        let addWidth: CGFloat = 68
+        let addButton = SettingsActionButton(frame: NSRect(x: addX, y: 7, width: addWidth, height: 26), title: LocalizedText.value(.addButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
         addButton.target = self
         addButton.action = #selector(addAccountPressed(_:))
         addButton.toolTip = LocalizedText.value(.addTooltip, language: language)
         bar.addSubview(addButton)
 
-        let leftDivider = NSView(frame: NSRect(x: 97, y: 9, width: 1, height: frame.height - 18))
+        let leftDividerX = addX + addWidth + 9
+        let leftDivider = NSView(frame: NSRect(x: leftDividerX, y: 9, width: 1, height: frame.height - 18))
         leftDivider.wantsLayer = true
         leftDivider.layer?.backgroundColor = theme.divider.cgColor
         bar.addSubview(leftDivider)
@@ -1497,7 +1503,7 @@ final class AccountSwitcherPanelView: NSView {
         let rightDividerX = refreshX - 10
         let resetWidth: CGFloat = frame.width >= 370 ? 82 : 74
         let resetX = rightDividerX - resetWidth - 10
-        let clockX: CGFloat = 109
+        let clockX = leftDividerX + 12
         let clock = SymbolIconView(frame: NSRect(x: clockX, y: clockY, width: clockSize, height: clockSize), symbol: "clock", color: theme.iconTint)
         bar.addSubview(clock)
         let updatedX = clockX + clockSize + 6
@@ -2478,7 +2484,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             menu.addItem(headerItem(lastError ?? "No active account"))
         }
 
-        menu.addItem(headerItem("Updated: \(lastUpdatedText())"))
+        menu.addItem(headerItem("Updated: \(lastUpdatedText(language: .english))"))
         menu.addItem(.separator())
 
         if accounts.isEmpty {
@@ -2684,16 +2690,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return max(260, (screen?.visibleFrame.height ?? 800) - 16)
     }
 
-    private func refreshAccountPanelContent() {
+    private func refreshAccountPanelContent(shouldRefreshNotificationHealth: Bool = true) {
         let now = Date()
         let paceState = poolPaceState(now: now)
-        refreshNotificationHealth()
+        if shouldRefreshNotificationHealth {
+            refreshNotificationHealth()
+        }
+        let language = languageStore.load()
         let panel = AccountSwitcherPanelView(
             accounts: toolbarAccounts(),
             activeAccount: accounts.first(where: { $0.isActive }),
             mode: accountPanelMode,
-            language: languageStore.load(),
-            lastUpdatedText: lastUpdatedText(),
+            language: language,
+            lastUpdatedText: lastUpdatedText(language: language),
             lastError: lastError,
             isSwitching: isSwitching,
             launchAtLoginEnabled: launchAtLoginEnabled(),
@@ -2847,7 +2856,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return [
             HealthStatus(title: "Auth", value: codexAuthOK ? "OK" : "Missing", color: codexAuthOK ? .systemGreen : .systemRed),
             HealthStatus(title: "Codex", value: codexAppOK ? "Found" : "Missing", color: codexAppOK ? .systemGreen : .systemRed),
-            HealthStatus(title: "Refresh", value: lastUpdatedText(), color: refreshHealthColor()),
+            HealthStatus(title: "Refresh", value: lastUpdatedText(language: .english), color: refreshHealthColor()),
             HealthStatus(title: "Notify", value: notificationHealthTitle, color: notificationHealthColor),
             HealthStatus(title: "Update", value: updateHealthTitle, color: updateHealthColor)
         ]
@@ -2973,7 +2982,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func setLanguage(_ language: AppLanguage) {
         languageStore.select(language) { [weak self] in
-            self?.refreshAccountPanelContentIfVisible()
+            self?.rebuildAccountPanelContentIfVisible()
         }
     }
 
@@ -3937,13 +3946,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return item
     }
 
-    private func lastUpdatedText() -> String {
+    private func lastUpdatedText(language: AppLanguage) -> String {
         let now = Date()
         let elapsed = lastUpdatedAt.map { now.timeIntervalSince($0) }
         return LocalizedText.lastUpdated(
             isRefreshing: isRefreshing,
             elapsed: elapsed,
-            language: languageStore.load()
+            language: language
         )
     }
 
@@ -4730,6 +4739,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self.accountPanel?.isVisible == true else { return }
             self.refreshAccountPanelContent()
         }
+    }
+
+    private func rebuildAccountPanelContentIfVisible() {
+        guard accountPanel?.isVisible == true else { return }
+        refreshAccountPanelContent(shouldRefreshNotificationHealth: false)
     }
 
     private func checkUsageReminder() {
@@ -6494,7 +6508,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "desktop: \(desktop)",
             "saved accounts: \(accounts.count)",
             "auto switch: \(autoSwitchMode.rawValue)",
-            "refresh: \(lastUpdatedText())",
+            "refresh: \(lastUpdatedText(language: .english))",
             "switch history:"
         ] + (entries.isEmpty ? ["none"] : entries) + [
             "reset history:"
