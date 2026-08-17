@@ -1724,11 +1724,12 @@ enum WeeklyResetFormatter {
         "sun": 1, "sunday": 1
     ]
 
-    private static let abbreviationByWeekday: [Int: String] = [
-        1: "SUN", 2: "MON", 3: "TUES", 4: "WED", 5: "THUR", 6: "FRI", 7: "SAT"
-    ]
-
-    static func text(from usage: String, now: Date = Date(), calendar: Calendar = .current) -> String {
+    static func text(
+        from usage: String,
+        language: AppLanguage,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> String {
         guard let open = usage.firstIndex(of: "("),
               let close = usage.firstIndex(of: ")"),
               open < close else {
@@ -1742,11 +1743,13 @@ enum WeeklyResetFormatter {
         let target = upcomingDate(weekday: weekday, time: firstTime(in: inner), now: now, calendar: calendar)
 
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let russian = [1: "ВС", 2: "ПН", 3: "ВТ", 4: "СР", 5: "ЧТ", 6: "ПТ", 7: "СБ"]
+        let english = [1: "SUN", 2: "MON", 3: "TUES", 4: "WED", 5: "THUR", 6: "FRI", 7: "SAT"]
+        formatter.locale = language == .russian ? Locale(identifier: "ru_RU") : Locale(identifier: "en_US_POSIX")
         formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "d MMM"
         let dayMonth = formatter.string(from: target)
-        let abbreviation = abbreviationByWeekday[weekday] ?? "?"
+        let abbreviation = (language == .russian ? russian : english)[weekday] ?? "?"
         return "\(abbreviation) · \(dayMonth)"
     }
 

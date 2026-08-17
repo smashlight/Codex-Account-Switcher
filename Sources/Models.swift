@@ -139,6 +139,8 @@ enum SettingsPanelAction: String {
     case removeAccount
     case usageWeekly
     case usageFiveHour
+    case languageRussian
+    case languageEnglish
     case toggleLaunchAtLogin
     case toggleUsageReminder
     case toggleCreditExpiryNotifications

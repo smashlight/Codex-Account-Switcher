@@ -431,7 +431,7 @@ final class AccountSwitcherPanelView: NSView {
             )
         }
         if mode == .settings {
-            return NSSize(width: 432, height: 556)
+            return NSSize(width: 432, height: 590)
         }
         if mode == .resets && accountCount >= 3 {
             return NSSize(width: 468, height: 640)
@@ -485,7 +485,7 @@ final class AccountSwitcherPanelView: NSView {
             height: max(0, listBottom - usageInset)
         )
         if accounts.isEmpty {
-            addSubview(emptyStateCard(frame: listFrame))
+            addSubview(usageEmptyStateCard(frame: listFrame))
         } else {
             addSubview(accountListSection(orderedSettingsAccounts(), frame: listFrame))
         }
@@ -571,22 +571,30 @@ final class AccountSwitcherPanelView: NSView {
         let contentWidth = bounds.width - (outerInset * 2)
         addSubview(settingsHeader(frame: NSRect(x: outerInset, y: outerInset, width: contentWidth, height: 54)))
 
-        let displaySection = settingsSection(frame: NSRect(x: outerInset, y: 84, width: contentWidth, height: 70), title: "Display")
+        let displaySection = settingsSection(frame: NSRect(x: outerInset, y: 84, width: contentWidth, height: 104), title: "Display")
         displaySection.addSubview(segmentedRow(label: "Menu bar", frame: NSRect(x: 16, y: 38, width: contentWidth - 32, height: 24), options: [
             ("Weekly", usageMode == .weekly, SettingsPanelAction.usageWeekly),
             ("5H", usageMode == .fiveHour, SettingsPanelAction.usageFiveHour)
         ]))
+        displaySection.addSubview(segmentedRow(
+            label: LocalizedText.value(.languageLabel, language: language),
+            frame: NSRect(x: 16, y: 70, width: contentWidth - 32, height: 24),
+            options: [
+                (LocalizedText.value(.russianOption, language: language), language == .russian, .languageRussian),
+                (LocalizedText.value(.englishOption, language: language), language == .english, .languageEnglish)
+            ]
+        ))
         addSubview(displaySection)
 
-        let automationSection = settingsSection(frame: NSRect(x: outerInset, y: 158, width: contentWidth, height: 184), title: "Automation")
+        let automationSection = settingsSection(frame: NSRect(x: outerInset, y: 192, width: contentWidth, height: 184), title: "Automation")
         automationSection.addSubview(settingToggleRow(title: "Follow Codex / ChatGPT", detail: "Show only while either app is open", isOn: launchAtLoginEnabled, action: .toggleLaunchAtLogin, frame: NSRect(x: 16, y: 34, width: contentWidth - 32, height: 34)))
         automationSection.addSubview(settingToggleRow(title: "Usage reminder", detail: "Alert at \(reminderThreshold)%", isOn: remindersEnabled, action: .toggleUsageReminder, frame: NSRect(x: 16, y: 70, width: contentWidth - 32, height: 34)))
         automationSection.addSubview(settingToggleRow(title: "Credit expiry", detail: "Alert 3 days before reset credits expire", isOn: creditExpiryNotificationsEnabled, action: .toggleCreditExpiryNotifications, frame: NSRect(x: 16, y: 106, width: contentWidth - 32, height: 34)))
         automationSection.addSubview(settingToggleRow(title: "Auto switch", detail: autoSwitchDetailText(), isOn: autoSwitchEnabled, action: .editAutoSwitch, frame: NSRect(x: 16, y: 142, width: contentWidth - 32, height: 34)))
         addSubview(automationSection)
 
-        addSubview(healthSection(frame: NSRect(x: outerInset, y: 350, width: contentWidth, height: 104)))
-        addSubview(settingsFooter(frame: NSRect(x: outerInset, y: 462, width: contentWidth, height: 76)))
+        addSubview(healthSection(frame: NSRect(x: outerInset, y: 384, width: contentWidth, height: 104)))
+        addSubview(settingsFooter(frame: NSRect(x: outerInset, y: 496, width: contentWidth, height: 76)))
     }
 
     private func buildResetCreditsContent() {
@@ -993,6 +1001,8 @@ final class AccountSwitcherPanelView: NSView {
             button.identifier = NSUserInterfaceItemIdentifier(option.2.rawValue)
             button.target = self
             button.action = #selector(settingsActionPressed(_:))
+            button.setAccessibilityLabel(option.0)
+            button.setAccessibilityValue(option.1)
             row.addSubview(button)
         }
         return row
@@ -1105,16 +1115,16 @@ final class AccountSwitcherPanelView: NSView {
         card.addSubview(emailLabel)
 
         if isArmed {
-            card.addSubview(label("Switch to this account?", frame: NSRect(x: 52, y: 31, width: 190, height: 17), size: 12, weight: .semibold, color: theme.primaryText))
-            card.addSubview(label("Codex will relaunch", frame: NSRect(x: 52, y: 52, width: 190, height: 16), size: 10.5, weight: .medium, color: theme.tertiaryText))
+            card.addSubview(label(LocalizedText.value(.switchPrompt, language: language), frame: NSRect(x: 52, y: 31, width: 190, height: 17), size: 12, weight: .semibold, color: theme.primaryText))
+            card.addSubview(label(LocalizedText.value(.switchRelaunchDetail, language: language), frame: NSRect(x: 52, y: 52, width: 190, height: 16), size: 10.5, weight: .medium, color: theme.tertiaryText))
 
             let buttonY = (frame.height - 30) / 2
-            let cancelButton = SettingsActionButton(frame: NSRect(x: frame.width - 166, y: buttonY, width: 68, height: 30), title: "Cancel", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+            let cancelButton = SettingsActionButton(frame: NSRect(x: frame.width - 166, y: buttonY, width: 68, height: 30), title: LocalizedText.value(.cancelButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
             cancelButton.target = self
             cancelButton.action = #selector(cancelSwitchPressed)
             card.addSubview(cancelButton)
 
-            let switchButton = SettingsActionButton(frame: NSRect(x: frame.width - 90, y: buttonY, width: 76, height: 30), title: "Switch", color: gradient.end.withAlphaComponent(0.82), textColor: theme.primaryText)
+            let switchButton = SettingsActionButton(frame: NSRect(x: frame.width - 90, y: buttonY, width: 76, height: 30), title: LocalizedText.value(.switchButton, language: language), color: gradient.end.withAlphaComponent(0.82), textColor: theme.primaryText)
             switchButton.identifier = NSUserInterfaceItemIdentifier(account.email)
             switchButton.target = self
             switchButton.action = #selector(accountSwitchPressed(_:))
@@ -1131,7 +1141,7 @@ final class AccountSwitcherPanelView: NSView {
             percent: CGFloat(weeklyPercent ?? 0) / 100
         ))
         card.addSubview(label(percentText(weeklyPercent), frame: NSRect(x: 444, y: 10, width: 36, height: 18), size: 11, weight: .bold, color: gradient.label, alignment: .right))
-        card.addSubview(label(WeeklyResetFormatter.text(from: account.weeklyUsage), frame: NSRect(x: 52, y: 27, width: 216, height: 14), size: 10, weight: .medium, color: theme.tertiaryText))
+        card.addSubview(label(WeeklyResetFormatter.text(from: account.weeklyUsage, language: language), frame: NSRect(x: 52, y: 27, width: 216, height: 14), size: 10, weight: .medium, color: theme.tertiaryText))
         return card
     }
 
@@ -1317,16 +1327,42 @@ final class AccountSwitcherPanelView: NSView {
         }
     }
 
+    private func usageEmptyStateCard(frame: NSRect) -> NSView {
+        emptyStateCard(
+            frame: frame,
+            title: LocalizedText.value(.noAccountsTitle, language: language),
+            detail: LocalizedText.value(.noAccountsDetail, language: language),
+            settingsTitle: LocalizedText.value(.settingsButton, language: language),
+            refreshTitle: LocalizedText.value(.refreshButton, language: language)
+        )
+    }
+
     private func emptyStateCard(frame: NSRect) -> NSView {
+        emptyStateCard(
+            frame: frame,
+            title: "No accounts available",
+            detail: "Open settings to add an account.",
+            settingsTitle: "Settings",
+            refreshTitle: "Refresh"
+        )
+    }
+
+    private func emptyStateCard(
+        frame: NSRect,
+        title: String,
+        detail: String,
+        settingsTitle: String,
+        refreshTitle: String
+    ) -> NSView {
         let card = RoundedPanelView(frame: frame, fillColor: cardFillColor(isActive: false), borderColor: cardBorderColor(isActive: false))
-        card.addSubview(label("No accounts available", frame: NSRect(x: 22, y: 28, width: 240, height: 24), size: 18, weight: .semibold, color: theme.primaryText))
-        card.addSubview(label(lastError ?? "Open settings to add an account.", frame: NSRect(x: 22, y: 62, width: 276, height: 40), size: 12, weight: .medium, color: theme.secondaryText))
-        let settingsButton = SettingsActionButton(frame: NSRect(x: 22, y: 118, width: 92, height: 28), title: "Settings", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        card.addSubview(label(title, frame: NSRect(x: 22, y: 28, width: 240, height: 24), size: 18, weight: .semibold, color: theme.primaryText))
+        card.addSubview(label(lastError ?? detail, frame: NSRect(x: 22, y: 62, width: 276, height: 40), size: 12, weight: .medium, color: theme.secondaryText))
+        let settingsButton = SettingsActionButton(frame: NSRect(x: 22, y: 118, width: 92, height: 28), title: settingsTitle, color: theme.inactiveButtonFill, textColor: theme.primaryText)
         settingsButton.target = self
         settingsButton.action = #selector(settingsPressedFromEmptyState)
         card.addSubview(settingsButton)
 
-        let refreshButton = SettingsActionButton(frame: NSRect(x: 126, y: 118, width: 86, height: 28), title: "Refresh", color: theme.bottomBarFill, textColor: theme.primaryText)
+        let refreshButton = SettingsActionButton(frame: NSRect(x: 126, y: 118, width: 86, height: 28), title: refreshTitle, color: theme.bottomBarFill, textColor: theme.primaryText)
         refreshButton.target = self
         refreshButton.action = #selector(refreshPressedFromEmptyState)
         card.addSubview(refreshButton)
@@ -1348,7 +1384,7 @@ final class AccountSwitcherPanelView: NSView {
         let iconSize: CGFloat = 16
         let icon = SymbolIconView(frame: NSRect(x: 14, y: (frame.height - iconSize) / 2, width: iconSize, height: iconSize), symbol: "bolt.fill", color: theme.iconTint)
         card.addSubview(icon)
-        card.addSubview(label("Reset chance by Tibo", frame: NSRect(x: 40, y: (frame.height - 17) / 2, width: 190, height: 17), size: 12, weight: .bold, color: theme.primaryText))
+        card.addSubview(label(LocalizedText.value(.resetChanceTitle, language: language), frame: NSRect(x: 40, y: (frame.height - 17) / 2, width: 190, height: 17), size: 12, weight: .bold, color: theme.primaryText))
 
         let first = resetChance.map { "24h \($0.rounded24h)%" } ?? "—"
         let second = resetChance.map { "48h \($0.rounded48h)%" } ?? "—"
@@ -1440,13 +1476,13 @@ final class AccountSwitcherPanelView: NSView {
         let iconY = (frame.height - iconSize) / 2
         let clockY = (frame.height - clockSize) / 2
 
-        let settingsButton = iconButton(symbol: "gearshape", frame: NSRect(x: toolbarInset, y: iconY, width: iconSize, height: iconSize), action: #selector(settingsPressed(_:)), toolTip: "Open settings", pointSize: 17)
+        let settingsButton = iconButton(symbol: "gearshape", frame: NSRect(x: toolbarInset, y: iconY, width: iconSize, height: iconSize), action: #selector(settingsPressed(_:)), toolTip: LocalizedText.value(.settingsTooltip, language: language), pointSize: 17)
         bar.addSubview(settingsButton)
 
-        let addButton = SettingsActionButton(frame: NSRect(x: 46, y: 7, width: 42, height: 26), title: "Add", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        let addButton = SettingsActionButton(frame: NSRect(x: 46, y: 7, width: 42, height: 26), title: LocalizedText.value(.addButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
         addButton.target = self
         addButton.action = #selector(addAccountPressed(_:))
-        addButton.toolTip = "Add account"
+        addButton.toolTip = LocalizedText.value(.addTooltip, language: language)
         bar.addSubview(addButton)
 
         let leftDivider = NSView(frame: NSRect(x: 97, y: 9, width: 1, height: frame.height - 18))
@@ -1474,10 +1510,10 @@ final class AccountSwitcherPanelView: NSView {
         resetButton.toolTip = resetCreditsTooltip()
         bar.addSubview(resetButton)
 
-        let refreshButton = SettingsActionButton(frame: NSRect(x: refreshX, y: 7, width: refreshWidth, height: 26), title: "Refresh", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        let refreshButton = SettingsActionButton(frame: NSRect(x: refreshX, y: 7, width: refreshWidth, height: 26), title: LocalizedText.value(.refreshButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
         refreshButton.target = self
         refreshButton.action = #selector(refreshPressed)
-        refreshButton.toolTip = "Refresh usage for all saved accounts"
+        refreshButton.toolTip = LocalizedText.value(.refreshTooltip, language: language)
         bar.addSubview(refreshButton)
 
         let rightDivider = NSView(frame: NSRect(x: rightDividerX, y: 9, width: 1, height: frame.height - 18))
@@ -1487,27 +1523,22 @@ final class AccountSwitcherPanelView: NSView {
 
         let quitFill = NSColor.systemRed.withAlphaComponent(quitConfirmationArmed ? 0.72 : (theme.isDark ? 0.22 : 0.14))
         let quitText = quitConfirmationArmed ? NSColor.white : NSColor.systemRed
-        let quitButton = SettingsActionButton(frame: NSRect(x: quitX, y: 7, width: quitWidth, height: 26), title: quitConfirmationArmed ? "Quit?" : "Quit", color: quitFill, textColor: quitText)
+        let quitButton = SettingsActionButton(frame: NSRect(x: quitX, y: 7, width: quitWidth, height: 26), title: LocalizedText.value(quitConfirmationArmed ? .quitConfirmButton : .quitButton, language: language), color: quitFill, textColor: quitText)
         quitButton.target = self
         quitButton.action = #selector(closePressed)
-        quitButton.toolTip = "Quit Account Switcher"
+        quitButton.toolTip = LocalizedText.value(.quitTooltip, language: language)
         bar.addSubview(quitButton)
         return bar
     }
 
     private func resetCreditsButtonTitle() -> String {
         let state = resetCreditsSummaryState()
-        if state.hasError, state.knownTotal == 0 {
-            return "RESETS ?"
-        }
-        guard state.knownAccounts > 0 else {
-            return "RESETS ..."
-        }
-        if state.knownTotal == 0 {
-            return "NO RESETS"
-        }
-        let suffix = state.hasError ? "+" : ""
-        return state.knownTotal == 1 ? "1\(suffix) RESET" : "\(state.knownTotal)\(suffix) RESETS"
+        return LocalizedText.resetCreditsButtonTitle(
+            knownTotal: state.knownTotal,
+            knownAccounts: state.knownAccounts,
+            hasError: state.hasError,
+            language: language
+        )
     }
 
     private func resetCreditsButtonColor() -> NSColor {
@@ -1534,13 +1565,12 @@ final class AccountSwitcherPanelView: NSView {
 
     private func resetCreditsTooltip() -> String {
         let state = resetCreditsSummaryState()
-        if state.hasError, state.knownTotal == 0 {
-            return "One or more reset-credit checks failed"
-        }
-        guard state.knownAccounts > 0 else {
-            return "Checking reset credits"
-        }
-        return state.knownTotal == 0 ? "No Codex reset credits available" : "Show Codex reset credits by account"
+        return LocalizedText.resetCreditsTooltip(
+            knownTotal: state.knownTotal,
+            knownAccounts: state.knownAccounts,
+            hasError: state.hasError,
+            language: language
+        )
     }
 
     private func resetCreditsSummaryState() -> (knownTotal: Int, knownAccounts: Int, hasError: Bool) {
@@ -2868,6 +2898,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleSettingsPanelAction(_ action: SettingsPanelAction) {
         switch action {
+        case .languageRussian:
+            setLanguage(.russian)
+            return
+        case .languageEnglish:
+            setLanguage(.english)
+            return
         case .usageView:
             accountPanelMode = .usage
         case .settingsView:
@@ -2932,6 +2968,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if accountPanel?.isVisible == true {
             refreshAccountPanelContentIfVisible()
+        }
+    }
+
+    private func setLanguage(_ language: AppLanguage) {
+        languageStore.select(language) { [weak self] in
+            self?.refreshAccountPanelContentIfVisible()
         }
     }
 
@@ -3896,27 +3938,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func lastUpdatedText() -> String {
-        if isRefreshing {
-            return "refreshing..."
-        }
-        guard let lastUpdatedAt else {
-            return "never"
-        }
-        let elapsed = max(0, Int(Date().timeIntervalSince(lastUpdatedAt)))
-        if elapsed < 15 {
-            return "just now"
-        }
-        if elapsed < 60 {
-            return "\(elapsed)s ago"
-        }
-        let minutes = elapsed / 60
-        if minutes < 10 {
-            return "\(minutes)m ago"
-        }
-        if minutes < 60 {
-            return "stale \(minutes)m"
-        }
-        return "stale \(minutes / 60)h"
+        let now = Date()
+        let elapsed = lastUpdatedAt.map { now.timeIntervalSince($0) }
+        return LocalizedText.lastUpdated(
+            isRefreshing: isRefreshing,
+            elapsed: elapsed,
+            language: languageStore.load()
+        )
     }
 
     private func refreshHealthColor() -> NSColor {

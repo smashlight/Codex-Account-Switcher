@@ -194,6 +194,60 @@ enum LocalizedText {
             return text
         }
     }
+
+    static func lastUpdated(isRefreshing: Bool, elapsed: TimeInterval?, language: AppLanguage) -> String {
+        if isRefreshing { return language == .russian ? "обновление…" : "refreshing..." }
+        guard let elapsed else { return language == .russian ? "никогда" : "never" }
+        let seconds = max(0, Int(elapsed))
+        if seconds < 15 { return language == .russian ? "только что" : "just now" }
+        if seconds < 60 { return language == .russian ? "\(seconds) сек. назад" : "\(seconds)s ago" }
+        let minutes = seconds / 60
+        if minutes < 10 { return language == .russian ? "\(minutes) мин. назад" : "\(minutes)m ago" }
+        if minutes < 60 { return language == .russian ? "устарело \(minutes) мин." : "stale \(minutes)m" }
+        return language == .russian ? "устарело \(minutes / 60) ч." : "stale \(minutes / 60)h"
+    }
+
+    static func resetCreditsButtonTitle(
+        knownTotal: Int,
+        knownAccounts: Int,
+        hasError: Bool,
+        language: AppLanguage
+    ) -> String {
+        if hasError, knownTotal == 0 { return language == .russian ? "СБРОСЫ ?" : "RESETS ?" }
+        guard knownAccounts > 0 else { return language == .russian ? "СБРОСЫ ..." : "RESETS ..." }
+        if knownTotal == 0 { return language == .russian ? "НЕТ СБРОСОВ" : "NO RESETS" }
+        let suffix = hasError ? "+" : ""
+        if language == .english {
+            return knownTotal == 1 ? "1\(suffix) RESET" : "\(knownTotal)\(suffix) RESETS"
+        }
+        let lastTwo = knownTotal % 100
+        let last = knownTotal % 10
+        let noun = last == 1 && lastTwo != 11 ? "СБРОС"
+            : ((2...4).contains(last) && !(12...14).contains(lastTwo) ? "СБРОСА" : "СБРОСОВ")
+        return "\(knownTotal)\(suffix) \(noun)"
+    }
+
+    static func resetCreditsTooltip(
+        knownTotal: Int,
+        knownAccounts: Int,
+        hasError: Bool,
+        language: AppLanguage
+    ) -> String {
+        if hasError, knownTotal == 0 {
+            return language == .russian
+                ? "Не удалось проверить кредиты сброса для одного или нескольких аккаунтов"
+                : "One or more reset-credit checks failed"
+        }
+        guard knownAccounts > 0 else {
+            return language == .russian ? "Проверяем кредиты сброса" : "Checking reset credits"
+        }
+        if knownTotal == 0 {
+            return language == .russian ? "Нет доступных кредитов сброса Codex" : "No Codex reset credits available"
+        }
+        return language == .russian
+            ? "Показать кредиты сброса Codex по аккаунтам"
+            : "Show Codex reset credits by account"
+    }
 }
 
 enum LocalizedIntervalFormatter {
