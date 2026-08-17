@@ -290,6 +290,7 @@ final class AccountSwitcherPanelView: NSView {
     private let autoSwitchThreshold: Int
     private let autoSwitchMode: AutoSwitchMode
     private let armedSwitchEmail: String?
+    private let quitConfirmationArmed: Bool
     private let protectFrontmostCodex: Bool
     private let apiModeActive: Bool
     private let apiKeyConfigured: Bool
@@ -343,6 +344,7 @@ final class AccountSwitcherPanelView: NSView {
         autoSwitchThreshold: Int,
         autoSwitchMode: AutoSwitchMode,
         armedSwitchEmail: String?,
+        quitConfirmationArmed: Bool,
         protectFrontmostCodex: Bool,
         apiModeActive: Bool,
         apiKeyConfigured: Bool,
@@ -384,6 +386,7 @@ final class AccountSwitcherPanelView: NSView {
         self.autoSwitchThreshold = autoSwitchThreshold
         self.autoSwitchMode = autoSwitchMode
         self.armedSwitchEmail = armedSwitchEmail
+        self.quitConfirmationArmed = quitConfirmationArmed
         self.protectFrontmostCodex = protectFrontmostCodex
         self.apiModeActive = apiModeActive
         self.apiKeyConfigured = apiKeyConfigured
@@ -413,6 +416,7 @@ final class AccountSwitcherPanelView: NSView {
             mode: mode,
             accountCount: accounts.count,
             showsPace: pace != nil,
+            showsSwitchConfirmation: armedSwitchEmail != nil,
             maximumHeight: maximumPanelHeight
         )
         super.init(frame: NSRect(origin: .zero, size: panelSize))
@@ -432,6 +436,7 @@ final class AccountSwitcherPanelView: NSView {
         mode: AccountPanelMode,
         accountCount: Int,
         showsPace: Bool,
+        showsSwitchConfirmation: Bool,
         maximumHeight: CGFloat
     ) -> NSSize {
         if mode == .usage {
@@ -453,8 +458,15 @@ final class AccountSwitcherPanelView: NSView {
             if accountCount == 0 {
                 desiredListHeight = min(156, availableListHeight)
             } else {
-                desiredListHeight = CGFloat(visibleRows) * AccountPanelLayout.rowHeight
-                    + CGFloat(max(0, visibleRows - 1)) * AccountPanelLayout.rowGap
+                desiredListHeight = CGFloat(AccountListPresentationPolicy.viewportHeight(
+                    accountCount: accountCount,
+                    visibleRowCount: visibleRows,
+                    maximumHeight: Double(availableListHeight),
+                    rowHeight: Double(AccountPanelLayout.rowHeight),
+                    confirmationRowHeight: Double(AccountPanelLayout.confirmationRowHeight),
+                    rowGap: Double(AccountPanelLayout.rowGap),
+                    showsConfirmation: showsSwitchConfirmation
+                ))
             }
             return NSSize(
                 width: AccountPanelLayout.usageWidth,
@@ -1591,7 +1603,9 @@ final class AccountSwitcherPanelView: NSView {
         rightDivider.layer?.backgroundColor = theme.divider.cgColor
         bar.addSubview(rightDivider)
 
-        let quitButton = SettingsActionButton(frame: NSRect(x: quitX, y: 8, width: quitWidth, height: 28), title: "Quit", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        let quitFill = NSColor.systemRed.withAlphaComponent(quitConfirmationArmed ? 0.72 : (theme.isDark ? 0.22 : 0.14))
+        let quitText = quitConfirmationArmed ? NSColor.white : NSColor.systemRed
+        let quitButton = SettingsActionButton(frame: NSRect(x: quitX, y: 8, width: quitWidth, height: 28), title: quitConfirmationArmed ? "Quit?" : "Quit", color: quitFill, textColor: quitText)
         quitButton.target = self
         quitButton.action = #selector(closePressed)
         quitButton.toolTip = "Quit Account Switcher"
@@ -1911,6 +1925,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var directUsageSnapshotsByEmail: [String: DirectUsageSnapshot] = [:]
     private var armedSwitchEmail: String?
     private var armedSwitchClearWorkItem: DispatchWorkItem?
+    private var quitConfirmationArmed = false
+    private var quitConfirmationClearWorkItem: DispatchWorkItem?
     private var switchAnimationTimer: Timer?
     private var switchAnimationFrame = 0
     private var outsideClickMonitor: Any?
@@ -2718,6 +2734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mode: accountPanelMode,
             accountCount: toolbarAccounts().count,
             showsPace: poolPaceState() != nil,
+            showsSwitchConfirmation: armedSwitchEmail != nil,
             maximumHeight: maximumAccountPanelHeight()
         )
     }
@@ -2745,6 +2762,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             autoSwitchThreshold: autoSwitchThreshold,
             autoSwitchMode: autoSwitchMode,
             armedSwitchEmail: armedSwitchEmail,
+            quitConfirmationArmed: quitConfirmationArmed,
             protectFrontmostCodex: protectFrontmostCodex,
             apiModeActive: apiModeActive,
             apiKeyConfigured: apiKeyConfigured(),
@@ -2789,8 +2807,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             performSettingsAction: { [weak self] action in
                 self?.handleSettingsPanelAction(action)
             },
-            close: {
-                NSApp.terminate(nil)
+            close: { [weak self] in
+                self?.handleQuitRequest()
             },
             toggleLaunchAtLogin: { [weak self] in
                 self?.toggleLaunchAtLogin()
@@ -2849,6 +2867,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         armedSwitchEmail = nil
     }
 
+    private func handleQuitRequest() {
+        switch InlineQuitConfirmationPolicy.decision(isArmed: quitConfirmationArmed) {
+        case .arm:
+            clearArmedSwitch()
+            armQuitConfirmation()
+        case .confirm:
+            clearQuitConfirmation()
+            NSApp.terminate(nil)
+        }
+    }
+
+    private func armQuitConfirmation() {
+        quitConfirmationClearWorkItem?.cancel()
+        quitConfirmationArmed = true
+        refreshAccountPanelContentIfVisible()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.quitConfirmationArmed else { return }
+            self.quitConfirmationArmed = false
+            self.quitConfirmationClearWorkItem = nil
+            self.refreshAccountPanelContentIfVisible()
+        }
+        quitConfirmationClearWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: workItem)
+    }
+
+    private func clearQuitConfirmation() {
+        quitConfirmationClearWorkItem?.cancel()
+        quitConfirmationClearWorkItem = nil
+        quitConfirmationArmed = false
+    }
+
     private func healthStatusRows() -> [HealthStatus] {
         let codexAuthOK = codexAuthPath() != nil
         let codexAppOK = FileManager.default.fileExists(atPath: codexDesktopAppPath)
@@ -2900,6 +2950,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func closeAccountPanel() {
         clearArmedSwitch()
+        clearQuitConfirmation()
         accountPanel?.orderOut(nil)
     }
 

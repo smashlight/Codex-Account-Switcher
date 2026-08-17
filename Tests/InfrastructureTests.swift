@@ -42,8 +42,10 @@ struct InfrastructureTests {
         testUsageRefreshPolicy()
         testWeeklyRemainingBand()
         testAccountListPresentationPolicy()
+        testAccountListViewportHeightPolicy()
         testAccountListScrollPolicy()
         testInlineSwitchConfirmationPolicy()
+        testInlineQuitConfirmationPolicy()
         testLastKnownGoodSnapshotPolicy()
         testToolbarStatusFormatting()
         try testComputerUsePluginDiscovery()
@@ -168,12 +170,24 @@ struct InfrastructureTests {
         expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 460, rowMaxY: 560, viewportHeight: 300, currentOrigin: 0, contentHeight: 500) == 200, "scroll origin should clamp to the document bottom")
     }
 
+    private static func testAccountListViewportHeightPolicy() {
+        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 2, visibleRowCount: 2, maximumHeight: 132, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 132, "short lists should grow to fit the expanded row")
+        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 426, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 402, "height-limited lists should show only complete rows")
+        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 456, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 456, "tall screens should preserve all rows while expanding")
+        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 456, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: false) == 426, "normal lists should retain their compact height")
+    }
+
     private static func testInlineSwitchConfirmationPolicy() {
         expect(InlineSwitchConfirmationPolicy.decision(armedEmail: nil, requestedEmail: "two@example.com", isActive: false, isSwitching: false) == .arm, "first click should arm confirmation")
         expect(InlineSwitchConfirmationPolicy.decision(armedEmail: "two@example.com", requestedEmail: "two@example.com", isActive: false, isSwitching: false) == .confirm, "confirmed target should switch")
         expect(InlineSwitchConfirmationPolicy.decision(armedEmail: "two@example.com", requestedEmail: "three@example.com", isActive: false, isSwitching: false) == .arm, "different target should replace confirmation")
         expect(InlineSwitchConfirmationPolicy.decision(armedEmail: nil, requestedEmail: "one@example.com", isActive: true, isSwitching: false) == .ignore, "active account should not arm")
         expect(InlineSwitchConfirmationPolicy.decision(armedEmail: nil, requestedEmail: "two@example.com", isActive: false, isSwitching: true) == .ignore, "switching state should ignore clicks")
+    }
+
+    private static func testInlineQuitConfirmationPolicy() {
+        expect(InlineQuitConfirmationPolicy.decision(isArmed: false) == .arm, "first quit click should request confirmation")
+        expect(InlineQuitConfirmationPolicy.decision(isArmed: true) == .confirm, "second quit click should terminate")
     }
 
     private static func testLastKnownGoodSnapshotPolicy() {

@@ -32,6 +32,35 @@ enum AccountListPresentationPolicy {
     static func requiresScrolling(accountCount: Int, availableRowCapacity: Int) -> Bool {
         accountCount > visibleRowCount(accountCount: accountCount, availableRowCapacity: availableRowCapacity)
     }
+
+    static func viewportHeight(
+        accountCount: Int,
+        visibleRowCount: Int,
+        maximumHeight: Double,
+        rowHeight: Double,
+        confirmationRowHeight: Double,
+        rowGap: Double,
+        showsConfirmation: Bool
+    ) -> Double {
+        let visibleRows = min(max(0, accountCount), max(0, visibleRowCount))
+        guard visibleRows > 0 else { return 0 }
+
+        let normalHeight = Double(visibleRows) * rowHeight + Double(max(0, visibleRows - 1)) * rowGap
+        guard showsConfirmation else { return min(maximumHeight, normalHeight) }
+
+        let allVisibleExpandedHeight = confirmationRowHeight
+            + Double(max(0, visibleRows - 1)) * rowHeight
+            + Double(max(0, visibleRows - 1)) * rowGap
+        if accountCount <= visibleRows, allVisibleExpandedHeight <= maximumHeight {
+            return allVisibleExpandedHeight
+        }
+
+        let completeRows = max(1, visibleRows - 1)
+        let compactExpandedHeight = confirmationRowHeight
+            + Double(max(0, completeRows - 1)) * rowHeight
+            + Double(max(0, completeRows - 1)) * rowGap
+        return min(maximumHeight, compactExpandedHeight)
+    }
 }
 
 enum AccountListScrollPolicy {
@@ -72,6 +101,17 @@ enum InlineSwitchConfirmationPolicy {
             return .ignore
         }
         return armedEmail == requestedEmail ? .confirm : .arm
+    }
+}
+
+enum InlineQuitDecision: Equatable {
+    case arm
+    case confirm
+}
+
+enum InlineQuitConfirmationPolicy {
+    static func decision(isArmed: Bool) -> InlineQuitDecision {
+        isArmed ? .confirm : .arm
     }
 }
 
