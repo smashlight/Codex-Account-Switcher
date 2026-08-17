@@ -111,28 +111,29 @@ struct PoolPaceChartView: View {
 
     private var chart: some View {
         let barWidth = data.resolution == .daily ? Self.dailyBarWidth : Self.sampleBarWidth
+        let semanticLabels = PoolChartLocalization.semanticLabels(language: data.language)
         return Chart {
             ForEach(bars) { bar in
                 BarMark(
-                    x: .value("Index", Double(bar.index)),
-                    yStart: .value("Base", 0),
-                    yEnd: .value("Capacity", 100),
+                    x: .value(semanticLabels.index, Double(bar.index)),
+                    yStart: .value(semanticLabels.base, 0),
+                    yEnd: .value(semanticLabels.capacity, 100),
                     width: .fixed(barWidth)
                 )
                 .foregroundStyle(data.gridLine.opacity(0.28))
                 .cornerRadius(3)
 
                 BarMark(
-                    x: .value("Index", Double(bar.index)),
-                    yStart: .value("Base", 0),
-                    yEnd: .value("Pool", bar.value),
+                    x: .value(semanticLabels.index, Double(bar.index)),
+                    yStart: .value(semanticLabels.base, 0),
+                    yEnd: .value(semanticLabels.pool, bar.value),
                     width: .fixed(barWidth)
                 )
                 .foregroundStyle(barStyle(for: bar.value))
                 .cornerRadius(3)
             }
             if let hoveredIndex {
-                RuleMark(x: .value("Index", Double(hoveredIndex)))
+                RuleMark(x: .value(semanticLabels.index, Double(hoveredIndex)))
                     .foregroundStyle(data.gridLine)
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
             }
@@ -148,7 +149,7 @@ struct PoolPaceChartView: View {
                     if let raw = axisValue.as(Double.self) {
                         let index = Int(raw.rounded())
                         if bars.indices.contains(index) {
-                            Text(bars[index].date.formatted(.dateTime.month(.abbreviated).day()))
+                            Text(PoolChartLocalization.axisDate(bars[index].date, language: data.language))
                                 .font(.system(size: 7))
                                 .foregroundStyle(data.labelText.opacity(0.7))
                         }

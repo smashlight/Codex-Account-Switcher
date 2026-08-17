@@ -51,6 +51,7 @@ struct InfrastructureTests {
         testAppLanguagePreference()
         testLocalizedTextCompleteness()
         testLocalizedChartDetails()
+        testPoolChartLocalization()
         testLocalizedIntervalFormatting()
         testPoolVerdictPresentation()
         try testComputerUsePluginDiscovery()
@@ -203,6 +204,36 @@ struct InfrastructureTests {
             LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: nil, isToday: false, language: .english) == "Aug 17 · low 42%",
             "daily chart details should omit unavailable optional values"
         )
+    }
+
+    private static func testPoolChartLocalization() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        guard let date = calendar.date(from: DateComponents(year: 2026, month: 8, day: 17, hour: 12)) else {
+            expect(false, "chart localization tests should create a fixed local date")
+            return
+        }
+
+        expect(
+            PoolChartLocalization.axisDate(date, language: .russian) == "17 авг.",
+            "the Russian chart axis date should not follow the system locale"
+        )
+        expect(
+            PoolChartLocalization.axisDate(date, language: .english) == "Aug 17",
+            "the English chart axis date should not follow the system locale"
+        )
+
+        let russian = PoolChartLocalization.semanticLabels(language: .russian)
+        expect(russian.index == "Индекс", "the chart index semantic label should be Russian")
+        expect(russian.base == "Основание", "the chart base semantic label should be Russian")
+        expect(russian.capacity == "Ёмкость", "the chart capacity semantic label should be Russian")
+        expect(russian.pool == "Пул", "the chart pool semantic label should be Russian")
+
+        let english = PoolChartLocalization.semanticLabels(language: .english)
+        expect(english.index == "Index", "the chart index semantic label should be English")
+        expect(english.base == "Base", "the chart base semantic label should be English")
+        expect(english.capacity == "Capacity", "the chart capacity semantic label should be English")
+        expect(english.pool == "Pool", "the chart pool semantic label should be English")
     }
 
     private static func testLocalizedIntervalFormatting() {

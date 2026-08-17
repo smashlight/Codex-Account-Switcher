@@ -250,6 +250,42 @@ enum LocalizedText {
     }
 }
 
+struct PoolChartSemanticLabels: Equatable {
+    let index: String
+    let base: String
+    let capacity: String
+    let pool: String
+}
+
+enum PoolChartLocalization {
+    static func axisDate(_ date: Date, language: AppLanguage) -> String {
+        date.formatted(
+            Date.FormatStyle(locale: language.locale)
+                .day()
+                .month(.abbreviated)
+        )
+    }
+
+    static func semanticLabels(language: AppLanguage) -> PoolChartSemanticLabels {
+        switch language {
+        case .russian:
+            return PoolChartSemanticLabels(
+                index: "Индекс",
+                base: "Основание",
+                capacity: "Ёмкость",
+                pool: "Пул"
+            )
+        case .english:
+            return PoolChartSemanticLabels(
+                index: "Index",
+                base: "Base",
+                capacity: "Capacity",
+                pool: "Pool"
+            )
+        }
+    }
+}
+
 enum LocalizedIntervalFormatter {
     private enum Unit { case hour, day }
 
