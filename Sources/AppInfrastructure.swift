@@ -34,6 +34,27 @@ enum AccountListPresentationPolicy {
     }
 }
 
+enum AccountListScrollPolicy {
+    static func revealedOrigin(
+        rowMinY: Double,
+        rowMaxY: Double,
+        viewportHeight: Double,
+        currentOrigin: Double,
+        contentHeight: Double
+    ) -> Double {
+        let visibleMaxY = currentOrigin + viewportHeight
+        let requestedOrigin: Double
+        if rowMinY < currentOrigin {
+            requestedOrigin = rowMinY
+        } else if rowMaxY > visibleMaxY {
+            requestedOrigin = rowMaxY - viewportHeight
+        } else {
+            requestedOrigin = currentOrigin
+        }
+        return min(max(0, requestedOrigin), max(0, contentHeight - viewportHeight))
+    }
+}
+
 enum InlineSwitchDecision: Equatable {
     case ignore
     case arm

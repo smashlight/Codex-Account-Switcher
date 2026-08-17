@@ -42,6 +42,7 @@ struct InfrastructureTests {
         testUsageRefreshPolicy()
         testWeeklyRemainingBand()
         testAccountListPresentationPolicy()
+        testAccountListScrollPolicy()
         testInlineSwitchConfirmationPolicy()
         testLastKnownGoodSnapshotPolicy()
         testToolbarStatusFormatting()
@@ -158,6 +159,13 @@ struct InfrastructureTests {
         expect(!AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 10), "ten rows should not scroll on a tall screen")
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 11, availableRowCapacity: 10), "eleven rows should scroll")
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 6), "short screens should scroll earlier")
+    }
+
+    private static func testAccountListScrollPolicy() {
+        expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 54, rowMaxY: 102, viewportHeight: 300, currentOrigin: 0, contentHeight: 500) == 0, "visible rows should preserve the current scroll origin")
+        expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 420, rowMaxY: 500, viewportHeight: 300, currentOrigin: 0, contentHeight: 500) == 200, "expanded bottom row should scroll fully into view")
+        expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 40, rowMaxY: 120, viewportHeight: 100, currentOrigin: 80, contentHeight: 500) == 40, "expanded row above the viewport should scroll to its top")
+        expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 460, rowMaxY: 560, viewportHeight: 300, currentOrigin: 0, contentHeight: 500) == 200, "scroll origin should clamp to the document bottom")
     }
 
     private static func testInlineSwitchConfirmationPolicy() {

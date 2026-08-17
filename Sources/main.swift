@@ -11,9 +11,9 @@ private enum AccountPanelLayout {
     static let usageWidth: CGFloat = 520
     static let usageInset: CGFloat = 14
     static let bottomBarTopGap: CGFloat = 10
-    static let bottomBarHeight: CGFloat = 52
+    static let bottomBarHeight: CGFloat = 44
     static let rowHeight: CGFloat = 48
-    static let confirmationRowHeight: CGFloat = 104
+    static let confirmationRowHeight: CGFloat = 78
     static let rowGap: CGFloat = 6
     static let paceTopGap: CGFloat = 8
     static let paceChartHeight: CGFloat = 104
@@ -91,8 +91,8 @@ struct PoolPaceChartView: View {
     private static let maxSampleBars = 30
     private static let maxDailyBars = 14
     private static let maxAxisLabels = 4
-    private static let sampleBarWidth: CGFloat = 6
-    private static let dailyBarWidth: CGFloat = 10
+    private static let sampleBarWidth: CGFloat = 7
+    private static let dailyBarWidth: CGFloat = 12
 
     private var bars: [Bar] {
         let maxBars = data.resolution == .daily ? Self.maxDailyBars : Self.maxSampleBars
@@ -150,7 +150,8 @@ struct PoolPaceChartView: View {
                     yEnd: .value("Capacity", 100),
                     width: .fixed(barWidth)
                 )
-                .foregroundStyle(data.gridLine.opacity(0.45))
+                .foregroundStyle(data.gridLine.opacity(0.28))
+                .cornerRadius(3)
 
                 BarMark(
                     x: .value("Index", Double(bar.index)),
@@ -158,7 +159,8 @@ struct PoolPaceChartView: View {
                     yEnd: .value("Pool", bar.value),
                     width: .fixed(barWidth)
                 )
-                .foregroundStyle(barColor(for: bar.value))
+                .foregroundStyle(barStyle(for: bar.value))
+                .cornerRadius(3)
             }
             if let hoveredIndex {
                 RuleMark(x: .value("Index", Double(hoveredIndex)))
@@ -206,17 +208,19 @@ struct PoolPaceChartView: View {
         .frame(height: AccountPanelLayout.paceChartHeight)
     }
 
-    private func barColor(for value: Double) -> Color {
+    private func barStyle(for value: Double) -> AnyShapeStyle {
+        let colors: [Color]
         switch WeeklyRemainingBand.classify(Int(value.rounded())) {
         case .healthy:
-            return Color(.nativeMint)
+            colors = [Color(.nativeMint), Color(.nativeBlue)]
         case .warning:
-            return Color(.nativeOrange)
+            colors = [Color(.nativeGold), Color(.nativeOrange)]
         case .critical:
-            return Color(.nativeRed)
+            colors = [Color(.nativeCoral), Color(.nativeRed)]
         case .unknown:
-            return .secondary
+            colors = [.secondary.opacity(0.55), .secondary]
         }
+        return AnyShapeStyle(LinearGradient(colors: colors, startPoint: .bottom, endPoint: .top))
     }
 
     private var axisIndexes: [Double] {
@@ -322,7 +326,7 @@ final class AccountSwitcherPanelView: NSView {
     private let usageInset: CGFloat = 14
     private let cardGap: CGFloat = 10
     private let bottomBarTopGap: CGFloat = 10
-    private let bottomBarHeight: CGFloat = 52
+    private let bottomBarHeight: CGFloat = 44
 
     init(
         accounts: [CodexAccount],
@@ -543,16 +547,32 @@ final class AccountSwitcherPanelView: NSView {
             height: max(frame.height, contentHeight)
         ))
         var y: CGFloat = 0
+        var armedRowFrame: NSRect?
         for (index, account) in orderedAccounts.enumerated() {
             let rowHeight = rowHeights[index]
+            let rowFrame = NSRect(x: 0, y: y, width: frame.width, height: rowHeight)
             document.addSubview(accountListRow(
                 account,
                 displayIndex: index + 1,
-                frame: NSRect(x: 0, y: y, width: frame.width, height: rowHeight)
+                frame: rowFrame
             ))
+            if armedSwitchEmail == account.email && !account.isActive {
+                armedRowFrame = rowFrame
+            }
             y += rowHeight + AccountPanelLayout.rowGap
         }
         scrollView.documentView = document
+        if let armedRowFrame {
+            let originY = AccountListScrollPolicy.revealedOrigin(
+                rowMinY: Double(armedRowFrame.minY),
+                rowMaxY: Double(armedRowFrame.maxY),
+                viewportHeight: Double(frame.height),
+                currentOrigin: Double(scrollView.contentView.bounds.minY),
+                contentHeight: Double(document.frame.height)
+            )
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: originY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
         return scrollView
     }
 
@@ -1097,12 +1117,13 @@ final class AccountSwitcherPanelView: NSView {
             card.addSubview(label("Switch to this account?", frame: NSRect(x: 52, y: 31, width: 190, height: 17), size: 12, weight: .semibold, color: theme.primaryText))
             card.addSubview(label("Codex will relaunch", frame: NSRect(x: 52, y: 52, width: 190, height: 16), size: 10.5, weight: .medium, color: theme.tertiaryText))
 
-            let cancelButton = SettingsActionButton(frame: NSRect(x: frame.width - 190, y: 62, width: 78, height: 30), title: "Cancel", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+            let buttonY = (frame.height - 30) / 2
+            let cancelButton = SettingsActionButton(frame: NSRect(x: frame.width - 166, y: buttonY, width: 68, height: 30), title: "Cancel", color: theme.inactiveButtonFill, textColor: theme.primaryText)
             cancelButton.target = self
             cancelButton.action = #selector(cancelSwitchPressed)
             card.addSubview(cancelButton)
 
-            let switchButton = SettingsActionButton(frame: NSRect(x: frame.width - 102, y: 62, width: 88, height: 30), title: "Switch", color: gradient.end.withAlphaComponent(0.82), textColor: theme.primaryText)
+            let switchButton = SettingsActionButton(frame: NSRect(x: frame.width - 90, y: buttonY, width: 76, height: 30), title: "Switch", color: gradient.end.withAlphaComponent(0.82), textColor: theme.primaryText)
             switchButton.identifier = NSUserInterfaceItemIdentifier(account.email)
             switchButton.target = self
             switchButton.action = #selector(accountSwitchPressed(_:))
@@ -1519,52 +1540,62 @@ final class AccountSwitcherPanelView: NSView {
 
     private func bottomBar(frame: NSRect) -> NSView {
         let bar = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 16)
-        let toolbarInset: CGFloat = 14
-        let toolbarGap: CGFloat = 8
-        let iconSize: CGFloat = 36
-        let clockSize: CGFloat = 20
+        let toolbarInset: CGFloat = 12
+        let iconSize: CGFloat = 30
+        let clockSize: CGFloat = 18
         let iconY = (frame.height - iconSize) / 2
         let clockY = (frame.height - clockSize) / 2
 
-        let settingsButton = iconButton(symbol: "gearshape", frame: NSRect(x: toolbarInset, y: iconY, width: iconSize, height: iconSize), action: #selector(settingsPressed(_:)), toolTip: "Open settings", pointSize: 21)
+        let settingsButton = iconButton(symbol: "gearshape", frame: NSRect(x: toolbarInset, y: iconY, width: iconSize, height: iconSize), action: #selector(settingsPressed(_:)), toolTip: "Open settings", pointSize: 18)
         bar.addSubview(settingsButton)
 
-        let addButton = iconButton(symbol: "plus", frame: NSRect(x: toolbarInset + iconSize + 8, y: iconY, width: iconSize, height: iconSize), action: #selector(addAccountPressed(_:)), toolTip: "Add account", pointSize: 21)
+        let addButton = SettingsActionButton(frame: NSRect(x: 48, y: 8, width: 42, height: 28), title: "Add", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        addButton.target = self
+        addButton.action = #selector(addAccountPressed(_:))
+        addButton.toolTip = "Add account"
         bar.addSubview(addButton)
 
-        let leftDivider = NSView(frame: NSRect(x: toolbarInset + iconSize * 2 + 20, y: 12, width: 1, height: frame.height - 24))
+        let leftDivider = NSView(frame: NSRect(x: 99, y: 10, width: 1, height: frame.height - 20))
         leftDivider.wantsLayer = true
         leftDivider.layer?.backgroundColor = theme.divider.cgColor
         bar.addSubview(leftDivider)
 
-        let closeX = frame.width - toolbarInset - iconSize
-        let refreshX = closeX - toolbarGap - iconSize - 10
+        let quitWidth: CGFloat = 42
+        let refreshWidth: CGFloat = 60
+        let quitX = frame.width - toolbarInset - quitWidth
+        let refreshX = quitX - 8 - refreshWidth
+        let rightDividerX = refreshX - 10
         let resetWidth: CGFloat = frame.width >= 370 ? 82 : 74
-        let resetX = refreshX - resetWidth - 12
-        let clockX = toolbarInset + iconSize * 2 + 38
+        let resetX = rightDividerX - resetWidth - 10
+        let clockX: CGFloat = 111
         let clock = SymbolIconView(frame: NSRect(x: clockX, y: clockY, width: clockSize, height: clockSize), symbol: "clock", color: theme.iconTint)
         bar.addSubview(clock)
         let updatedX = clockX + clockSize + 6
         let updatedWidth = max(46, resetX - updatedX - 8)
-        bar.addSubview(CenteredTextView(frame: NSRect(x: updatedX, y: (frame.height - 22) / 2, width: updatedWidth, height: 22), text: lastUpdatedText, size: 12.2, weight: .medium, color: theme.primaryText, alignment: .left))
+        bar.addSubview(CenteredTextView(frame: NSRect(x: updatedX, y: (frame.height - 20) / 2, width: updatedWidth, height: 20), text: lastUpdatedText, size: 11.2, weight: .medium, color: theme.secondaryText, alignment: .left))
 
-        let resetButton = SettingsActionButton(frame: NSRect(x: resetX, y: 11, width: resetWidth, height: 30), title: resetCreditsButtonTitle(), color: resetCreditsButtonColor(), textColor: resetCreditsButtonTextColor())
+        let resetButton = SettingsActionButton(frame: NSRect(x: resetX, y: 8, width: resetWidth, height: 28), title: resetCreditsButtonTitle(), color: resetCreditsButtonColor(), textColor: resetCreditsButtonTextColor())
         resetButton.target = self
         resetButton.action = #selector(resetCreditsPressed(_:))
         resetButton.toolTip = resetCreditsTooltip()
         bar.addSubview(resetButton)
 
-        let refreshButton = iconButton(symbol: "arrow.clockwise", frame: NSRect(x: refreshX, y: iconY, width: iconSize, height: iconSize), action: #selector(refreshPressed), toolTip: "Refresh usage for all saved accounts", pointSize: 21)
+        let refreshButton = SettingsActionButton(frame: NSRect(x: refreshX, y: 8, width: refreshWidth, height: 28), title: "Refresh", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        refreshButton.target = self
+        refreshButton.action = #selector(refreshPressed)
+        refreshButton.toolTip = "Refresh usage for all saved accounts"
         bar.addSubview(refreshButton)
 
-        let rightDivider = NSView(frame: NSRect(x: refreshX + iconSize + 5, y: 12, width: 1, height: frame.height - 24))
+        let rightDivider = NSView(frame: NSRect(x: rightDividerX, y: 10, width: 1, height: frame.height - 20))
         rightDivider.wantsLayer = true
         rightDivider.layer?.backgroundColor = theme.divider.cgColor
         bar.addSubview(rightDivider)
 
-        let closeButton = iconButton(symbol: "xmark", frame: NSRect(x: closeX, y: iconY, width: iconSize, height: iconSize), action: #selector(closePressed), toolTip: "Quit Account Switcher", pointSize: 21)
-        closeButton.toolTip = "Quit Account Switcher"
-        bar.addSubview(closeButton)
+        let quitButton = SettingsActionButton(frame: NSRect(x: quitX, y: 8, width: quitWidth, height: 28), title: "Quit", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        quitButton.target = self
+        quitButton.action = #selector(closePressed)
+        quitButton.toolTip = "Quit Account Switcher"
+        bar.addSubview(quitButton)
         return bar
     }
 
