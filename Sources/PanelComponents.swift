@@ -325,6 +325,184 @@ final class ProgressLineView: NSView {
     }
 }
 
+final class PoolVerdictCardView: NSView {
+    private let presentation: PoolVerdictPresentation
+    private let theme: PanelTheme
+    private let accent: NSColor
+
+    init(frame: NSRect, presentation: PoolVerdictPresentation, theme: PanelTheme) {
+        self.presentation = presentation
+        self.theme = theme
+        let style = Self.style(for: presentation.kind, theme: theme)
+        accent = style.accent
+        super.init(frame: frame)
+
+        wantsLayer = true
+        layer?.cornerRadius = 18
+        layer?.backgroundColor = style.fill.cgColor
+        layer?.borderWidth = 1
+        layer?.borderColor = style.border.cgColor
+
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(presentation.accessibilityLabel)
+
+        let symbolView = PoolVerdictSymbolView(
+            frame: NSRect(x: 14, y: 14, width: 30, height: 30),
+            color: style.accent,
+            symbol: style.symbol,
+            accessibilityLabel: presentation.accessibilityLabel
+        )
+        addSubview(symbolView)
+
+        let badgeWidth: CGFloat = presentation.marginBadge == nil ? 0 : 84
+        let badgeGap: CGFloat = presentation.marginBadge == nil ? 0 : 10
+        let textTrailingInset: CGFloat = 14 + badgeWidth + badgeGap
+        addSubview(Self.label(
+            frame: NSRect(x: 54, y: 12, width: bounds.width - 54 - textTrailingInset, height: 19),
+            text: presentation.title,
+            font: .systemFont(ofSize: 15, weight: .semibold),
+            color: theme.primaryText
+        ))
+        addSubview(Self.label(
+            frame: NSRect(x: 54, y: 35, width: bounds.width - 54 - textTrailingInset, height: 16),
+            text: presentation.detail,
+            font: .systemFont(ofSize: 11),
+            color: theme.secondaryText
+        ))
+
+        if let marginBadge = presentation.marginBadge {
+            let badge = Self.label(
+                frame: NSRect(x: bounds.width - 14 - badgeWidth, y: 16, width: badgeWidth, height: 22),
+                text: marginBadge,
+                font: .monospacedDigitSystemFont(ofSize: 10, weight: .bold),
+                color: style.accent,
+                alignment: .center
+            )
+            badge.wantsLayer = true
+            badge.layer?.cornerRadius = 11
+            badge.layer?.backgroundColor = style.accent.withAlphaComponent(theme.isDark ? 0.13 : 0.10).cgColor
+            addSubview(badge)
+        }
+
+        guard presentation.events.count == 3, presentation.kind != .collecting else { return }
+        let horizontalInset: CGFloat = 18
+        let scaleWidth = bounds.width - horizontalInset * 2
+        let columnWidth = scaleWidth / 3
+        for (index, event) in presentation.events.enumerated() {
+            let columnX = horizontalInset + columnWidth * CGFloat(index)
+            addSubview(Self.label(
+                frame: NSRect(x: columnX, y: 102, width: columnWidth, height: 14),
+                text: event.title,
+                font: .systemFont(ofSize: 9.5, weight: .semibold),
+                color: theme.primaryText.withAlphaComponent(0.82),
+                alignment: .center
+            ))
+            if let intervalText = event.intervalText {
+                addSubview(Self.label(
+                    frame: NSRect(x: columnX, y: 120, width: columnWidth, height: 14),
+                    text: intervalText,
+                    font: .monospacedDigitSystemFont(ofSize: 9, weight: .medium),
+                    color: theme.secondaryText,
+                    alignment: .center
+                ))
+            }
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard presentation.events.count == 3, presentation.kind != .collecting else { return }
+
+        let horizontalInset: CGFloat = 18
+        let scaleWidth = bounds.width - horizontalInset * 2
+        let columnWidth = scaleWidth / 3
+        let pointY: CGFloat = 92
+        let centers = (0..<3).map { horizontalInset + columnWidth * (CGFloat($0) + 0.5) }
+        let leftSegment = NSRect(x: centers[0], y: pointY - 2, width: centers[1] - centers[0], height: 4)
+        let rightSegment = NSRect(x: centers[1], y: pointY - 2, width: centers[2] - centers[1], height: 4)
+        let lighterAccent = accent.blended(withFraction: 0.34, of: .white) ?? accent
+
+        NSGraphicsContext.saveGraphicsState()
+        leftSegment.roundedPath(radius: 2).addClip()
+        NSGradient(starting: accent, ending: lighterAccent)?.draw(in: leftSegment, angle: 0)
+        NSGraphicsContext.restoreGraphicsState()
+
+        theme.progressTrack.setFill()
+        rightSegment.roundedPath(radius: 2).fill()
+
+        for (index, center) in centers.enumerated() {
+            let color = index < 2 ? (index == 0 ? accent : lighterAccent) : theme.secondaryText
+            color.setFill()
+            NSBezierPath(ovalIn: NSRect(x: center - 3.5, y: pointY - 3.5, width: 7, height: 7)).fill()
+        }
+    }
+
+    private static func style(for kind: PoolVerdictKind, theme: PanelTheme) -> (accent: NSColor, fill: NSColor, border: NSColor, symbol: String) {
+        switch kind {
+        case .enough:
+            return (.nativeMint, .nativeMint.withAlphaComponent(theme.isDark ? 0.10 : 0.08), .nativeMint.withAlphaComponent(0.38), "checkmark")
+        case .notEnough:
+            return (.nativeRed, .nativeCoral.withAlphaComponent(theme.isDark ? 0.10 : 0.08), .nativeRed.withAlphaComponent(0.38), "xmark")
+        case .collecting:
+            return (theme.secondaryText, theme.bottomBarFill, theme.inactiveCardBorder, "clock.arrow.circlepath")
+        }
+    }
+
+    private static func label(
+        frame: NSRect,
+        text: String,
+        font: NSFont,
+        color: NSColor,
+        alignment: NSTextAlignment = .left
+    ) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.frame = frame
+        label.font = font
+        label.textColor = color
+        label.alignment = alignment
+        label.lineBreakMode = .byTruncatingTail
+        label.usesSingleLineMode = true
+        return label
+    }
+}
+
+private final class PoolVerdictSymbolView: NSView {
+    private let color: NSColor
+    private let symbol: String
+
+    init(frame: NSRect, color: NSColor, symbol: String, accessibilityLabel: String) {
+        self.color = color
+        self.symbol = symbol
+        super.init(frame: frame)
+        wantsLayer = true
+        setAccessibilityElement(true)
+        setAccessibilityRole(.image)
+        setAccessibilityLabel(accessibilityLabel)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        color.setFill()
+        NSBezierPath(ovalIn: bounds).fill()
+        guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) else { return }
+        image.isTemplate = true
+        NSColor.black.withAlphaComponent(0.72).set()
+        image.draw(in: bounds.insetBy(dx: 8, dy: 8))
+    }
+}
+
 final class ResetTimeBadgeView: NSView {
     private let text: String
     private let color: NSColor

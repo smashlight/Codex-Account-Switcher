@@ -19,9 +19,10 @@ private enum AccountPanelLayout {
     static let paceChartHeight: CGFloat = 104
     static let paceChartToRowGap: CGFloat = 2
     static let paceRowHeight: CGFloat = 16
-    static var paceSectionHeight: CGFloat {
-        paceChartHeight + paceChartToRowGap + paceRowHeight
-    }
+    static let verdictTopGap: CGFloat = 8
+    static let verdictCardHeight: CGFloat = 142
+    static var verdictSectionHeight: CGFloat { verdictTopGap + verdictCardHeight }
+    static var paceSectionHeight: CGFloat { paceChartHeight }
     static let resetChanceTopGap: CGFloat = 8
     static let resetChanceHeight: CGFloat = 44
     static var resetChanceSectionHeight: CGFloat {
@@ -438,11 +439,15 @@ final class AccountSwitcherPanelView: NSView {
         maximumHeight: CGFloat
     ) -> NSSize {
         if mode == .usage {
-            let paceHeight = showsPace ? AccountPanelLayout.paceTopGap + AccountPanelLayout.paceSectionHeight : 0
+            let forecastHeight = showsPace
+                ? AccountPanelLayout.paceTopGap
+                    + AccountPanelLayout.paceSectionHeight
+                    + AccountPanelLayout.verdictSectionHeight
+                : 0
             let fixedHeight = AccountPanelLayout.usageInset * 2
                 + AccountPanelLayout.bottomBarTopGap + AccountPanelLayout.bottomBarHeight
                 + AccountPanelLayout.resetChanceTopGap + AccountPanelLayout.resetChanceHeight
-                + paceHeight
+                + forecastHeight
             let availableListHeight = max(AccountPanelLayout.rowHeight, maximumHeight - fixedHeight)
             let rowCapacity = max(
                 1,
