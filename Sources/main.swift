@@ -1123,106 +1123,9 @@ final class AccountSwitcherPanelView: NSView {
         return card
     }
 
-    private func accountCard(_ account: CodexAccount, frame: NSRect) -> NSView {
-        let weeklyPercent = account.weeklyUsedPercent
-        let fiveHourPercent = account.fiveHourUsedPercent
-        let weeklyColor = accentColor(for: weeklyPercent, isActive: account.isActive)
-        let fiveHourColor = accentColor(for: fiveHourPercent, isActive: account.isActive)
-        let usageWeight: NSFont.Weight = account.isActive ? .semibold : .medium
-        let fullProgressHeight = progressLineHeight(isActive: account.isActive)
-        let card = RoundedPanelView(
-            frame: frame,
-            fillColor: cardFillColor(for: account),
-            borderColor: cardBorderColor(for: account),
-            hoverFillColor: account.isActive || isSwitching ? nil : theme.inactiveCardHoverFill,
-            clickAction: account.isActive || isSwitching ? nil : { [weak self] in
-                self?.switchAccount(account.email)
-            }
-        )
-        let labelText = labelForAccount(account)
-
-        let isArmed = armedSwitchEmail == account.email && !account.isActive
-        let statusTitle = account.isActive ? "  ACTIVE" : (isSwitching ? "SWITCHING..." : (isArmed ? "CONFIRM" : "SWITCH"))
-        let buttonColor = account.isActive ? fiveHourColor : (isArmed ? NSColor.systemBlue : theme.usageInactiveButtonFill)
-        let switchButtonWidth: CGFloat = account.isActive ? 74 : (isArmed ? 80 : 66)
-        let switchButton = PillButton(frame: NSRect(x: 18, y: 18, width: switchButtonWidth, height: 26), title: statusTitle, color: buttonColor, showsDot: isArmed, allowsHover: !account.isActive)
-        switchButton.toolTip = isArmed ? "Confirm \(switchPreviewText(for: account))" : switchPreviewText(for: account)
-        switchButton.target = self
-        switchButton.action = #selector(accountSwitchPressed(_:))
-        switchButton.identifier = NSUserInterfaceItemIdentifier(account.email)
-        switchButton.isEnabled = !account.isActive && !isSwitching && !accounts.isEmpty
-        card.addSubview(switchButton)
-
-        let accountSettingsButton = AccountMoreButton(frame: NSRect(x: frame.width - 62, y: 14, width: 46, height: 38), tintColor: account.isActive ? fiveHourColor : theme.iconTint, label: labelText)
-        accountSettingsButton.identifier = NSUserInterfaceItemIdentifier("label|\(account.email)")
-        accountSettingsButton.target = self
-        accountSettingsButton.action = #selector(accountSettingsActionPressed(_:))
-        card.addSubview(accountSettingsButton)
-
-        card.addSubview(label(compactCardEmail(account.email), frame: NSRect(x: 8, y: 64, width: frame.width - 16, height: 18), size: 12, weight: .medium, color: theme.tertiaryText, alignment: .center))
-
-        let ringSize: CGFloat = columnsFitWide(frame.width) ? 142 : 126
-        let ringX = (frame.width - ringSize) / 2
-        let ringY: CGFloat = 90
-        let ring = UsageRingView(frame: NSRect(x: ringX, y: ringY, width: ringSize, height: ringSize), color: fiveHourColor, trackColor: theme.ringTrack, percent: CGFloat(fiveHourPercent ?? 0) / 100, isActive: account.isActive)
-        card.addSubview(ring)
-        card.addSubview(PercentCenterLabelView(frame: NSRect(x: ringX + 8, y: ringY + 31, width: ringSize - 16, height: 46), percent: fiveHourPercent, color: fiveHourColor))
-        card.addSubview(label("5H REMAINING", frame: NSRect(x: ringX + 12, y: ringY + 73, width: ringSize - 24, height: 16), size: 9.5, weight: .medium, color: theme.secondaryText, alignment: .center))
-
-        let resetBlockY = ringY + ringSize + 8
-        card.addSubview(resetRow(
-            title: "5H",
-            value: fiveHourResetTimeText(from: account.fiveHourUsage),
-            color: fiveHourColor,
-            isActive: account.isActive,
-            frame: NSRect(x: 22, y: resetBlockY, width: frame.width - 44, height: 22)
-        ))
-        let dividerY = resetBlockY + 32
-        let divider = NSView(frame: NSRect(x: 22, y: dividerY, width: frame.width - 44, height: 1))
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = theme.divider.cgColor
-        card.addSubview(divider)
-
-        let weeklyY = dividerY + 15
-        let weeklyLabel = label("WEEKLY", frame: NSRect(x: 22, y: weeklyY, width: 74, height: 16), size: 10.8, weight: .medium, color: theme.secondaryText)
-        card.addSubview(weeklyLabel)
-        let weeklyValue = label(percentText(weeklyPercent), frame: NSRect(x: frame.width - 70, y: weeklyY, width: 48, height: 16), size: 12, weight: usageWeight, color: weeklyColor, alignment: .right)
-        card.addSubview(weeklyValue)
-
-        let progress = ProgressLineView(frame: NSRect(x: 22, y: weeklyY + 27, width: frame.width - 44, height: fullProgressHeight), color: weeklyColor, trackColor: theme.progressTrack, percent: CGFloat(weeklyPercent ?? 0) / 100, isMeter: true)
-        card.addSubview(progress)
-        card.addSubview(resetRow(
-            title: "RESET",
-            value: weeklyResetText(from: account.weeklyUsage),
-            color: weeklyColor,
-            isActive: account.isActive,
-            frame: NSRect(x: 22, y: weeklyY + 44, width: frame.width - 44, height: 22)
-        ))
-        return card
-    }
-
     private func percentText(_ percent: Int?) -> String {
         guard let percent else { return "--" }
         return "\(max(0, min(100, percent)))%"
-    }
-
-    private func percentNumberText(_ percent: Int?) -> String {
-        guard let percent else { return "--" }
-        return "\(max(0, min(100, percent)))"
-    }
-
-    private func switchPreviewText(for account: CodexAccount) -> String {
-        "Switch to \(labelForAccount(account)) · 5H \(percentText(account.fiveHourUsedPercent)) · Weekly \(percentText(account.weeklyUsedPercent))"
-    }
-
-    private func fiveHourResetTimeText(from usage: String) -> String {
-        guard let inner = parenthesizedValue(from: usage) else { return "--.--" }
-        let parts = inner.split(separator: ":")
-        guard parts.count >= 2, let hour = Int(parts[0]) else {
-            return inner
-        }
-        let minute = String(parts[1].prefix(2))
-        return String(format: "%02d.%@", hour, minute)
     }
 
     private func weeklyResetText(from usage: String) -> String {
@@ -1378,10 +1281,6 @@ final class AccountSwitcherPanelView: NSView {
         let maximumLength = 21
         guard email.count > maximumLength else { return email }
         return String(email.prefix(maximumLength - 3)) + "..."
-    }
-
-    private func columnsFitWide(_ width: CGFloat) -> Bool {
-        width > 200
     }
 
     private func orderedSettingsAccounts() -> [CodexAccount] {
@@ -1759,18 +1658,6 @@ final class AccountSwitcherPanelView: NSView {
         return "\(value)"
     }
 
-    private func accentColor(for percent: Int?, isActive: Bool) -> NSColor {
-        let color = meterColor(for: percent)
-        return isActive ? color : color.withAlphaComponent(theme.isDark ? 0.48 : 0.44)
-    }
-
-    private func meterColor(for percent: Int?) -> NSColor {
-        guard let percent else { return .secondaryLabelColor }
-        if percent <= 10 { return .warmRed }
-        if percent <= 25 { return .warmAmber }
-        return .meterBlue
-    }
-
     private func meterGradient(for remainingPercent: Int?) -> MeterGradient {
         switch WeeklyRemainingBand.classify(remainingPercent) {
         case .healthy:
@@ -1801,10 +1688,6 @@ final class AccountSwitcherPanelView: NSView {
         return .warmRed
     }
 
-    private func progressLineHeight(isActive: Bool) -> CGFloat {
-        isActive ? 10 : 7
-    }
-
     private func inactiveAccentColor() -> NSColor {
         theme.inactiveAccent
     }
@@ -1827,25 +1710,6 @@ final class AccountSwitcherPanelView: NSView {
     private func cardBorderColor(for account: CodexAccount) -> NSColor {
         guard account.isActive else { return theme.inactiveCardBorder }
         return meterGradient(for: account.weeklyUsedPercent).start.withAlphaComponent(theme.isDark ? 0.48 : 0.40)
-    }
-
-    private func activeCardFillColor(for percent: Int?) -> NSColor {
-        guard let percent else {
-            return theme.isDark
-                ? NSColor(red: 0.065, green: 0.075, blue: 0.085, alpha: 0.76)
-                : NSColor(red: 0.955, green: 0.965, blue: 0.975, alpha: 0.96)
-        }
-        if percent >= 50 {
-            return theme.activeCardFill
-        }
-        if percent >= 20 {
-            return theme.isDark
-                ? NSColor(red: 0.145, green: 0.092, blue: 0.025, alpha: 0.78)
-                : NSColor(red: 1.00, green: 0.945, blue: 0.835, alpha: 0.96)
-        }
-        return theme.isDark
-            ? NSColor(red: 0.135, green: 0.045, blue: 0.048, alpha: 0.78)
-            : NSColor(red: 1.00, green: 0.91, blue: 0.91, alpha: 0.96)
     }
 
     private func label(_ string: String, frame: NSRect, size: CGFloat, weight: NSFont.Weight, color: NSColor, alignment: NSTextAlignment = .left) -> NSTextField {

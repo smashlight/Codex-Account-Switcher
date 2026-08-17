@@ -27,7 +27,8 @@ Codex Account Switcher is a native macOS menu bar companion for people who use m
 ## The useful parts, immediately
 
 - **Live account limits** for five-hour and weekly usage windows.
-- **Fast account switching** from a compact four-account panel.
+- **Fast account switching** from a compact numbered Native Glass list that scales from one account to many.
+- **Weekly capacity at a glance** with semantic gradients and inline switch confirmation.
 - **Verified changes** with target checks and automatic rollback on failure.
 - **Reset-credit tracking** across saved accounts, grouped by expiry urgency.
 - **Optional auto-switching** when the active account reaches a chosen threshold.

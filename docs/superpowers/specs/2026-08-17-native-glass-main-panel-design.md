@@ -1,7 +1,7 @@
 # Native Glass Main Panel Design
 
-**Date:** 2026-08-17  
-**Status:** Approved design, pending implementation plan  
+**Date:** 2026-08-17
+**Status:** Implemented; visual acceptance delegated to the user
 **Scope:** Codex Account Switcher main usage panel
 
 ## Context

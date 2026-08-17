@@ -53,7 +53,7 @@ private static func testWeeklyRemainingBand() {
 
 - [ ] **Step 2: Run the test suite and verify the new type is missing**
 
-Run: `./run-tests.sh`  
+Run: `./run-tests.sh`
 Expected: Swift compilation fails because `WeeklyRemainingBand` is not defined.
 
 - [ ] **Step 3: Implement the minimal pure policy**
@@ -79,7 +79,7 @@ enum WeeklyRemainingBand: Equatable {
 
 - [ ] **Step 4: Run tests and verify the policy passes**
 
-Run: `./run-tests.sh`  
+Run: `./run-tests.sh`
 Expected: all infrastructure assertions and the reset self-test pass.
 
 - [ ] **Step 5: Commit**
@@ -122,7 +122,7 @@ private static func testAccountListPresentationPolicy() {
 
 - [ ] **Step 2: Run tests and verify failure**
 
-Run: `./run-tests.sh`  
+Run: `./run-tests.sh`
 Expected: compilation fails because `AccountListPresentationPolicy` is missing.
 
 - [ ] **Step 3: Implement the layout policy**
@@ -145,7 +145,7 @@ enum AccountListPresentationPolicy {
 
 - [ ] **Step 4: Run tests**
 
-Run: `./run-tests.sh`  
+Run: `./run-tests.sh`
 Expected: all tests pass.
 
 - [ ] **Step 5: Commit**
@@ -321,7 +321,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer CODEX_SWITCHER_MODULE_C
 
 Expected: all tests and the full app build pass with no five-hour labels in the usage-panel construction path.
 
-Run: `rg -n '5H REMAINING|accountCard\(' Sources/main.swift`  
+Run: `rg -n '5H REMAINING|accountCard\(' Sources/main.swift`
 Expected: no main-panel card construction or five-hour label remains.
 
 - [ ] **Step 7: Commit**
@@ -362,7 +362,7 @@ private static func testInlineSwitchConfirmationPolicy() {
 
 - [ ] **Step 2: Run tests and verify failure**
 
-Run: `./run-tests.sh`  
+Run: `./run-tests.sh`
 Expected: compilation fails because the confirmation policy is missing.
 
 - [ ] **Step 3: Implement the pure decision policy**
@@ -418,7 +418,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer CODEX_SWITCHER_MODULE_C
 
 Expected: all tests and the full app build pass.
 
-Run: `rg -n 'confirmBeforeSwitching|Confirm Panel Switches|confirmSwitchPreview|toggleConfirmSwitch' Sources`  
+Run: `rg -n 'confirmBeforeSwitching|Confirm Panel Switches|confirmSwitchPreview|toggleConfirmSwitch' Sources`
 Expected: no matches.
 
 - [ ] **Step 7: Commit**
