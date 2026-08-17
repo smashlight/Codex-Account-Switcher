@@ -454,17 +454,16 @@ Extend `RoundedPanelView` to retain the approved hover fill and temporarily appl
 
 Set toolbar icon hit frames to at least `36 × 34 pt`, configure SF Symbol point size near `21 pt`, keep existing tooltips, and preserve button actions. Increase toolbar height and spacing only as needed to avoid clipping at `520 pt` width.
 
-- [ ] **Step 4: Build and inspect both appearances**
+- [ ] **Step 4: Build for user-owned visual verification**
 
 Run:
 
 ```bash
 ./run-tests.sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer CODEX_SWITCHER_MODULE_CACHE_DIR=.build/module-cache ./build.sh
-CODEX_ACCOUNT_SWITCHER_DEMO=1 CODEX_ACCOUNT_SWITCHER_DEMO_COUNT=10 CODEX_ACCOUNT_SWITCHER_SHOW_PANEL=1 "build/Codex Account Switcher.app/Contents/MacOS/CodexAccountSwitcher"
 ```
 
-Expected: tests and build pass; the ten-account demo panel opens. Inspect hover, active row, all three gradients, toolbar hit targets, and readable forecast text. Repeat after changing macOS appearance between dark and light.
+Expected: tests, full compilation, and ad-hoc signing pass. Do not launch or visually inspect the panel; the user owns visual acceptance to avoid spending agent time and credits.
 
 - [ ] **Step 5: Commit**
 
@@ -508,9 +507,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer CODEX_SWITCHER_MODULE_C
 
 Expected: all infrastructure assertions pass, reset logic self-test passes, and the app bundle builds and signs successfully.
 
-- [ ] **Step 3: Perform proportional runtime verification**
+- [ ] **Step 3: Prepare the user visual-verification checklist**
 
-Verify with demo fixtures or saved accounts:
+Hand off these checks to the user after automated verification:
 
 - 1, 2, 10, and 11+ rows;
 - short-screen list scrolling without moving aggregate sections;
@@ -523,7 +522,7 @@ Verify with demo fixtures or saved accounts:
 - reset chance, reset credits, refresh, Settings, Add Account, and close actions;
 - dark appearance, light appearance, and the pre-macOS-26 material fallback where available.
 
-Use these exact demo launches for row-count coverage, terminating each demo process before starting the next:
+Provide these exact optional demo launches for user-run row-count coverage:
 
 ```bash
 CODEX_ACCOUNT_SWITCHER_DEMO=1 CODEX_ACCOUNT_SWITCHER_DEMO_COUNT=1 CODEX_ACCOUNT_SWITCHER_SHOW_PANEL=1 "build/Codex Account Switcher.app/Contents/MacOS/CodexAccountSwitcher"
