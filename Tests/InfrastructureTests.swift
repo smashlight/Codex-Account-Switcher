@@ -45,6 +45,7 @@ struct InfrastructureTests {
         testAccountListViewportHeightPolicy()
         testAccountListScrollPolicy()
         testSwipeRevealPolicy()
+        testSwipeScrollPolicy()
         testAccountRowRevealPolicy()
         testAccountRemovalPolicy()
         testUsagePanelLayoutMetrics()
@@ -75,6 +76,7 @@ struct InfrastructureTests {
         testPoolVerdict()
         testPoolHistorySampleResetsAtCoding()
         testResetChanceParsing()
+        testResetChanceCommandFallback()
         try testBundledMarketplaceSnapshotOk()
         try testBundledMarketplaceSnapshotIncomplete()
         try testBundledMarketplaceSnapshotAbsent()
@@ -337,6 +339,19 @@ struct InfrastructureTests {
         expect(SwipeRevealPolicy.settledState(offset: -50, velocityX: 0) == .revealed, "majority reveal should stay open")
         expect(SwipeRevealPolicy.settledState(offset: -20, velocityX: 0) == .closed, "short reveal should close")
         expect(SwipeRevealPolicy.settledState(offset: -15, velocityX: -500) == .revealed, "fast left release should reveal")
+    }
+
+    private static func testSwipeScrollPolicy() {
+        expect(
+            SwipeRevealPolicy.offsetAfterScroll(current: 0, scrollingDeltaX: 30, directionInverted: true) == -30,
+            "a physical left swipe should reveal when natural scrolling is enabled"
+        )
+        expect(
+            SwipeRevealPolicy.offsetAfterScroll(current: 0, scrollingDeltaX: -30, directionInverted: false) == -30,
+            "a physical left swipe should reveal when natural scrolling is disabled"
+        )
+        expect(SwipeRevealPolicy.isActionVisible(offset: 0) == false, "a closed row must fully hide its destructive action")
+        expect(SwipeRevealPolicy.isActionVisible(offset: -1), "the destructive action should appear only after reveal begins")
     }
 
     private static func testAccountRowRevealPolicy() {
@@ -1048,6 +1063,21 @@ struct InfrastructureTests {
 
         if case .failure = ResetChanceClient.parseResponse(data: Data(realFixture), statusCode: 500) {} else {
             expect(false, "a non-200 status should be a failure even with a valid body")
+        }
+    }
+
+    private static func testResetChanceCommandFallback() {
+        let fixture = #"{"probabilities":{"rounded_24h":30,"rounded_48h":50}}"#
+        if case .success(let forecast) = ResetChanceClient.parseCommandResult(
+            CommandResult(status: 0, output: fixture)
+        ) {
+            expect(forecast == ResetChanceForecast(rounded24h: 30, rounded48h: 50), "curl fallback should parse the same forecast payload")
+        } else {
+            expect(false, "a successful curl fallback should produce a forecast")
+        }
+
+        if case .failure = ResetChanceClient.parseCommandResult(CommandResult(status: 22, output: "HTTP 503")) {} else {
+            expect(false, "a failed curl fallback must remain a fetch failure")
         }
     }
 

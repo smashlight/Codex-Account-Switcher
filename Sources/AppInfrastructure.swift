@@ -102,6 +102,19 @@ enum SwipeRevealPolicy {
         min(0, max(-revealWidth, proposed))
     }
 
+    static func offsetAfterScroll(
+        current: Double,
+        scrollingDeltaX: Double,
+        directionInverted: Bool
+    ) -> Double {
+        let physicalDeltaX = directionInverted ? -scrollingDeltaX : scrollingDeltaX
+        return clampedOffset(current + physicalDeltaX)
+    }
+
+    static func isActionVisible(offset: Double) -> Bool {
+        offset < 0
+    }
+
     static func settledState(offset: Double, velocityX: Double) -> SwipeRevealSettleState {
         if velocityX <= velocityRevealThreshold { return .revealed }
         return offset <= -(revealWidth / 2) ? .revealed : .closed
@@ -2473,5 +2486,13 @@ enum ResetChanceClient {
             return .failure("Invalid reset chance response")
         }
         return .success(ResetChanceForecast(rounded24h: rounded24h, rounded48h: rounded48h))
+    }
+
+    static func parseCommandResult(_ result: CommandResult) -> ResetChanceFetchResult {
+        guard result.status == 0 else {
+            let detail = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(detail.isEmpty ? "Reset chance fallback failed" : detail)
+        }
+        return parseResponse(data: Data(result.output.utf8), statusCode: 200)
     }
 }

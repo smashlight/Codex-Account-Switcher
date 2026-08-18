@@ -948,6 +948,7 @@ final class SwipeRevealRowView: NSView {
         actionButton.toolTip = deleteTooltip
         actionButton.setAccessibilityLabel(deleteTooltip)
         actionButton.setAccessibilityHidden(true)
+        actionButton.isHidden = true
         addSubview(actionButton)
 
         contentView.frame = bounds
@@ -961,7 +962,7 @@ final class SwipeRevealRowView: NSView {
     override var isFlipped: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if offset < 0, actionButton.frame.contains(point) {
+        if SwipeRevealPolicy.isActionVisible(offset: Double(offset)), actionButton.frame.contains(point) {
             return actionButton
         }
         return bounds.contains(point) ? self : nil
@@ -970,15 +971,22 @@ final class SwipeRevealRowView: NSView {
     func setRevealed(_ revealed: Bool, animated: Bool) {
         offset = revealed ? -CGFloat(SwipeRevealPolicy.revealWidth) : 0
         actionButton.setAccessibilityHidden(!revealed)
+        if revealed {
+            actionButton.isHidden = false
+        }
         let origin = NSPoint(x: offset, y: 0)
         guard animated else {
             contentView.setFrameOrigin(origin)
+            actionButton.isHidden = !revealed
             return
         }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.16
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             contentView.animator().setFrameOrigin(origin)
+        } completionHandler: { [weak self] in
+            guard let self else { return }
+            self.actionButton.isHidden = !SwipeRevealPolicy.isActionVisible(offset: Double(self.offset))
         }
     }
 
@@ -1001,6 +1009,7 @@ final class SwipeRevealRowView: NSView {
         }
         guard dragIntent == .horizontal else { return }
         offset = CGFloat(SwipeRevealPolicy.clampedOffset(Double(initialOffset + current.x - downPoint.x)))
+        actionButton.isHidden = !SwipeRevealPolicy.isActionVisible(offset: Double(offset))
         contentView.setFrameOrigin(NSPoint(x: offset, y: 0))
         lastDragX = current.x
         lastDragTimestamp = event.timestamp
@@ -1039,7 +1048,12 @@ final class SwipeRevealRowView: NSView {
         }
 
         isHorizontalScrollGesture = !event.phase.isEmpty
-        offset = CGFloat(SwipeRevealPolicy.clampedOffset(Double(offset - deltaX)))
+        offset = CGFloat(SwipeRevealPolicy.offsetAfterScroll(
+            current: Double(offset),
+            scrollingDeltaX: Double(deltaX),
+            directionInverted: event.isDirectionInvertedFromDevice
+        ))
+        actionButton.isHidden = !SwipeRevealPolicy.isActionVisible(offset: Double(offset))
         contentView.setFrameOrigin(NSPoint(x: offset, y: 0))
         if event.phase.isEmpty {
             settle(SwipeRevealPolicy.settledState(offset: Double(offset), velocityX: 0))

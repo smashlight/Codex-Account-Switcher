@@ -2677,12 +2677,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private nonisolated static func performResetChanceFetch() async -> ResetChanceFetchResult {
+        let primaryResult: ResetChanceFetchResult
         do {
             let payload = try await CodexHTTPClient.send(ResetChanceClient.makeRequest(), retries: 1)
-            return ResetChanceClient.parseResponse(data: payload.data, statusCode: payload.statusCode)
+            primaryResult = ResetChanceClient.parseResponse(data: payload.data, statusCode: payload.statusCode)
         } catch {
-            return .failure(error.localizedDescription)
+            primaryResult = .failure(error.localizedDescription)
         }
+        if case .success = primaryResult {
+            return primaryResult
+        }
+
+        if case .failure(let message) = primaryResult {
+            NSLog("Reset chance primary fetch failed: %@", message)
+        }
+        let fallback = ProcessRunner.run(
+            "/usr/bin/curl",
+            [
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--http1.1",
+                "--max-time",
+                "15",
+                ResetChanceClient.endpoint.absoluteString
+            ],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 20
+        )
+        let fallbackResult = ResetChanceClient.parseCommandResult(fallback)
+        if case .failure(let message) = fallbackResult {
+            NSLog("Reset chance fallback fetch failed: %@", message)
+        }
+        return fallbackResult
     }
 
     private func showSettingsPanel() {
@@ -2792,6 +2819,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.refreshAccountPanelContentIfVisible()
             },
             refresh: { [weak self] in
+                self?.refreshResetChanceIfNeeded()
                 self?.refreshAccounts(force: true)
             },
             showSettings: { [weak self] in
