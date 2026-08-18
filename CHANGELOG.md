@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add swipe-to-delete for inactive saved accounts, using the selected account's exact `codex-auth` selector and never the remove-all command.
+- Add swipe-to-delete for inactive saved accounts, using the selected account's full email and never the remove-all command; keep trailing percentages and confirmation buttons inside compact rows, and tint the reset-chance bolt yellow.
 - Tighten the pool verdict card while preserving its full forecast timeline, add separation from reset chance, center the margin badge, and give the Refresh and Quit buttons more horizontal padding.
 - Use native `NSTableView` row actions so clicks and destructive swipes map to the exact account, keep the verdict available from current usage even before history accumulates, and fall back to a bounded HTTP/1.1 forecast request when URLSession is blocked by a local proxy route.
 

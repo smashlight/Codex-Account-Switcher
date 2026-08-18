@@ -1385,7 +1385,7 @@ final class AccountSwitcherPanelView: NSView {
     private func resetChanceSection(frame: NSRect) -> NSView {
         let card = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 16)
         let iconSize: CGFloat = 16
-        let icon = SymbolIconView(frame: NSRect(x: 14, y: (frame.height - iconSize) / 2, width: iconSize, height: iconSize), symbol: "bolt.fill", color: theme.iconTint)
+        let icon = SymbolIconView(frame: NSRect(x: 14, y: (frame.height - iconSize) / 2, width: iconSize, height: iconSize), symbol: "bolt.fill", color: NSColor.systemYellow.withAlphaComponent(0.9))
         card.addSubview(icon)
         card.addSubview(label(LocalizedText.value(.resetChanceTitle, language: language), frame: NSRect(x: 40, y: (frame.height - 17) / 2, width: 190, height: 17), size: 12, weight: .bold, color: theme.primaryText))
 
