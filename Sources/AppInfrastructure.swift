@@ -77,6 +77,62 @@ enum AccountListScrollPolicy {
     }
 }
 
+enum SwipeAxisIntent: Equatable {
+    case undecided
+    case horizontal
+    case vertical
+}
+
+enum SwipeRevealSettleState: Equatable {
+    case closed
+    case revealed
+}
+
+enum SwipeRevealPolicy {
+    static let revealWidth = 84.0
+    static let intentThreshold = 6.0
+    static let velocityRevealThreshold = -420.0
+
+    static func intent(deltaX: Double, deltaY: Double) -> SwipeAxisIntent {
+        guard max(abs(deltaX), abs(deltaY)) >= intentThreshold else { return .undecided }
+        return abs(deltaX) > abs(deltaY) ? .horizontal : .vertical
+    }
+
+    static func clampedOffset(_ proposed: Double) -> Double {
+        min(0, max(-revealWidth, proposed))
+    }
+
+    static func settledState(offset: Double, velocityX: Double) -> SwipeRevealSettleState {
+        if velocityX <= velocityRevealThreshold { return .revealed }
+        return offset <= -(revealWidth / 2) ? .revealed : .closed
+    }
+}
+
+enum AccountRowRevealPolicy {
+    static func next(current: String?, requested: String?, canReveal: Bool) -> String? {
+        guard let requested else { return nil }
+        guard canReveal else { return current == requested ? nil : current }
+        return requested
+    }
+}
+
+enum AccountRemovalPolicy {
+    static func arguments(selector: String, isActive: Bool) -> [String]? {
+        guard !isActive else { return nil }
+        let selector = selector.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selector.isEmpty, !selector.hasPrefix("-") else { return nil }
+        return ["remove", selector]
+    }
+}
+
+enum UsagePanelLayoutMetrics {
+    static let verdictCardHeight = 108.0
+    static let verdictResetGap = 12.0
+    static let refreshButtonWidth = 68.0
+    static let quitButtonWidth = 50.0
+    static let footerButtonHeight = 26.0
+}
+
 enum InlineSwitchDecision: Equatable {
     case ignore
     case arm

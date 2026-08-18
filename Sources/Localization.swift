@@ -56,6 +56,8 @@ enum LocalizedTextKey: CaseIterable {
     case switchRelaunchDetail
     case cancelButton
     case switchButton
+    case deleteAccountButton
+    case deleteAccountTooltip
     case resetChanceTitle
     case languageLabel
     case russianOption
@@ -95,6 +97,8 @@ enum LocalizedText {
             case .switchRelaunchDetail: return "Codex будет перезапущен"
             case .cancelButton: return "Отмена"
             case .switchButton: return "Переключить"
+            case .deleteAccountButton: return "Удалить"
+            case .deleteAccountTooltip: return "Удалить аккаунт"
             case .resetChanceTitle: return "Шанс сброса от Tibo"
             case .languageLabel: return "Язык / Language"
             case .russianOption: return "Русский"
@@ -130,6 +134,8 @@ enum LocalizedText {
             case .switchRelaunchDetail: return "Codex will relaunch"
             case .cancelButton: return "Cancel"
             case .switchButton: return "Switch"
+            case .deleteAccountButton: return "Delete"
+            case .deleteAccountTooltip: return "Delete account"
             case .resetChanceTitle: return "Reset chance by Tibo"
             case .languageLabel: return "Язык / Language"
             case .russianOption: return "Русский"

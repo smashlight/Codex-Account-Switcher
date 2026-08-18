@@ -44,6 +44,10 @@ struct InfrastructureTests {
         testAccountListPresentationPolicy()
         testAccountListViewportHeightPolicy()
         testAccountListScrollPolicy()
+        testSwipeRevealPolicy()
+        testAccountRowRevealPolicy()
+        testAccountRemovalPolicy()
+        testUsagePanelLayoutMetrics()
         testInlineSwitchConfirmationPolicy()
         testInlineQuitConfirmationPolicy()
         testLastKnownGoodSnapshotPolicy()
@@ -169,6 +173,10 @@ struct InfrastructureTests {
         expect(LocalizedText.value(.languageLabel, language: .english) == "Язык / Language", "the language label should stay bilingual in English mode")
         expect(LocalizedText.value(.russianOption, language: .english) == "Русский", "the Russian option should remain self-identifying")
         expect(LocalizedText.value(.englishOption, language: .russian) == "English", "the English option should remain self-identifying")
+        expect(LocalizedText.value(.deleteAccountButton, language: .russian) == "Удалить", "the delete button should be localized in Russian")
+        expect(LocalizedText.value(.deleteAccountButton, language: .english) == "Delete", "the delete button should be localized in English")
+        expect(LocalizedText.value(.deleteAccountTooltip, language: .russian) == "Удалить аккаунт", "the delete tooltip should be localized in Russian")
+        expect(LocalizedText.value(.deleteAccountTooltip, language: .english) == "Delete account", "the delete tooltip should be localized in English")
         expect(LocalizedText.lastUpdated(isRefreshing: true, elapsed: nil, language: .russian) == "обновление…", "Russian refreshing state should be localized")
         expect(LocalizedText.lastUpdated(isRefreshing: false, elapsed: 5, language: .english) == "just now", "English update age should preserve current copy")
         expect(LocalizedText.resetCreditsButtonTitle(knownTotal: 1, knownAccounts: 2, hasError: false, language: .russian) == "1 СБРОС", "Russian singular reset count should be localized")
@@ -318,6 +326,42 @@ struct InfrastructureTests {
         expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 420, rowMaxY: 500, viewportHeight: 300, currentOrigin: 0, contentHeight: 500) == 200, "expanded bottom row should scroll fully into view")
         expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 40, rowMaxY: 120, viewportHeight: 100, currentOrigin: 80, contentHeight: 500) == 40, "expanded row above the viewport should scroll to its top")
         expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 460, rowMaxY: 560, viewportHeight: 300, currentOrigin: 0, contentHeight: 500) == 200, "scroll origin should clamp to the document bottom")
+    }
+
+    private static func testSwipeRevealPolicy() {
+        expect(SwipeRevealPolicy.intent(deltaX: 3, deltaY: 2) == .undecided, "small motion should preserve click intent")
+        expect(SwipeRevealPolicy.intent(deltaX: -12, deltaY: 3) == .horizontal, "left motion should reveal")
+        expect(SwipeRevealPolicy.intent(deltaX: 4, deltaY: 13) == .vertical, "vertical motion should remain list scrolling")
+        expect(SwipeRevealPolicy.clampedOffset(-120) == -84, "reveal should clamp at the action width")
+        expect(SwipeRevealPolicy.clampedOffset(20) == 0, "right drag from rest should stay closed")
+        expect(SwipeRevealPolicy.settledState(offset: -50, velocityX: 0) == .revealed, "majority reveal should stay open")
+        expect(SwipeRevealPolicy.settledState(offset: -20, velocityX: 0) == .closed, "short reveal should close")
+        expect(SwipeRevealPolicy.settledState(offset: -15, velocityX: -500) == .revealed, "fast left release should reveal")
+    }
+
+    private static func testAccountRowRevealPolicy() {
+        expect(AccountRowRevealPolicy.next(current: nil, requested: "a@example.com", canReveal: true) == "a@example.com", "eligible row should reveal")
+        expect(AccountRowRevealPolicy.next(current: "a@example.com", requested: "b@example.com", canReveal: true) == "b@example.com", "revealing a row should replace the prior row")
+        expect(AccountRowRevealPolicy.next(current: "a@example.com", requested: nil, canReveal: true) == nil, "outside interaction should close the row")
+        expect(AccountRowRevealPolicy.next(current: nil, requested: "active@example.com", canReveal: false) == nil, "active row should not reveal")
+    }
+
+    private static func testAccountRemovalPolicy() {
+        expect(AccountRemovalPolicy.arguments(selector: "02", isActive: false) == ["remove", "02"], "inactive account should use its exact selector")
+        expect(AccountRemovalPolicy.arguments(selector: " 02 ", isActive: false) == ["remove", "02"], "selector should be trimmed but not fuzzily rewritten")
+        expect(AccountRemovalPolicy.arguments(selector: "", isActive: false) == nil, "empty selector should be rejected")
+        expect(AccountRemovalPolicy.arguments(selector: "01", isActive: true) == nil, "active account should be rejected")
+        expect(AccountRemovalPolicy.arguments(selector: "--all", isActive: false) == nil, "remove-all flag should be rejected")
+        expect(AccountRemovalPolicy.arguments(selector: "--api", isActive: false) == nil, "every flag-like selector should be rejected")
+        expect(!(AccountRemovalPolicy.arguments(selector: "02", isActive: false) ?? []).contains("--all"), "swipe deletion must never remove all accounts")
+    }
+
+    private static func testUsagePanelLayoutMetrics() {
+        expect(UsagePanelLayoutMetrics.verdictCardHeight == 108, "compact verdict height should be exact")
+        expect(UsagePanelLayoutMetrics.verdictResetGap == 12, "verdict and reset chance need breathing room")
+        expect(UsagePanelLayoutMetrics.refreshButtonWidth == 68, "Refresh should gain horizontal padding")
+        expect(UsagePanelLayoutMetrics.quitButtonWidth == 50, "Quit should gain horizontal padding")
+        expect(UsagePanelLayoutMetrics.footerButtonHeight == 26, "footer height should stay stable")
     }
 
     private static func testAccountListViewportHeightPolicy() {
