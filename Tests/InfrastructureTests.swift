@@ -253,36 +253,38 @@ struct InfrastructureTests {
     }
 
     private static func testLocalizedIntervalFormatting() {
-        expect(LocalizedIntervalFormatter.duration(90, language: .russian) == "<0,1 часа", "tiny Russian intervals should use a less-than form")
-        expect(LocalizedIntervalFormatter.duration(90, language: .english) == "<0.1 hours", "tiny English intervals should use a less-than form")
+        expect(LocalizedIntervalFormatter.duration(90, language: .russian) == "2 минуты", "short Russian intervals should use minutes")
+        expect(LocalizedIntervalFormatter.duration(90, language: .english) == "2 minutes", "short English intervals should use minutes")
+        expect(LocalizedIntervalFormatter.duration(0.7 * 3_600, language: .russian) == "42 минуты", "fractional Russian hours should become minutes")
+        expect(LocalizedIntervalFormatter.duration(1.5 * 3_600, language: .russian) == "1 час 30 минут", "Russian intervals should combine hours and minutes")
         expect(LocalizedIntervalFormatter.duration(3_600, language: .russian) == "1 час", "Russian one-hour singular should be correct")
         expect(LocalizedIntervalFormatter.duration(2 * 3_600, language: .russian) == "2 часа", "Russian paucal hours should be correct")
         expect(LocalizedIntervalFormatter.duration(5 * 3_600, language: .russian) == "5 часов", "Russian plural hours should be correct")
         expect(LocalizedIntervalFormatter.duration(86_400, language: .russian) == "1 день", "Russian one-day singular should be correct")
         expect(LocalizedIntervalFormatter.duration(2 * 86_400, language: .russian) == "2 дня", "Russian paucal days should be correct")
         expect(LocalizedIntervalFormatter.duration(5 * 86_400, language: .russian) == "5 дней", "Russian plural days should be correct")
-        expect(LocalizedIntervalFormatter.duration(1.5 * 86_400, language: .russian) == "1,5 дня", "Russian decimals should use comma")
+        expect(LocalizedIntervalFormatter.duration(1.8 * 86_400, language: .russian) == "1 день 19 часов", "fractional Russian days should become days and hours")
         expect(LocalizedIntervalFormatter.duration(3_600, language: .english) == "1 hour", "English singular should be correct")
         expect(LocalizedIntervalFormatter.duration(2 * 3_600, language: .english) == "2 hours", "English plural should be correct")
-        expect(LocalizedIntervalFormatter.duration(1.5 * 86_400, language: .english) == "1.5 days", "English decimals should use period")
-        expect(LocalizedIntervalFormatter.signedMargin(0.9 * 86_400, language: .russian) == "+0,9 дня", "Russian positive badge should use plus and comma")
-        expect(LocalizedIntervalFormatter.signedMargin(-0.7 * 86_400, language: .english) == "−0.7 days", "English deficit badge should use a typographic minus")
+        expect(LocalizedIntervalFormatter.duration(1.8 * 86_400, language: .english) == "1 day 19 hours", "fractional English days should become days and hours")
+        expect(LocalizedIntervalFormatter.signedMargin(0.9 * 86_400, language: .russian) == "+21 час 36 минут", "Russian positive badge should use clock units")
+        expect(LocalizedIntervalFormatter.signedMargin(-0.7 * 86_400, language: .english) == "−16 hours 48 minutes", "English deficit badge should use clock units")
     }
 
     private static func testPoolVerdictPresentation() {
         let enough = PoolVerdict(kind: .enough, resetInterval: 2 * 86_400, exhaustionInterval: 2.9 * 86_400, margin: 0.9 * 86_400)
         let enoughRU = PoolVerdictPresenter.make(verdict: enough, language: .russian)
         expect(enoughRU.title == "Хватит до сброса", "Enough should use the Russian title")
-        expect(enoughRU.marginBadge == "+0,9 дня", "Enough should show a positive buffer")
+        expect(enoughRU.marginBadge == "+21 час 36 минут", "Enough should show a positive buffer")
         expect(enoughRU.events.map(\.kind) == [.now, .reset, .exhaustion], "Enough should order reset before exhaustion")
-        expect(enoughRU.events.map(\.intervalText) == [nil, "через 2 дня", "через 2,9 дня"], "Russian events should include localized intervals")
+        expect(enoughRU.events.map(\.intervalText) == [nil, "через 2 дня", "через 2 дня 22 часа"], "Russian events should include localized intervals")
 
         let notEnough = PoolVerdict(kind: .notEnough, resetInterval: 2 * 86_400, exhaustionInterval: 1.3 * 86_400, margin: -0.7 * 86_400)
         let notEnoughEN = PoolVerdictPresenter.make(verdict: notEnough, language: .english)
         expect(notEnoughEN.title == "Runs out before reset", "Not Enough should use the English title")
-        expect(notEnoughEN.marginBadge == "−0.7 days", "Not Enough should show a negative deficit")
+        expect(notEnoughEN.marginBadge == "−16 hours 48 minutes", "Not Enough should show a negative deficit")
         expect(notEnoughEN.events.map(\.kind) == [.now, .exhaustion, .reset], "Not Enough should order exhaustion before reset")
-        expect(notEnoughEN.events.map(\.intervalText) == [nil, "in 1.3 days", "in 2 days"], "English events should include localized intervals")
+        expect(notEnoughEN.events.map(\.intervalText) == [nil, "in 1 day 7 hours", "in 2 days"], "English events should include localized intervals")
 
         let collecting = PoolVerdictPresenter.make(verdict: .collecting, language: .russian)
         expect(collecting.kind == .collecting, "incomplete inputs should remain collecting")

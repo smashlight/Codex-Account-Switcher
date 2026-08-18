@@ -286,52 +286,77 @@ enum PoolChartLocalization {
 }
 
 enum LocalizedIntervalFormatter {
-    private enum Unit { case hour, day }
+    private enum Unit { case minute, hour, day }
 
     static func duration(_ interval: TimeInterval, language: AppLanguage) -> String {
         let safeInterval = max(0, interval)
-        let unit: Unit = safeInterval < 86_400 ? .hour : .day
-        let divisor: Double = unit == .hour ? 3_600 : 86_400
-        let value = safeInterval / divisor
-        if value < 0.1 {
-            return language == .russian
-                ? "<0,1 \(unit == .hour ? "часа" : "дня")"
-                : "<0.1 \(unit == .hour ? "hours" : "days")"
+        let totalMinutes = Int((safeInterval / 60).rounded())
+        if totalMinutes < 60 {
+            return component(totalMinutes, unit: .minute, language: language)
         }
-        let rounded = (value * 10).rounded() / 10
-        let number = numberText(rounded, language: language)
-        return "\(number) \(unitText(unit, value: rounded, language: language))"
+        if totalMinutes < 24 * 60 {
+            return joinedComponents(
+                [
+                    (totalMinutes / 60, .hour),
+                    (totalMinutes % 60, .minute)
+                ],
+                language: language
+            )
+        }
+
+        let totalHours = Int((safeInterval / 3_600).rounded())
+        return joinedComponents(
+            [
+                (totalHours / 24, .day),
+                (totalHours % 24, .hour)
+            ],
+            language: language
+        )
     }
 
     static func signedMargin(_ interval: TimeInterval, language: AppLanguage) -> String {
         let sign = interval < 0 ? "−" : "+"
-        let days = abs(interval) / 86_400
-        if days < 0.1 {
-            return sign + (language == .russian ? "<0,1 дня" : "<0.1 days")
-        }
-        let rounded = (days * 10).rounded() / 10
-        return sign + numberText(rounded, language: language)
-            + " " + unitText(.day, value: rounded, language: language)
+        return sign + duration(abs(interval), language: language)
     }
 
-    private static func numberText(_ value: Double, language: AppLanguage) -> String {
-        let isWhole = abs(value.rounded() - value) < 1e-9
-        let text = isWhole ? String(Int(value.rounded())) : String(format: "%.1f", value)
-        return language == .russian ? text.replacingOccurrences(of: ".", with: ",") : text
+    private static func joinedComponents(
+        _ components: [(value: Int, unit: Unit)],
+        language: AppLanguage
+    ) -> String {
+        components
+            .filter { $0.value > 0 }
+            .map { component($0.value, unit: $0.unit, language: language) }
+            .joined(separator: " ")
     }
 
-    private static func unitText(_ unit: Unit, value: Double, language: AppLanguage) -> String {
+    private static func component(_ value: Int, unit: Unit, language: AppLanguage) -> String {
+        "\(value) \(unitText(unit, value: value, language: language))"
+    }
+
+    private static func unitText(_ unit: Unit, value: Int, language: AppLanguage) -> String {
         guard language == .russian else {
-            let singular = abs(value - 1) < 1e-9
-            return unit == .hour ? (singular ? "hour" : "hours") : (singular ? "day" : "days")
+            switch unit {
+            case .minute: return value == 1 ? "minute" : "minutes"
+            case .hour: return value == 1 ? "hour" : "hours"
+            case .day: return value == 1 ? "day" : "days"
+            }
         }
-        guard abs(value.rounded() - value) < 1e-9 else { return unit == .hour ? "часа" : "дня" }
-        let integer = Int(value.rounded())
-        let lastTwo = integer % 100
-        let last = integer % 10
-        if last == 1, lastTwo != 11 { return unit == .hour ? "час" : "день" }
-        if (2...4).contains(last), !(12...14).contains(lastTwo) { return unit == .hour ? "часа" : "дня" }
-        return unit == .hour ? "часов" : "дней"
+
+        let lastTwo = value % 100
+        let last = value % 10
+        let form: Int
+        if last == 1, lastTwo != 11 {
+            form = 0
+        } else if (2...4).contains(last), !(12...14).contains(lastTwo) {
+            form = 1
+        } else {
+            form = 2
+        }
+        switch unit {
+        case .minute: return ["минута", "минуты", "минут"][form]
+        case .hour: return ["час", "часа", "часов"][form]
+        case .day: return ["день", "дня", "дней"][form]
+        }
     }
 }
 
