@@ -118,9 +118,13 @@ final class AccountListTableView: NSTableView, NSTableViewDataSource, NSTableVie
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard accounts.indices.contains(row) else { return nil }
         let account = accounts[row]
+        let contentWidth = tableColumn
+            .flatMap { tableColumns.firstIndex(of: $0) }
+            .map { frameOfCell(atColumn: $0, row: row).width }
+            ?? bounds.width
         return rowViewProvider(
             account,
-            NSRect(x: 0, y: 0, width: bounds.width, height: rowHeightProvider(account))
+            NSRect(x: 0, y: 0, width: contentWidth, height: rowHeightProvider(account))
         )
     }
 

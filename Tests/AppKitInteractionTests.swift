@@ -9,6 +9,7 @@ struct AppKitInteractionTests {
         testNativeTableMapsSelectionToExactAccount()
         testNativeTableOffersDeleteOnlyForInactiveAccount()
         testNativeTableMapsDeleteToExactAccount()
+        testNativeTableProvidesFinalCellWidth()
 
         if failures.isEmpty {
             print("AppKit interaction tests passed (\(assertionCount) assertions).")
@@ -45,9 +46,28 @@ struct AppKitInteractionTests {
         expect(deleted == "second@example.com", "requesting deletion of the active row must do nothing")
     }
 
+    private static func testNativeTableProvidesFinalCellWidth() {
+        var suppliedWidth: CGFloat = 0
+        let table = makeTable(rowViewProvider: { account, frame in
+            suppliedWidth = frame.width
+            let view = NSView(frame: frame)
+            view.identifier = NSUserInterfaceItemIdentifier(account.email)
+            return view
+        })
+        table.tableColumns[0].width = 440
+        table.reloadData()
+        let cell = table.view(atColumn: 0, row: 1, makeIfNecessary: true)
+        expect(cell != nil, "the native table must create the requested account cell")
+        expect(
+            suppliedWidth == cell?.frame.width,
+            "row content must be laid out with the final AppKit cell width (supplied \(suppliedWidth), final \(cell?.frame.width ?? -1))"
+        )
+    }
+
     private static func makeTable(
         onSelect: @escaping (CodexAccount) -> Void = { _ in },
-        onDelete: @escaping (CodexAccount) -> Void = { _ in }
+        onDelete: @escaping (CodexAccount) -> Void = { _ in },
+        rowViewProvider: AccountListTableView.RowViewProvider? = nil
     ) -> AccountListTableView {
         AccountListTableView(
             frame: NSRect(x: 0, y: 0, width: 480, height: 102),
@@ -56,7 +76,7 @@ struct AppKitInteractionTests {
             armedEmail: nil,
             deleteTitle: "Delete",
             rowHeightProvider: { _ in 48 },
-            rowViewProvider: { account, frame in
+            rowViewProvider: rowViewProvider ?? { account, frame in
                 let view = NSView(frame: frame)
                 view.identifier = NSUserInterfaceItemIdentifier(account.email)
                 return view
