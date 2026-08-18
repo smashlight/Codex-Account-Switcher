@@ -321,13 +321,17 @@ struct InfrastructureTests {
     }
 
     private static func testAccountRemovalPolicy() {
-        expect(AccountRemovalPolicy.arguments(selector: "02", isActive: false) == ["remove", "02"], "inactive account should use its exact selector")
-        expect(AccountRemovalPolicy.arguments(selector: " 02 ", isActive: false) == ["remove", "02"], "selector should be trimmed but not fuzzily rewritten")
-        expect(AccountRemovalPolicy.arguments(selector: "", isActive: false) == nil, "empty selector should be rejected")
-        expect(AccountRemovalPolicy.arguments(selector: "01", isActive: true) == nil, "active account should be rejected")
-        expect(AccountRemovalPolicy.arguments(selector: "--all", isActive: false) == nil, "remove-all flag should be rejected")
-        expect(AccountRemovalPolicy.arguments(selector: "--api", isActive: false) == nil, "every flag-like selector should be rejected")
-        expect(!(AccountRemovalPolicy.arguments(selector: "02", isActive: false) ?? []).contains("--all"), "swipe deletion must never remove all accounts")
+        let robert = AccountRemovalPolicy.arguments(email: "r.oberttonyer677408@gmail.com", isActive: false)
+        let riccardo = AccountRemovalPolicy.arguments(email: "riccardoroberts6408@gmail.com", isActive: false)
+        expect(riccardo == ["remove", "riccardoroberts6408@gmail.com"], "removal must pass the selected full email unchanged")
+        expect(robert != riccardo, "similar account emails must remain distinct")
+        expect(AccountRemovalPolicy.arguments(email: " riccardoroberts6408@gmail.com ", isActive: false) == ["remove", "riccardoroberts6408@gmail.com"], "email should be trimmed but not fuzzily rewritten")
+        expect(AccountRemovalPolicy.arguments(email: "", isActive: false) == nil, "empty email should be rejected")
+        expect(AccountRemovalPolicy.arguments(email: "active@example.com", isActive: true) == nil, "active account should be rejected")
+        expect(AccountRemovalPolicy.arguments(email: "--all", isActive: false) == nil, "remove-all flag should be rejected")
+        expect(AccountRemovalPolicy.arguments(email: "--api", isActive: false) == nil, "every flag-like email should be rejected")
+        expect(AccountRemovalPolicy.arguments(email: "not-an-email", isActive: false) == nil, "non-email queries should be rejected")
+        expect(!(riccardo ?? []).contains("--all"), "swipe deletion must never remove all accounts")
     }
 
     private static func testUsagePanelLayoutMetrics() {

@@ -2823,7 +2823,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func removeAccountFromRowAction(email: String) {
         guard let account = accounts.first(where: { $0.email == email }),
               let arguments = AccountRemovalPolicy.arguments(
-                selector: account.selector,
+                email: account.email,
                 isActive: account.isActive
               ) else {
             return

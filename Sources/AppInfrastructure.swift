@@ -57,11 +57,11 @@ enum AccountListPresentationPolicy {
 }
 
 enum AccountRemovalPolicy {
-    static func arguments(selector: String, isActive: Bool) -> [String]? {
+    static func arguments(email: String, isActive: Bool) -> [String]? {
         guard !isActive else { return nil }
-        let selector = selector.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !selector.isEmpty, !selector.hasPrefix("-") else { return nil }
-        return ["remove", selector]
+        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !email.isEmpty, !email.hasPrefix("-"), email.contains("@") else { return nil }
+        return ["remove", email]
     }
 }
 
