@@ -1509,14 +1509,9 @@ final class AccountSwitcherPanelView: NSView {
         return Self.nextResetDate(after: anchor, now: Date())
     }
 
-    /// Average pool burn per day over the last 7 days (positive = pool draining).
+    /// Gross pool burn per day over the last 7 days.
     private func poolBurnRatePerDay(_ history: [PoolHistorySample]) -> Double? {
-        guard let last = history.last, history.count >= 2 else { return nil }
-        let cutoff = last.ts.addingTimeInterval(-7 * 24 * 3600)
-        let recent = history.filter { $0.ts >= cutoff }
-        guard let first = recent.first, first.ts < last.ts else { return nil }
-        let days = max(0.5, last.ts.timeIntervalSince(first.ts) / (24 * 3600))
-        return (first.poolTotal - last.poolTotal) / days
+        PoolBurnRateEstimator.grossBurnPerDay(history)
     }
 
     private func poolBurnText(_ burn: Double?) -> String {
