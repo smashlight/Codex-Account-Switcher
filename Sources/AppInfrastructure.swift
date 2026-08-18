@@ -65,48 +65,6 @@ enum AccountRemovalPolicy {
     }
 }
 
-struct AccountRowFrames: Equatable {
-    let promptX: Double
-    let promptWidth: Double
-    let progressX: Double
-    let progressWidth: Double
-    let percentX: Double
-    let percentWidth: Double
-    let cancelX: Double
-    let cancelWidth: Double
-    let switchX: Double
-    let switchWidth: Double
-}
-
-enum AccountRowLayout {
-    static func frames(rowWidth: Double) -> AccountRowFrames {
-        let trailingInset = 14.0
-        let gap = 8.0
-        let promptX = 52.0
-        let progressX = 292.0
-        let percentWidth = 36.0
-        let percentX = rowWidth - trailingInset - percentWidth
-        let progressWidth = max(0, percentX - gap - progressX)
-        let switchWidth = 100.0
-        let switchX = rowWidth - trailingInset - switchWidth
-        let cancelWidth = 68.0
-        let cancelX = switchX - gap - cancelWidth
-        let promptWidth = max(0, cancelX - 12 - promptX)
-        return AccountRowFrames(
-            promptX: promptX,
-            promptWidth: promptWidth,
-            progressX: progressX,
-            progressWidth: progressWidth,
-            percentX: percentX,
-            percentWidth: percentWidth,
-            cancelX: cancelX,
-            cancelWidth: cancelWidth,
-            switchX: switchX,
-            switchWidth: switchWidth
-        )
-    }
-}
-
 enum UsagePanelLayoutMetrics {
     static let verdictCardHeight = 108.0
     static let verdictResetGap = 12.0

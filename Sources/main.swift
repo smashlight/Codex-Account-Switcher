@@ -281,11 +281,6 @@ final class AccountSwitcherPanelView: NSView {
     private let resetChance: ResetChanceForecast?
     private var theme: PanelTheme { PanelTheme.current(for: effectiveAppearance) }
 
-    private struct MeterGradient {
-        let start: NSColor
-        let end: NSColor
-        let label: NSColor
-    }
     private let outerInset: CGFloat = 18
     private let usageInset: CGFloat = 14
     private let cardGap: CGFloat = 10
@@ -1077,80 +1072,21 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func accountListRowContent(_ account: CodexAccount, displayIndex: Int, frame: NSRect) -> NSView {
-        let weeklyPercent = account.weeklyUsedPercent
-        let gradient = meterGradient(for: weeklyPercent)
         let isArmed = armedSwitchEmail == account.email && !account.isActive
-        let rowLayout = AccountRowLayout.frames(rowWidth: Double(frame.width))
-        let card = RoundedPanelView(
+        let content = AccountRowView(
+            account: account,
+            displayIndex: displayIndex,
+            isArmed: isArmed,
+            language: language,
+            theme: theme,
+            onCancel: { [weak self] in self?.cancelSwitchConfirmation() },
+            onSwitch: { [weak self] in self?.switchAccount(account.email) }
+        )
+        return AccountRowHostingView(
             frame: frame,
-            fillColor: cardFillColor(for: account),
-            borderColor: cardBorderColor(for: account),
-            cornerRadius: 16,
-            hoverFillColor: account.isActive || isSwitching || isArmed ? nil : theme.inactiveCardHoverFill,
-            clickAction: nil,
-            shadowOpacity: account.isActive ? 0.18 : 0.09,
-            shadowRadius: account.isActive ? 18 : 10
+            rootView: content,
+            passesGesturesToTable: !isArmed
         )
-
-        let badgeFill = account.isActive ? gradient.start.withAlphaComponent(0.22) : theme.inactiveButtonFill
-        let badgeBorder = account.isActive ? gradient.start.withAlphaComponent(0.78) : theme.inactiveCardBorder
-        let badge = RoundedPanelView(
-            frame: NSRect(x: 14, y: 11, width: 26, height: 26),
-            fillColor: badgeFill,
-            borderColor: badgeBorder,
-            cornerRadius: 13,
-            shadowOpacity: 0,
-            shadowRadius: 0
-        )
-        badge.addSubview(label(
-            "\(displayIndex)",
-            frame: NSRect(x: 0, y: 5, width: 26, height: 16),
-            size: 11,
-            weight: .bold,
-            color: account.isActive ? gradient.label : theme.secondaryText,
-            alignment: .center
-        ))
-        card.addSubview(badge)
-
-        let emailLabel = label(account.email, frame: NSRect(x: 52, y: 7, width: 216, height: 16), size: 11.5, weight: account.isActive ? .semibold : .medium, color: theme.primaryText)
-        emailLabel.toolTip = account.email
-        card.addSubview(emailLabel)
-
-        if isArmed {
-            let promptX = CGFloat(rowLayout.promptX)
-            let promptWidth = CGFloat(rowLayout.promptWidth)
-            card.addSubview(label(LocalizedText.value(.switchPrompt, language: language), frame: NSRect(x: promptX, y: 31, width: promptWidth, height: 17), size: 12, weight: .semibold, color: theme.primaryText))
-            card.addSubview(label(LocalizedText.value(.switchRelaunchDetail, language: language), frame: NSRect(x: promptX, y: 52, width: promptWidth, height: 16), size: 10.5, weight: .medium, color: theme.tertiaryText))
-
-            let buttonY = (frame.height - 30) / 2
-            let cancelButton = SettingsActionButton(frame: NSRect(x: CGFloat(rowLayout.cancelX), y: buttonY, width: CGFloat(rowLayout.cancelWidth), height: 30), title: LocalizedText.value(.cancelButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
-            cancelButton.target = self
-            cancelButton.action = #selector(cancelSwitchPressed)
-            card.addSubview(cancelButton)
-
-            let switchButton = SettingsActionButton(frame: NSRect(x: CGFloat(rowLayout.switchX), y: buttonY, width: CGFloat(rowLayout.switchWidth), height: 30), title: LocalizedText.value(.switchButton, language: language), color: gradient.end.withAlphaComponent(0.82), textColor: theme.primaryText)
-            switchButton.identifier = NSUserInterfaceItemIdentifier(account.email)
-            switchButton.target = self
-            switchButton.action = #selector(accountSwitchPressed(_:))
-            card.addSubview(switchButton)
-            return card
-        }
-
-        card.addSubview(ProgressLineView(
-            frame: NSRect(x: CGFloat(rowLayout.progressX), y: 15, width: CGFloat(rowLayout.progressWidth), height: 8),
-            startColor: gradient.start,
-            endColor: gradient.end,
-            trackColor: theme.progressTrack,
-            percent: CGFloat(weeklyPercent ?? 0) / 100
-        ))
-        card.addSubview(label(percentText(weeklyPercent), frame: NSRect(x: CGFloat(rowLayout.percentX), y: 10, width: CGFloat(rowLayout.percentWidth), height: 18), size: 11, weight: .bold, color: gradient.label, alignment: .right))
-        card.addSubview(label(WeeklyResetFormatter.text(from: account.weeklyUsage, language: language), frame: NSRect(x: 52, y: 27, width: 216, height: 14), size: 10, weight: .medium, color: theme.tertiaryText))
-        return card
-    }
-
-    private func percentText(_ percent: Int?) -> String {
-        guard let percent else { return "--" }
-        return "\(max(0, min(100, percent)))%"
     }
 
     private func weeklyResetText(from usage: String) -> String {
@@ -1623,20 +1559,6 @@ final class AccountSwitcherPanelView: NSView {
         return "\(value)"
     }
 
-    private func meterGradient(for remainingPercent: Int?) -> MeterGradient {
-        switch WeeklyRemainingBand.classify(remainingPercent) {
-        case .healthy:
-            return MeterGradient(start: .nativeMint, end: .nativeBlue, label: .nativeMint)
-        case .warning:
-            return MeterGradient(start: .nativeGold, end: .nativeOrange, label: .nativeOrange)
-        case .critical:
-            return MeterGradient(start: .nativeCoral, end: .nativeRed, label: .nativeRed)
-        case .unknown:
-            let neutral = theme.secondaryText.withAlphaComponent(0.65)
-            return MeterGradient(start: neutral, end: neutral, label: neutral)
-        }
-    }
-
     private func statusBarColor(for remaining: Int?) -> NSColor {
         guard let remaining else {
             return theme.secondaryText.withAlphaComponent(0.6)
@@ -1666,15 +1588,6 @@ final class AccountSwitcherPanelView: NSView {
 
     private func cardBorderColor(isActive: Bool) -> NSColor {
         isActive ? NSColor.meterBlue.withAlphaComponent(theme.isDark ? 0.55 : 0.42) : theme.inactiveCardBorder
-    }
-
-    private func cardFillColor(for account: CodexAccount) -> NSColor {
-        account.isActive ? theme.activeCardFill : theme.inactiveCardFill
-    }
-
-    private func cardBorderColor(for account: CodexAccount) -> NSColor {
-        guard account.isActive else { return theme.inactiveCardBorder }
-        return meterGradient(for: account.weeklyUsedPercent).start.withAlphaComponent(theme.isDark ? 0.48 : 0.40)
     }
 
     private func label(_ string: String, frame: NSRect, size: CGFloat, weight: NSFont.Weight, color: NSColor, alignment: NSTextAlignment = .left) -> NSTextField {
@@ -1742,15 +1655,6 @@ final class AccountSwitcherPanelView: NSView {
 
     @objc private func launchAtLoginPressed() {
         toggleLaunchAtLogin()
-    }
-
-    @objc private func accountSwitchPressed(_ sender: NSButton) {
-        guard let email = sender.identifier?.rawValue, !email.isEmpty else { return }
-        switchAccount(email)
-    }
-
-    @objc private func cancelSwitchPressed() {
-        cancelSwitchConfirmation()
     }
 
     @objc private func settingsActionPressed(_ sender: NSControl) {

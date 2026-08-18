@@ -44,7 +44,6 @@ struct InfrastructureTests {
         testAccountListPresentationPolicy()
         testAccountListViewportHeightPolicy()
         testAccountRemovalPolicy()
-        testAccountRowLayout()
         testUsagePanelLayoutMetrics()
         testInlineSwitchConfirmationPolicy()
         testInlineQuitConfirmationPolicy()
@@ -333,18 +332,6 @@ struct InfrastructureTests {
         expect(AccountRemovalPolicy.arguments(email: "--api", isActive: false) == nil, "every flag-like email should be rejected")
         expect(AccountRemovalPolicy.arguments(email: "not-an-email", isActive: false) == nil, "non-email queries should be rejected")
         expect(!(riccardo ?? []).contains("--all"), "swipe deletion must never remove all accounts")
-    }
-
-    private static func testAccountRowLayout() {
-        for rowWidth in [440.0, 460.0, 480.0, 504.0] {
-            let frames = AccountRowLayout.frames(rowWidth: rowWidth)
-            expect(frames.percentX + frames.percentWidth <= rowWidth - 14, "percentage must remain inside the row trailing inset at width \(rowWidth)")
-            expect(frames.progressX + frames.progressWidth + 8 <= frames.percentX, "progress must not overlap percentage at width \(rowWidth)")
-            expect(frames.progressWidth >= 90, "progress must retain a useful width at width \(rowWidth)")
-            expect(frames.switchX + frames.switchWidth <= rowWidth - 14, "switch button must remain inside the row trailing inset at width \(rowWidth)")
-            expect(frames.cancelX + frames.cancelWidth + 8 == frames.switchX, "confirmation buttons must preserve their gap at width \(rowWidth)")
-            expect(frames.promptX + frames.promptWidth + 12 <= frames.cancelX, "prompt must not overlap confirmation buttons at width \(rowWidth)")
-        }
     }
 
     private static func testUsagePanelLayoutMetrics() {

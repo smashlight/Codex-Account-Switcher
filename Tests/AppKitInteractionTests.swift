@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 @main
 struct AppKitInteractionTests {
@@ -10,6 +11,8 @@ struct AppKitInteractionTests {
         testNativeTableOffersDeleteOnlyForInactiveAccount()
         testNativeTableMapsDeleteToExactAccount()
         testNativeTableProvidesFinalCellWidth()
+        testAccountRowHostingViewFollowsTableWidth()
+        testAccountRowHostingViewPreservesTableGestures()
 
         if failures.isEmpty {
             print("AppKit interaction tests passed (\(assertionCount) assertions).")
@@ -62,6 +65,33 @@ struct AppKitInteractionTests {
             suppliedWidth == cell?.frame.width,
             "row content must be laid out with the final AppKit cell width (supplied \(suppliedWidth), final \(cell?.frame.width ?? -1))"
         )
+    }
+
+    private static func testAccountRowHostingViewFollowsTableWidth() {
+        let host = AccountRowHostingView(
+            frame: NSRect(x: 0, y: 0, width: 492, height: 48),
+            rootView: Color.clear,
+            passesGesturesToTable: true
+        )
+        host.frame.size.width = 440
+        host.layoutSubtreeIfNeeded()
+        expect(host.frame.width == 440, "SwiftUI account content must follow the final table cell width")
+        expect(host.sizingOptions.isEmpty, "SwiftUI account content must not impose intrinsic sizing on its table cell")
+    }
+
+    private static func testAccountRowHostingViewPreservesTableGestures() {
+        let passiveHost = AccountRowHostingView(
+            frame: NSRect(x: 0, y: 0, width: 440, height: 48),
+            rootView: Color.clear,
+            passesGesturesToTable: true
+        )
+        let interactiveHost = AccountRowHostingView(
+            frame: NSRect(x: 0, y: 0, width: 440, height: 78),
+            rootView: Color.clear,
+            passesGesturesToTable: false
+        )
+        expect(passiveHost.hitTest(NSPoint(x: 10, y: 10)) == nil, "normal rows must leave click and swipe handling to NSTableView")
+        expect(interactiveHost.hitTest(NSPoint(x: 10, y: 10)) != nil, "confirmation rows must deliver clicks to their SwiftUI buttons")
     }
 
     private static func makeTable(
