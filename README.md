@@ -121,9 +121,11 @@ Read the full [1.8.5 release notes](docs/release-notes/v1.8.5.md), or see every 
 Sources/main.swift             AppKit application and account workflows
 Sources/Models.swift           Shared app models and visual theme
 Sources/PanelComponents.swift  Account panel views and controls
+Sources/AccountRowView.swift   Adaptive SwiftUI account-row content
 Sources/AppInfrastructure.swift  Networking, commands, and shared infrastructure
 Sources/LifecycleMonitor.swift Native ChatGPT lifecycle companion
 Tests                         Infrastructure and reset-logic regression checks
+docs/design-system.md         Canonical UI tokens, components, and redesign rules
 docs                          GitHub Pages product site
 assets                        Privacy-safe app screenshots and repository artwork
 ```

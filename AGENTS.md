@@ -5,6 +5,7 @@ This project is a sanitized public version of Graham's local Codex Account Switc
 Rules for future work:
 
 - Do not commit local Codex auth files, account registries, tokens, account IDs, email addresses, or build artifacts.
+- Read and follow `docs/design-system.md` before creating or redesigning any screen or reusable UI component. The product direction is dark-only, warm Native Glass, and SwiftUI-first for new content.
 - Keep `build/`, `.swiftpm/`, `.build/`, and module caches ignored.
 - The public toolbar account label must remain generic: use the first alphanumeric character from the email address unless the user sets a custom label in the app.
 - Keep switching based on account email queries, not padded numeric selectors such as `01` or `02`.
@@ -18,12 +19,12 @@ Rules for future work:
 - Do UI work in a git worktree under `.worktrees/<branch>` (gitignored); keep the main checkout clean.
 - UI change cycle: edit in worktree → `./build.sh` → `./install.sh` (copies the app into `/Applications` and re-signs) → **kill the running `CodexAccountSwitcher` process and relaunch via `open`** — the running app keeps the old binary in memory, so overwriting the bundle alone never updates the visible UI.
 - `./verify-install.sh` checks the installed bundle, ad-hoc signature, and native lifecycle monitor.
-- `./run-tests.sh` compiles only `Sources/AppInfrastructure.swift` + `Tests/InfrastructureTests.swift` (no AppKit) and then runs the built app's `--self-test-reset-logic`. Pure logic belongs in `AppInfrastructure.swift` so it is unit-testable; anything visual in `main.swift` is verified by the user in the running panel.
+- `./run-tests.sh` runs the infrastructure suite, AppKit/SwiftUI interaction tests, and the built app's `--self-test-reset-logic`. Pure business rules belong outside views so they remain independently testable.
 
 ## Language & percent semantics (confusion source)
 
 - On the current toolchain (Swift 6.3.3, swift-driver 1.148.6) **unqualified access to `static` members from an instance context is a compile error** (`static member ... cannot be used on instance of type ...`) — verified even on plain classes. Always qualify: `AccountPanelLayout.rowHeight` or `Self.member`. Never convert `let`/`var` instance constants to `static` and keep calling them bare.
-- Shared geometry lives in `private enum AccountPanelLayout` (top of `main.swift`): usage width/insets, normal and confirmation row heights, row gap, pace/reset sections, and bottom bar. `preferredSize(mode:accountCount:showsPace:maximumHeight:)` is the single source of panel sizing; the account region alone scrolls after ten rows or earlier on short screens. Keep all layout math inside the enum.
+- Screen-level geometry lives in `private enum AccountPanelLayout` (top of `main.swift`): usage width/insets, normal and confirmation row heights, row gap, pace/reset sections, and bottom bar. `preferredSize(mode:accountCount:showsPace:maximumHeight:)` is the single source of panel sizing; the account region alone scrolls after ten rows or earlier on short screens. Reusable SwiftUI content must use relative layout rather than adding construction-time coordinates to this enum.
 - `AccountSwitcherPanelView` is flipped (isFlipped = true, y grows downward); the panel is a borderless `NSPanel`, live-refreshed by rebuilding the view controller (`refreshAccountPanelContent()`), which must be followed by `positionAccountPanel()` while visible so size/anchoring follow account changes.
 - **`fiveHourUsedPercent` / `weeklyUsedPercent` on `CodexAccount` are REMAINING percents** (parsed from `remainingPercent`, displayed as "X% left"); they are NOT used amounts. The main account-list fill uses the remaining value directly and maps `26…100%` to mint→blue, `11…25%` to gold→orange, and `0…10%` to coral→red.
 
