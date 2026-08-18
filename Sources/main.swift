@@ -1080,6 +1080,7 @@ final class AccountSwitcherPanelView: NSView {
         let weeklyPercent = account.weeklyUsedPercent
         let gradient = meterGradient(for: weeklyPercent)
         let isArmed = armedSwitchEmail == account.email && !account.isActive
+        let rowLayout = AccountRowLayout.frames(rowWidth: Double(frame.width))
         let card = RoundedPanelView(
             frame: frame,
             fillColor: cardFillColor(for: account),
@@ -1116,19 +1117,18 @@ final class AccountSwitcherPanelView: NSView {
         card.addSubview(emailLabel)
 
         if isArmed {
-            card.addSubview(label(LocalizedText.value(.switchPrompt, language: language), frame: NSRect(x: 52, y: 31, width: 190, height: 17), size: 12, weight: .semibold, color: theme.primaryText))
-            card.addSubview(label(LocalizedText.value(.switchRelaunchDetail, language: language), frame: NSRect(x: 52, y: 52, width: 190, height: 16), size: 10.5, weight: .medium, color: theme.tertiaryText))
+            let promptX = CGFloat(rowLayout.promptX)
+            let promptWidth = CGFloat(rowLayout.promptWidth)
+            card.addSubview(label(LocalizedText.value(.switchPrompt, language: language), frame: NSRect(x: promptX, y: 31, width: promptWidth, height: 17), size: 12, weight: .semibold, color: theme.primaryText))
+            card.addSubview(label(LocalizedText.value(.switchRelaunchDetail, language: language), frame: NSRect(x: promptX, y: 52, width: promptWidth, height: 16), size: 10.5, weight: .medium, color: theme.tertiaryText))
 
             let buttonY = (frame.height - 30) / 2
-            let switchWidth: CGFloat = 100
-            let switchX = frame.width - 14 - switchWidth
-            let cancelWidth: CGFloat = 68
-            let cancelButton = SettingsActionButton(frame: NSRect(x: switchX - 8 - cancelWidth, y: buttonY, width: cancelWidth, height: 30), title: LocalizedText.value(.cancelButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
+            let cancelButton = SettingsActionButton(frame: NSRect(x: CGFloat(rowLayout.cancelX), y: buttonY, width: CGFloat(rowLayout.cancelWidth), height: 30), title: LocalizedText.value(.cancelButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
             cancelButton.target = self
             cancelButton.action = #selector(cancelSwitchPressed)
             card.addSubview(cancelButton)
 
-            let switchButton = SettingsActionButton(frame: NSRect(x: switchX, y: buttonY, width: switchWidth, height: 30), title: LocalizedText.value(.switchButton, language: language), color: gradient.end.withAlphaComponent(0.82), textColor: theme.primaryText)
+            let switchButton = SettingsActionButton(frame: NSRect(x: CGFloat(rowLayout.switchX), y: buttonY, width: CGFloat(rowLayout.switchWidth), height: 30), title: LocalizedText.value(.switchButton, language: language), color: gradient.end.withAlphaComponent(0.82), textColor: theme.primaryText)
             switchButton.identifier = NSUserInterfaceItemIdentifier(account.email)
             switchButton.target = self
             switchButton.action = #selector(accountSwitchPressed(_:))
@@ -1136,15 +1136,14 @@ final class AccountSwitcherPanelView: NSView {
             return card
         }
 
-        let barWidth: CGFloat = 144
         card.addSubview(ProgressLineView(
-            frame: NSRect(x: 292, y: 15, width: barWidth, height: 8),
+            frame: NSRect(x: CGFloat(rowLayout.progressX), y: 15, width: CGFloat(rowLayout.progressWidth), height: 8),
             startColor: gradient.start,
             endColor: gradient.end,
             trackColor: theme.progressTrack,
             percent: CGFloat(weeklyPercent ?? 0) / 100
         ))
-        card.addSubview(label(percentText(weeklyPercent), frame: NSRect(x: 444, y: 10, width: 36, height: 18), size: 11, weight: .bold, color: gradient.label, alignment: .right))
+        card.addSubview(label(percentText(weeklyPercent), frame: NSRect(x: CGFloat(rowLayout.percentX), y: 10, width: CGFloat(rowLayout.percentWidth), height: 18), size: 11, weight: .bold, color: gradient.label, alignment: .right))
         card.addSubview(label(WeeklyResetFormatter.text(from: account.weeklyUsage, language: language), frame: NSRect(x: 52, y: 27, width: 216, height: 14), size: 10, weight: .medium, color: theme.tertiaryText))
         return card
     }
