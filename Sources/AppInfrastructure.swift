@@ -71,6 +71,9 @@ enum UsagePanelLayoutMetrics {
     static let refreshButtonWidth = 68.0
     static let quitButtonWidth = 50.0
     static let footerButtonHeight = 26.0
+    static let controlBarHeight = 40.0
+    static let accountRowHeight = 39.0
+    static let accountRowGap = 4.0
 }
 
 enum InlineSwitchDecision: Equatable {
@@ -2108,15 +2111,14 @@ enum WeekCurveBuilder {
 /// the last sample of the day (for tooltips), and the sample count.
 struct DailyPoolPoint: Equatable {
     let date: Date
-    let value: Double
-    let endValue: Double
+    let value: Double?
+    let endValue: Double?
     let sampleCount: Int
 }
 
 /// Builds day bars from the raw sample history: groups samples by local
-/// calendar day, keeps only the last `dayCount` days including today, and
-/// drops days without samples entirely — a missing day must not render as a
-/// zero bar, which would look like the pool ran out.
+/// calendar day and keeps the last `dayCount` dated slots including today.
+/// Missing days retain nil values so they never look like exhausted capacity.
 enum DailyPoolAggregator {
     static let defaultDayCount = 14
 
@@ -2126,7 +2128,7 @@ enum DailyPoolAggregator {
         now: Date = Date(),
         calendar: Calendar = .current
     ) -> [DailyPoolPoint] {
-        guard dayCount >= 1, !samples.isEmpty else { return [] }
+        guard dayCount >= 1 else { return [] }
         let today = calendar.startOfDay(for: now)
         guard let windowStart = calendar.date(byAdding: .day, value: -(dayCount - 1), to: today) else { return [] }
 
@@ -2139,8 +2141,11 @@ enum DailyPoolAggregator {
                 value: min(100, max(0, PoolHistoryStore.poolAverage(n: sample.n, poolTotal: sample.poolTotal)))
             ))
         }
-        return grouped.keys.sorted().compactMap { day in
-            guard let samplesByDay = grouped[day], let first = samplesByDay.first else { return nil }
+        return (0..<dayCount).compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset, to: windowStart) else { return nil }
+            guard let samplesByDay = grouped[day], let first = samplesByDay.first else {
+                return DailyPoolPoint(date: day, value: nil, endValue: nil, sampleCount: 0)
+            }
             let ordered = samplesByDay.sorted { $0.ts < $1.ts }
             return DailyPoolPoint(
                 date: day,

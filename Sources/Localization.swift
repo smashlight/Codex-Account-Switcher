@@ -174,7 +174,7 @@ enum LocalizedText {
 
     static func dailyChartDetail(
         date: Date,
-        lowPercent: Int,
+        lowPercent: Int?,
         endPercent: Int?,
         isToday: Bool,
         language: AppLanguage
@@ -184,6 +184,9 @@ enum LocalizedText {
                 .day()
                 .month(.abbreviated)
         )
+        guard let lowPercent else {
+            return language == .russian ? "\(dateText) · Нет данных" : "\(dateText) · No data"
+        }
         switch language {
         case .russian:
             var text = "\(dateText) · минимум \(lowPercent)%"
@@ -216,18 +219,11 @@ enum LocalizedText {
         hasError: Bool,
         language: AppLanguage
     ) -> String {
-        if hasError, knownTotal == 0 { return language == .russian ? "СБРОСЫ ?" : "RESETS ?" }
-        guard knownAccounts > 0 else { return language == .russian ? "СБРОСЫ ..." : "RESETS ..." }
-        if knownTotal == 0 { return language == .russian ? "НЕТ СБРОСОВ" : "NO RESETS" }
+        if hasError, knownTotal == 0 { return language == .russian ? "Сбросы (?)" : "Resets (?)" }
+        guard knownAccounts > 0 else { return language == .russian ? "Сбросы (…)" : "Resets (…)" }
         let suffix = hasError ? "+" : ""
-        if language == .english {
-            return knownTotal == 1 ? "1\(suffix) RESET" : "\(knownTotal)\(suffix) RESETS"
-        }
-        let lastTwo = knownTotal % 100
-        let last = knownTotal % 10
-        let noun = last == 1 && lastTwo != 11 ? "СБРОС"
-            : ((2...4).contains(last) && !(12...14).contains(lastTwo) ? "СБРОСА" : "СБРОСОВ")
-        return "\(knownTotal)\(suffix) \(noun)"
+        let label = language == .russian ? "Сбросы" : "Resets"
+        return "\(label) (\(knownTotal)\(suffix))"
     }
 
     static func resetCreditsTooltip(

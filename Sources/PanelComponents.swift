@@ -72,6 +72,7 @@ final class AccountListTableView: NSTableView, NSTableViewDataSource, NSTableVie
         isInteractionEnabled: Bool,
         armedEmail: String?,
         deleteTitle: String,
+        rowSpacing: CGFloat,
         rowHeightProvider: @escaping (CodexAccount) -> CGFloat,
         rowViewProvider: @escaping RowViewProvider,
         onSelect: @escaping (CodexAccount) -> Void,
@@ -93,7 +94,7 @@ final class AccountListTableView: NSTableView, NSTableViewDataSource, NSTableVie
         headerView = nil
         dataSource = self
         delegate = self
-        intercellSpacing = NSSize(width: 0, height: 6)
+        intercellSpacing = NSSize(width: 0, height: rowSpacing)
         backgroundColor = .clear
         selectionHighlightStyle = .none
         allowsMultipleSelection = false

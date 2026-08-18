@@ -178,8 +178,12 @@ struct InfrastructureTests {
         expect(LocalizedText.value(.deleteAccountButton, language: .english) == "Delete", "the delete button should be localized in English")
         expect(LocalizedText.lastUpdated(isRefreshing: true, elapsed: nil, language: .russian) == "обновление…", "Russian refreshing state should be localized")
         expect(LocalizedText.lastUpdated(isRefreshing: false, elapsed: 5, language: .english) == "just now", "English update age should preserve current copy")
-        expect(LocalizedText.resetCreditsButtonTitle(knownTotal: 1, knownAccounts: 2, hasError: false, language: .russian) == "1 СБРОС", "Russian singular reset count should be localized")
-        expect(LocalizedText.resetCreditsButtonTitle(knownTotal: 3, knownAccounts: 2, hasError: false, language: .english) == "3 RESETS", "English plural reset count should be preserved")
+        expect(LocalizedText.resetCreditsButtonTitle(knownTotal: 1, knownAccounts: 2, hasError: false, language: .russian) == "Сбросы (1)", "Russian reset count should use compact copy")
+        expect(LocalizedText.resetCreditsButtonTitle(knownTotal: 3, knownAccounts: 2, hasError: false, language: .english) == "Resets (3)", "English reset count should use compact copy")
+        expect(LocalizedText.resetCreditsButtonTitle(knownTotal: 0, knownAccounts: 2, hasError: false, language: .russian) == "Сбросы (0)", "known zero should remain numeric")
+        expect(LocalizedText.resetCreditsButtonTitle(knownTotal: 0, knownAccounts: 0, hasError: false, language: .russian) == "Сбросы (…)", "unknown count should show loading")
+        expect(LocalizedText.resetCreditsButtonTitle(knownTotal: 0, knownAccounts: 0, hasError: true, language: .russian) == "Сбросы (?)", "failed count should show an error")
+        expect(LocalizedText.resetCreditsButtonTitle(knownTotal: 2, knownAccounts: 1, hasError: true, language: .russian) == "Сбросы (2+)", "partial count should retain the suffix")
         expect(LocalizedText.resetCreditsTooltip(knownTotal: 0, knownAccounts: 0, hasError: false, language: .russian) == "Проверяем кредиты сброса", "Russian checking tooltip should be localized")
     }
 
@@ -210,6 +214,10 @@ struct InfrastructureTests {
         expect(
             LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: nil, isToday: false, language: .english) == "Aug 17 · low 42%",
             "daily chart details should omit unavailable optional values"
+        )
+        expect(
+            LocalizedText.dailyChartDetail(date: date, lowPercent: nil, endPercent: nil, isToday: false, language: .russian) == "17 авг. · Нет данных",
+            "missing daily values should be described honestly"
         )
     }
 
@@ -340,6 +348,9 @@ struct InfrastructureTests {
         expect(UsagePanelLayoutMetrics.refreshButtonWidth == 68, "Refresh should gain horizontal padding")
         expect(UsagePanelLayoutMetrics.quitButtonWidth == 50, "Quit should gain horizontal padding")
         expect(UsagePanelLayoutMetrics.footerButtonHeight == 26, "footer height should stay stable")
+        expect(UsagePanelLayoutMetrics.controlBarHeight == 40, "reset chance and footer should share one height")
+        expect(UsagePanelLayoutMetrics.accountRowHeight == 39, "account rows should be compact")
+        expect(UsagePanelLayoutMetrics.accountRowGap == 4, "account row gaps should be compact")
     }
 
     private static func testAccountListViewportHeightPolicy() {
@@ -347,6 +358,7 @@ struct InfrastructureTests {
         expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 426, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 402, "confirmation should show only complete rows")
         expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 456, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: true) == 402, "confirmation viewport should stay compact even when more height is available")
         expect(AccountListPresentationPolicy.viewportHeight(accountCount: 8, visibleRowCount: 8, maximumHeight: 456, rowHeight: 48, confirmationRowHeight: 78, rowGap: 6, showsConfirmation: false) == 426, "normal lists should retain their compact height")
+        expect(AccountListPresentationPolicy.viewportHeight(accountCount: 10, visibleRowCount: 10, maximumHeight: 426, rowHeight: 39, confirmationRowHeight: 78, rowGap: 4, showsConfirmation: false) == 426, "ten compact rows should fit the former eight-row stack")
     }
 
     private static func testInlineSwitchConfirmationPolicy() {
@@ -881,22 +893,28 @@ struct InfrastructureTests {
             now: day3.addingTimeInterval(2 * 3600),
             calendar: calendar
         )
-        expect(points.count == 3, "the window should keep days 0, 1 and 3 and skip the empty day 2")
+        expect(points.count == 4, "the window should contain all four calendar-day slots")
         expect(points.first?.value == 80, "the day value should be the day minimum")
         expect(points.first?.endValue == 80, "endValue should be the last sample of the day")
         expect(points.first?.sampleCount == 2, "sampleCount should count the day's samples")
         expect(points[1].value == 65, "a refill within a day should keep the minimum as the value")
         expect(points[1].endValue == 70, "endValue should be the newest sample, not the day minimum")
         expect(points[1].sampleCount == 2, "two samples in one day should be counted")
+        let missingPoint = points.first { $0.date == calendar.startOfDay(for: day2) }
+        expect(missingPoint != nil, "a missing day should keep a dated slot")
+        expect(missingPoint?.value == nil, "a missing day should not invent a value")
+        expect(missingPoint?.sampleCount == 0, "a missing day should have zero samples")
         expect(points.last?.value == 60, "the final day should keep its single sample value")
         expect(points.last?.sampleCount == 1, "a single-sample day counts one sample")
 
         let later = day3.addingTimeInterval(10 * 24 * 3600)
         let outside = DailyPoolAggregator.dailyPoints(from: history, dayCount: 3, now: later, calendar: calendar)
-        expect(outside.isEmpty, "samples older than the window must be excluded")
+        expect(outside.count == 3, "an out-of-range history should still produce dated slots")
+        expect(outside.allSatisfy { ($0.value as Double?) == nil }, "out-of-range samples must not populate slots")
 
-        let empty = DailyPoolAggregator.dailyPoints(from: [], dayCount: 3, now: day3, calendar: calendar)
-        expect(empty.isEmpty, "empty history should produce no points")
+        let empty = DailyPoolAggregator.dailyPoints(from: [], dayCount: 14, now: day3, calendar: calendar)
+        expect(empty.count == 14, "empty history should still produce fourteen slots")
+        expect(empty.allSatisfy { ($0.value as Double?) == nil && $0.sampleCount == 0 }, "empty slots should remain unknown")
     }
 
     private static func testPaceEstimatorForecast() {

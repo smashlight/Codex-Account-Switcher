@@ -13,6 +13,7 @@ struct AppKitInteractionTests {
         testNativeTableProvidesFinalCellWidth()
         testAccountRowHostingViewFollowsTableWidth()
         testAccountRowHostingViewPreservesTableGestures()
+        testAccountTableUsesCompactSpacing()
 
         if failures.isEmpty {
             print("AppKit interaction tests passed (\(assertionCount) assertions).")
@@ -22,6 +23,10 @@ struct AppKitInteractionTests {
             FileHandle.standardError.write(Data("FAIL: \(failure)\n".utf8))
         }
         exit(1)
+    }
+
+    private static func testAccountTableUsesCompactSpacing() {
+        expect(makeTable().intercellSpacing.height == 4, "account table should use compact row spacing")
     }
 
     private static func testNativeTableMapsSelectionToExactAccount() {
@@ -105,6 +110,7 @@ struct AppKitInteractionTests {
             isInteractionEnabled: true,
             armedEmail: nil,
             deleteTitle: "Delete",
+            rowSpacing: 4,
             rowHeightProvider: { _ in 48 },
             rowViewProvider: rowViewProvider ?? { account, frame in
                 let view = NSView(frame: frame)

@@ -11,10 +11,11 @@ private enum AccountPanelLayout {
     static let usageWidth: CGFloat = 520
     static let usageInset: CGFloat = 14
     static let bottomBarTopGap: CGFloat = 10
-    static let bottomBarHeight: CGFloat = 40
-    static let rowHeight: CGFloat = 48
+    static let controlBarHeight = CGFloat(UsagePanelLayoutMetrics.controlBarHeight)
+    static let bottomBarHeight = controlBarHeight
+    static let rowHeight = CGFloat(UsagePanelLayoutMetrics.accountRowHeight)
     static let confirmationRowHeight: CGFloat = 78
-    static let rowGap: CGFloat = 6
+    static let rowGap = CGFloat(UsagePanelLayoutMetrics.accountRowGap)
     static let paceTopGap: CGFloat = 8
     static let paceChartHeight: CGFloat = 104
     static let verdictTopGap: CGFloat = 8
@@ -23,7 +24,7 @@ private enum AccountPanelLayout {
     static var verdictSectionHeight: CGFloat { verdictTopGap + verdictCardHeight + verdictResetGap }
     static var paceSectionHeight: CGFloat { paceChartHeight }
     static let resetChanceTopGap: CGFloat = 8
-    static let resetChanceHeight: CGFloat = 44
+    static let resetChanceHeight = controlBarHeight
     static var resetChanceSectionHeight: CGFloat {
         resetChanceTopGap + resetChanceHeight
     }
@@ -40,7 +41,7 @@ enum PoolResolution {
 
 struct PoolPacePoint: Identifiable {
     let date: Date
-    let value: Double
+    let value: Double?
     var endValue: Double?
     var sampleCount: Int = 1
     var id: Date { date }
@@ -63,7 +64,7 @@ struct PoolPaceChartView: View {
     struct Bar: Identifiable {
         let index: Int
         let date: Date
-        let value: Double
+        let value: Double?
         let endValue: Double?
         let sampleCount: Int
         let isToday: Bool
@@ -124,14 +125,16 @@ struct PoolPaceChartView: View {
                 .foregroundStyle(data.gridLine.opacity(0.28))
                 .cornerRadius(3)
 
-                BarMark(
-                    x: .value(semanticLabels.index, Double(bar.index)),
-                    yStart: .value(semanticLabels.base, 0),
-                    yEnd: .value(semanticLabels.pool, bar.value),
-                    width: .fixed(barWidth)
-                )
-                .foregroundStyle(barStyle(for: bar.value))
-                .cornerRadius(3)
+                if let value = bar.value {
+                    BarMark(
+                        x: .value(semanticLabels.index, Double(bar.index)),
+                        yStart: .value(semanticLabels.base, 0),
+                        yEnd: .value(semanticLabels.pool, value),
+                        width: .fixed(barWidth)
+                    )
+                    .foregroundStyle(barStyle(for: value))
+                    .cornerRadius(3)
+                }
             }
             if let hoveredIndex {
                 RuleMark(x: .value(semanticLabels.index, Double(hoveredIndex)))
@@ -216,15 +219,16 @@ struct PoolPaceChartView: View {
         case .daily:
             return LocalizedText.dailyChartDetail(
                 date: bar.date,
-                lowPercent: Int(bar.value.rounded()),
+                lowPercent: bar.value.map { Int($0.rounded()) },
                 endPercent: bar.endValue.map { Int($0.rounded()) },
                 isToday: bar.isToday,
                 language: data.language
             )
         case .samples:
+            guard let value = bar.value else { return "" }
             return LocalizedText.sampleChartDetail(
                 date: bar.date,
-                remainingPercent: Int(bar.value.rounded()),
+                remainingPercent: Int(value.rounded()),
                 language: data.language
             )
         }
@@ -540,6 +544,7 @@ final class AccountSwitcherPanelView: NSView {
             isInteractionEnabled: !isSwitching,
             armedEmail: armedSwitchEmail,
             deleteTitle: LocalizedText.value(.deleteAccountButton, language: language),
+            rowSpacing: AccountPanelLayout.rowGap,
             rowHeightProvider: { [weak self] account in
                 self?.armedSwitchEmail == account.email && !account.isActive
                     ? AccountPanelLayout.confirmationRowHeight
@@ -1362,28 +1367,17 @@ final class AccountSwitcherPanelView: NSView {
 
     private func paceChartData(_ state: PaceDisplayState) -> PoolPaceChartData {
         let dailyPoints = DailyPoolAggregator.dailyPoints(from: state.history)
-        let resolution: PoolResolution = dailyPoints.count >= 2 ? .daily : .samples
-        let history: [PoolPacePoint]
-        if resolution == .daily {
-            history = dailyPoints.map {
-                PoolPacePoint(
-                    date: $0.date,
-                    value: $0.value,
-                    endValue: $0.endValue,
-                    sampleCount: $0.sampleCount
-                )
-            }
-        } else {
-            history = state.history.map {
-                PoolPacePoint(
-                    date: $0.ts,
-                    value: min(100, max(0, PoolHistoryStore.poolAverage(n: $0.n, poolTotal: $0.poolTotal)))
-                )
-            }
+        let history = dailyPoints.map {
+            PoolPacePoint(
+                date: $0.date,
+                value: $0.value,
+                endValue: $0.endValue,
+                sampleCount: $0.sampleCount
+            )
         }
         return PoolPaceChartData(
             history: history,
-            resolution: resolution,
+            resolution: .daily,
             tint: paceTint(for: state),
             gridLine: Color(theme.divider),
             labelText: Color(theme.secondaryText),
@@ -1439,7 +1433,7 @@ final class AccountSwitcherPanelView: NSView {
         let quitX = frame.width - toolbarInset - quitWidth
         let refreshX = quitX - 8 - refreshWidth
         let rightDividerX = refreshX - 10
-        let resetWidth: CGFloat = frame.width >= 370 ? 82 : 74
+        let resetWidth: CGFloat = 94
         let resetX = rightDividerX - resetWidth - 10
         let clockX = leftDividerX + 12
         let clock = SymbolIconView(frame: NSRect(x: clockX, y: clockY, width: clockSize, height: clockSize), symbol: "clock", color: theme.iconTint)
