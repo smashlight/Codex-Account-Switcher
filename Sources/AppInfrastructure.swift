@@ -2001,6 +2001,40 @@ enum PoolHistoryStore {
     }
 }
 
+/// Calculates observed pool consumption without treating newly added capacity
+/// or a reset increase as negative usage.
+enum PoolBurnRateEstimator {
+    static let lookbackSeconds: TimeInterval = 7 * 24 * 60 * 60
+    static let minimumSpanDays = 0.5
+
+    static func grossBurnPerDay(
+        _ history: [PoolHistorySample],
+        lookback: TimeInterval = Self.lookbackSeconds
+    ) -> Double? {
+        guard let last = history.last, history.count >= 2 else { return nil }
+        let cutoff = last.ts.addingTimeInterval(-lookback)
+        let recent = history.filter { $0.ts >= cutoff }
+        guard let first = recent.first, first.ts < last.ts else { return nil }
+
+        var consumed = 0.0
+        for index in 1..<recent.count {
+            let previousByKey = recent[index - 1].accounts.reduce(into: [String: Double]()) {
+                $0[$1.key] = $1.remaining
+            }
+            for account in recent[index].accounts {
+                guard let previousRemaining = previousByKey[account.key] else { continue }
+                consumed += max(0, previousRemaining - account.remaining)
+            }
+        }
+
+        let elapsedDays = max(
+            Self.minimumSpanDays,
+            last.ts.timeIntervalSince(first.ts) / (24 * 60 * 60)
+        )
+        return consumed / elapsedDays
+    }
+}
+
 // MARK: - Weekly pace curves
 
 /// Builds calendar-week curves of the normalized pool average (remaining %),

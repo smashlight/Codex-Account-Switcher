@@ -66,6 +66,7 @@ struct InfrastructureTests {
         testCodexAuthDateParsing()
         try testCodexAuthTokenWriter()
         try testPoolHistoryStore()
+        testPoolBurnRateEstimatorIgnoresAddedCapacity()
         testWeekCurveBuilder()
         testDailyPoolAggregator()
         testPaceEstimatorForecast()
@@ -916,6 +917,55 @@ struct InfrastructureTests {
         let empty = DailyPoolAggregator.dailyPoints(from: [], dayCount: 14, now: day3, calendar: calendar)
         expect(empty.count == 14, "empty history should still produce fourteen slots")
         expect(empty.allSatisfy { ($0.value as Double?) == nil && $0.sampleCount == 0 }, "empty slots should remain unknown")
+    }
+
+    private static func testPoolBurnRateEstimatorIgnoresAddedCapacity() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let history = [
+            PoolHistorySample(
+                ts: now.addingTimeInterval(-14 * 3600),
+                n: 1,
+                poolTotal: 29,
+                accounts: [PoolAccountSample(key: "existing", remaining: 29)]
+            ),
+            PoolHistorySample(
+                ts: now.addingTimeInterval(-4 * 3600),
+                n: 2,
+                poolTotal: 101,
+                accounts: [
+                    PoolAccountSample(key: "existing", remaining: 5),
+                    PoolAccountSample(key: "added", remaining: 96)
+                ]
+            ),
+            PoolHistorySample(
+                ts: now,
+                n: 2,
+                poolTotal: 14,
+                accounts: [
+                    PoolAccountSample(key: "existing", remaining: 0),
+                    PoolAccountSample(key: "added", remaining: 14)
+                ]
+            )
+        ]
+
+        let burn = PoolBurnRateEstimator.grossBurnPerDay(history)
+        let expected = 111.0 / (14.0 / 24.0)
+        expect(
+            burn.map { abs($0 - expected) < 0.001 } == true,
+            "added account capacity must not hide 111 percentage points of observed consumption"
+        )
+        if let burn {
+            let reset = now.addingTimeInterval(44 * 3600)
+            let verdict = PoolVerdict.evaluateAvailableData(
+                poolTotal: 14,
+                observedBurnPerDay: burn,
+                accountCount: 2,
+                eolDate: nil,
+                resetDate: reset,
+                now: now
+            )
+            expect(verdict.kind == .notEnough, "the observed burn should exhaust the pool before reset")
+        }
     }
 
     private static func testPaceEstimatorForecast() {
