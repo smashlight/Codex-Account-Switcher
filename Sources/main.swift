@@ -18,8 +18,9 @@ private enum AccountPanelLayout {
     static let paceTopGap: CGFloat = 8
     static let paceChartHeight: CGFloat = 104
     static let verdictTopGap: CGFloat = 8
-    static let verdictCardHeight: CGFloat = 142
-    static var verdictSectionHeight: CGFloat { verdictTopGap + verdictCardHeight }
+    static let verdictCardHeight = CGFloat(UsagePanelLayoutMetrics.verdictCardHeight)
+    static let verdictResetGap = CGFloat(UsagePanelLayoutMetrics.verdictResetGap)
+    static var verdictSectionHeight: CGFloat { verdictTopGap + verdictCardHeight + verdictResetGap }
     static var paceSectionHeight: CGFloat { paceChartHeight }
     static let resetChanceTopGap: CGFloat = 8
     static let resetChanceHeight: CGFloat = 44
@@ -251,6 +252,7 @@ final class AccountSwitcherPanelView: NSView {
     private let autoSwitchThreshold: Int
     private let autoSwitchMode: AutoSwitchMode
     private let armedSwitchEmail: String?
+    private let revealedDeleteEmail: String?
     private let quitConfirmationArmed: Bool
     private let protectFrontmostCodex: Bool
     private let apiModeActive: Bool
@@ -265,6 +267,8 @@ final class AccountSwitcherPanelView: NSView {
     private let labelForAccount: (CodexAccount) -> String
     private let compactEmail: (String) -> String
     private let switchAccount: (String) -> Void
+    private let revealDeleteRow: (String?) -> Void
+    private let removeAccountRequested: (String) -> Void
     private let cancelSwitchConfirmation: () -> Void
     private let refresh: () -> Void
     private let showSettings: () -> Void
@@ -306,6 +310,7 @@ final class AccountSwitcherPanelView: NSView {
         autoSwitchThreshold: Int,
         autoSwitchMode: AutoSwitchMode,
         armedSwitchEmail: String?,
+        revealedDeleteEmail: String?,
         quitConfirmationArmed: Bool,
         protectFrontmostCodex: Bool,
         apiModeActive: Bool,
@@ -320,6 +325,8 @@ final class AccountSwitcherPanelView: NSView {
         labelForAccount: @escaping (CodexAccount) -> String,
         compactEmail: @escaping (String) -> String,
         switchAccount: @escaping (String) -> Void,
+        revealDeleteRow: @escaping (String?) -> Void,
+        removeAccountRequested: @escaping (String) -> Void,
         cancelSwitchConfirmation: @escaping () -> Void,
         refresh: @escaping () -> Void,
         showSettings: @escaping () -> Void,
@@ -349,6 +356,7 @@ final class AccountSwitcherPanelView: NSView {
         self.autoSwitchThreshold = autoSwitchThreshold
         self.autoSwitchMode = autoSwitchMode
         self.armedSwitchEmail = armedSwitchEmail
+        self.revealedDeleteEmail = revealedDeleteEmail
         self.quitConfirmationArmed = quitConfirmationArmed
         self.protectFrontmostCodex = protectFrontmostCodex
         self.apiModeActive = apiModeActive
@@ -363,6 +371,8 @@ final class AccountSwitcherPanelView: NSView {
         self.labelForAccount = labelForAccount
         self.compactEmail = compactEmail
         self.switchAccount = switchAccount
+        self.revealDeleteRow = revealDeleteRow
+        self.removeAccountRequested = removeAccountRequested
         self.cancelSwitchConfirmation = cancelSwitchConfirmation
         self.refresh = refresh
         self.showSettings = showSettings
@@ -1075,6 +1085,39 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func accountListRow(_ account: CodexAccount, displayIndex: Int, frame: NSRect) -> NSView {
+        let isArmed = armedSwitchEmail == account.email && !account.isActive
+        let localFrame = NSRect(origin: .zero, size: frame.size)
+        let content = accountListRowContent(account, displayIndex: displayIndex, frame: localFrame)
+        guard !account.isActive, !isSwitching, !isArmed else {
+            content.frame = frame
+            return content
+        }
+
+        let row = SwipeRevealRowView(
+            frame: frame,
+            contentView: content,
+            deleteTitle: LocalizedText.value(.deleteAccountButton, language: language),
+            deleteTooltip: LocalizedText.value(.deleteAccountTooltip, language: language)
+        )
+        row.setRevealed(revealedDeleteEmail == account.email, animated: false)
+        row.onRevealRequested = { [weak self] revealed in
+            self?.revealDeleteRow(revealed ? account.email : nil)
+        }
+        row.onDelete = { [weak self] in
+            self?.removeAccountRequested(account.email)
+        }
+        row.onPrimaryAction = { [weak self] in
+            guard let self else { return }
+            if self.revealedDeleteEmail != nil {
+                self.revealDeleteRow(nil)
+            } else {
+                self.switchAccount(account.email)
+            }
+        }
+        return row
+    }
+
+    private func accountListRowContent(_ account: CodexAccount, displayIndex: Int, frame: NSRect) -> NSView {
         let weeklyPercent = account.weeklyUsedPercent
         let gradient = meterGradient(for: weeklyPercent)
         let isArmed = armedSwitchEmail == account.email && !account.isActive
@@ -1084,9 +1127,7 @@ final class AccountSwitcherPanelView: NSView {
             borderColor: cardBorderColor(for: account),
             cornerRadius: 16,
             hoverFillColor: account.isActive || isSwitching || isArmed ? nil : theme.inactiveCardHoverFill,
-            clickAction: account.isActive || isSwitching || isArmed ? nil : { [weak self] in
-                self?.switchAccount(account.email)
-            },
+            clickAction: nil,
             shadowOpacity: account.isActive ? 0.18 : 0.09,
             shadowRadius: account.isActive ? 18 : 10
         )
@@ -1497,8 +1538,10 @@ final class AccountSwitcherPanelView: NSView {
         leftDivider.layer?.backgroundColor = theme.divider.cgColor
         bar.addSubview(leftDivider)
 
-        let quitWidth: CGFloat = 42
-        let refreshWidth: CGFloat = 60
+        let quitWidth = CGFloat(UsagePanelLayoutMetrics.quitButtonWidth)
+        let refreshWidth = CGFloat(UsagePanelLayoutMetrics.refreshButtonWidth)
+        let actionButtonHeight = CGFloat(UsagePanelLayoutMetrics.footerButtonHeight)
+        let actionButtonY = (frame.height - actionButtonHeight) / 2
         let quitX = frame.width - toolbarInset - quitWidth
         let refreshX = quitX - 8 - refreshWidth
         let rightDividerX = refreshX - 10
@@ -1517,7 +1560,7 @@ final class AccountSwitcherPanelView: NSView {
         resetButton.toolTip = resetCreditsTooltip()
         bar.addSubview(resetButton)
 
-        let refreshButton = SettingsActionButton(frame: NSRect(x: refreshX, y: 7, width: refreshWidth, height: 26), title: LocalizedText.value(.refreshButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        let refreshButton = SettingsActionButton(frame: NSRect(x: refreshX, y: actionButtonY, width: refreshWidth, height: actionButtonHeight), title: LocalizedText.value(.refreshButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
         refreshButton.target = self
         refreshButton.action = #selector(refreshPressed)
         refreshButton.toolTip = LocalizedText.value(.refreshTooltip, language: language)
@@ -1530,7 +1573,7 @@ final class AccountSwitcherPanelView: NSView {
 
         let quitFill = NSColor.systemRed.withAlphaComponent(quitConfirmationArmed ? 0.72 : (theme.isDark ? 0.22 : 0.14))
         let quitText = quitConfirmationArmed ? NSColor.white : NSColor.systemRed
-        let quitButton = SettingsActionButton(frame: NSRect(x: quitX, y: 7, width: quitWidth, height: 26), title: LocalizedText.value(quitConfirmationArmed ? .quitConfirmButton : .quitButton, language: language), color: quitFill, textColor: quitText)
+        let quitButton = SettingsActionButton(frame: NSRect(x: quitX, y: actionButtonY, width: quitWidth, height: actionButtonHeight), title: LocalizedText.value(quitConfirmationArmed ? .quitConfirmButton : .quitButton, language: language), color: quitFill, textColor: quitText)
         quitButton.target = self
         quitButton.action = #selector(closePressed)
         quitButton.toolTip = LocalizedText.value(.quitTooltip, language: language)
@@ -1844,6 +1887,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var resetStatusText: String?
     private var directUsageSnapshotsByEmail: [String: DirectUsageSnapshot] = [:]
     private var armedSwitchEmail: String?
+    private var revealedDeleteEmail: String?
     private var armedSwitchClearWorkItem: DispatchWorkItem?
     private var quitConfirmationArmed = false
     private var quitConfirmationClearWorkItem: DispatchWorkItem?
@@ -2593,6 +2637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showAccountPanel() {
+        revealedDeleteEmail = nil
         accountPanelMode = .usage
         refreshResetChanceIfNeeded()
         let panel = accountPanel ?? makeAccountPanel()
@@ -2641,6 +2686,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showSettingsPanel() {
+        revealedDeleteEmail = nil
         accountPanelMode = .settings
         let panel = accountPanel ?? makeAccountPanel()
         accountPanel = panel
@@ -2714,6 +2760,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             autoSwitchThreshold: autoSwitchThreshold,
             autoSwitchMode: autoSwitchMode,
             armedSwitchEmail: armedSwitchEmail,
+            revealedDeleteEmail: revealedDeleteEmail,
             quitConfirmationArmed: quitConfirmationArmed,
             protectFrontmostCodex: protectFrontmostCodex,
             apiModeActive: apiModeActive,
@@ -2733,6 +2780,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             switchAccount: { [weak self] email in
                 self?.handlePanelSwitchRequest(email)
+            },
+            revealDeleteRow: { [weak self] email in
+                self?.setRevealedDeleteRow(email)
+            },
+            removeAccountRequested: { [weak self] email in
+                self?.removeAccountFromSwipe(email: email)
             },
             cancelSwitchConfirmation: { [weak self] in
                 self?.clearArmedSwitch()
@@ -2797,8 +2850,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func setRevealedDeleteRow(_ requestedEmail: String?) {
+        let canReveal: Bool
+        if let requestedEmail,
+           let account = accounts.first(where: { $0.email == requestedEmail }) {
+            canReveal = !account.isActive && !isSwitching
+        } else {
+            canReveal = requestedEmail == nil
+        }
+        let next = AccountRowRevealPolicy.next(
+            current: revealedDeleteEmail,
+            requested: requestedEmail,
+            canReveal: canReveal
+        )
+        guard next != revealedDeleteEmail else { return }
+        revealedDeleteEmail = next
+        refreshAccountPanelContentIfVisible()
+    }
+
+    private func removeAccountFromSwipe(email: String) {
+        guard let account = accounts.first(where: { $0.email == email }),
+              let arguments = AccountRemovalPolicy.arguments(
+                selector: account.selector,
+                isActive: account.isActive
+              ) else {
+            return
+        }
+        revealedDeleteEmail = nil
+        runAccountMaintenance(title: "Removing account", args: arguments)
+    }
+
     private func armSwitchConfirmation(for email: String) {
         armedSwitchClearWorkItem?.cancel()
+        revealedDeleteEmail = nil
         armedSwitchEmail = email
         refreshAccountPanelContentIfVisible()
 
@@ -2901,12 +2985,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func closeAccountPanel() {
+        revealedDeleteEmail = nil
         clearArmedSwitch()
         clearQuitConfirmation()
         accountPanel?.orderOut(nil)
     }
 
     private func handleSettingsPanelAction(_ action: SettingsPanelAction) {
+        revealedDeleteEmail = nil
         switch action {
         case .languageRussian:
             setLanguage(.russian)
@@ -2988,6 +3074,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showResetCreditsPanel() {
+        revealedDeleteEmail = nil
         accountPanelMode = .resets
         refreshAccountPanelContentIfVisible()
         refreshResetCreditsIfNeeded(force: false)
@@ -4605,6 +4692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func switchTo(query: String, automatic: Bool = false) {
         guard !isSwitching else { return }
+        revealedDeleteEmail = nil
         clearArmedSwitch()
         let target = accounts.first(where: { $0.email == query || $0.selector == query })
         if let target, accountNeedsLogin(target) {
@@ -5120,6 +5208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func runAccountMaintenance(title: String, args: [String], restartAfterSuccess: Bool = false) {
         guard !isSwitching else { return }
+        revealedDeleteEmail = nil
         isSwitching = true
         statusItem.button?.attributedTitle = NSAttributedString(string: "")
         statusItem.button?.title = title

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add swipe-to-delete for inactive saved accounts, using the selected account's exact `codex-auth` selector and never the remove-all command.
+- Tighten the pool verdict card while preserving its full forecast timeline, add separation from reset chance, center the margin badge, and give the Refresh and Quit buttons more horizontal padding.
+
 ## 1.8.5 - 2026-08-15
 
 - Add a pool-wide usage pace forecast for the five-hour window: the app samples the remaining pool of all saved accounts every 30 minutes into a local 56-day JSONL history, then draws a CodexBar-style utilization chart (capped bars over a full track, coloured by remaining level) at the bottom of the account panel.

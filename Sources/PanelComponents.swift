@@ -347,8 +347,10 @@ final class PoolVerdictCardView: NSView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(presentation.accessibilityLabel)
 
+        let showsScale = presentation.events.count == 3 && presentation.kind != .collecting
+        let headerOffset: CGFloat = showsScale ? 0 : 24
         let symbolView = PoolVerdictSymbolView(
-            frame: NSRect(x: 14, y: 14, width: 30, height: 30),
+            frame: NSRect(x: 14, y: 12 + headerOffset, width: 32, height: 32),
             color: style.accent,
             symbol: style.symbol,
             accessibilityLabel: presentation.accessibilityLabel
@@ -359,40 +361,38 @@ final class PoolVerdictCardView: NSView {
         let badgeGap: CGFloat = presentation.marginBadge == nil ? 0 : 10
         let textTrailingInset: CGFloat = 14 + badgeWidth + badgeGap
         addSubview(Self.label(
-            frame: NSRect(x: 54, y: 12, width: bounds.width - 54 - textTrailingInset, height: 19),
+            frame: NSRect(x: 56, y: 10 + headerOffset, width: bounds.width - 56 - textTrailingInset, height: 19),
             text: presentation.title,
             font: .systemFont(ofSize: 15, weight: .semibold),
             color: theme.primaryText
         ))
         addSubview(Self.label(
-            frame: NSRect(x: 54, y: 35, width: bounds.width - 54 - textTrailingInset, height: 16),
+            frame: NSRect(x: 56, y: 31 + headerOffset, width: bounds.width - 56 - textTrailingInset, height: 16),
             text: presentation.detail,
             font: .systemFont(ofSize: 11),
             color: theme.secondaryText
         ))
 
         if let marginBadge = presentation.marginBadge {
-            let badge = Self.label(
-                frame: NSRect(x: bounds.width - 14 - badgeWidth, y: 16, width: badgeWidth, height: 22),
+            let badge = CenteredBadgeTextView(
+                frame: NSRect(x: bounds.width - 14 - badgeWidth, y: 12, width: badgeWidth, height: 28),
                 text: marginBadge,
-                font: .monospacedDigitSystemFont(ofSize: 10, weight: .bold),
-                color: style.accent,
-                alignment: .center
+                color: style.accent
             )
-            badge.wantsLayer = true
-            badge.layer?.cornerRadius = 11
+            badge.layer?.cornerRadius = 14
             badge.layer?.backgroundColor = style.accent.withAlphaComponent(theme.isDark ? 0.13 : 0.10).cgColor
+            badge.setAccessibilityLabel(marginBadge)
             addSubview(badge)
         }
 
-        guard presentation.events.count == 3, presentation.kind != .collecting else { return }
+        guard showsScale else { return }
         let horizontalInset: CGFloat = 18
         let scaleWidth = bounds.width - horizontalInset * 2
         let columnWidth = scaleWidth / 3
         for (index, event) in presentation.events.enumerated() {
             let columnX = horizontalInset + columnWidth * CGFloat(index)
             addSubview(Self.label(
-                frame: NSRect(x: columnX, y: 102, width: columnWidth, height: 14),
+                frame: NSRect(x: columnX, y: 76, width: columnWidth, height: 14),
                 text: event.title,
                 font: .systemFont(ofSize: 9.5, weight: .semibold),
                 color: theme.primaryText.withAlphaComponent(0.82),
@@ -400,7 +400,7 @@ final class PoolVerdictCardView: NSView {
             ))
             if let intervalText = event.intervalText {
                 addSubview(Self.label(
-                    frame: NSRect(x: columnX, y: 120, width: columnWidth, height: 14),
+                    frame: NSRect(x: columnX, y: 92, width: columnWidth, height: 14),
                     text: intervalText,
                     font: .monospacedDigitSystemFont(ofSize: 9, weight: .medium),
                     color: theme.secondaryText,
@@ -423,7 +423,7 @@ final class PoolVerdictCardView: NSView {
         let horizontalInset: CGFloat = 18
         let scaleWidth = bounds.width - horizontalInset * 2
         let columnWidth = scaleWidth / 3
-        let pointY: CGFloat = 92
+        let pointY: CGFloat = 67
         let centers = (0..<3).map { horizontalInset + columnWidth * (CGFloat($0) + 0.5) }
         let leftSegment = NSRect(x: centers[0], y: pointY - 2, width: centers[1] - centers[0], height: 4)
         let rightSegment = NSRect(x: centers[1], y: pointY - 2, width: centers[2] - centers[1], height: 4)
@@ -500,6 +500,38 @@ private final class PoolVerdictSymbolView: NSView {
         image.isTemplate = true
         NSColor.black.withAlphaComponent(0.72).set()
         image.draw(in: bounds.insetBy(dx: 8, dy: 8))
+    }
+}
+
+private final class CenteredBadgeTextView: NSView {
+    private let text: String
+    private let color: NSColor
+
+    init(frame: NSRect, text: String, color: NSColor) {
+        self.text = text
+        self.color = color
+        super.init(frame: frame)
+        wantsLayer = true
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let value = NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: color
+        ])
+        let size = value.size()
+        value.draw(at: NSPoint(
+            x: (bounds.width - size.width) / 2,
+            y: (bounds.height - size.height) / 2
+        ))
     }
 }
 
@@ -880,6 +912,148 @@ final class SettingsActionButton: NSButton {
 
     override func mouseExited(with event: NSEvent) {
         layer?.backgroundColor = fillColor.cgColor
+    }
+}
+
+final class SwipeRevealRowView: NSView {
+    let contentView: NSView
+    var onRevealRequested: ((Bool) -> Void)?
+    var onDelete: (() -> Void)?
+    var onPrimaryAction: (() -> Void)?
+
+    private let actionButton: SettingsActionButton
+    private var offset: CGFloat = 0
+    private var downPoint: NSPoint?
+    private var initialOffset: CGFloat = 0
+    private var dragIntent: SwipeAxisIntent = .undecided
+    private var lastDragX: CGFloat = 0
+    private var lastDragTimestamp: TimeInterval = 0
+    private var isHorizontalScrollGesture = false
+
+    init(frame: NSRect, contentView: NSView, deleteTitle: String, deleteTooltip: String) {
+        self.contentView = contentView
+        let revealWidth = CGFloat(SwipeRevealPolicy.revealWidth)
+        actionButton = SettingsActionButton(
+            frame: NSRect(x: frame.width - revealWidth, y: 0, width: revealWidth, height: frame.height),
+            title: deleteTitle,
+            color: NSColor.systemRed.withAlphaComponent(0.78),
+            textColor: .white
+        )
+        super.init(frame: frame)
+
+        wantsLayer = true
+        layer?.masksToBounds = true
+        actionButton.target = self
+        actionButton.action = #selector(deletePressed)
+        actionButton.toolTip = deleteTooltip
+        actionButton.setAccessibilityLabel(deleteTooltip)
+        actionButton.setAccessibilityHidden(true)
+        addSubview(actionButton)
+
+        contentView.frame = bounds
+        addSubview(contentView)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if offset < 0, actionButton.frame.contains(point) {
+            return actionButton
+        }
+        return bounds.contains(point) ? self : nil
+    }
+
+    func setRevealed(_ revealed: Bool, animated: Bool) {
+        offset = revealed ? -CGFloat(SwipeRevealPolicy.revealWidth) : 0
+        actionButton.setAccessibilityHidden(!revealed)
+        let origin = NSPoint(x: offset, y: 0)
+        guard animated else {
+            contentView.setFrameOrigin(origin)
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            contentView.animator().setFrameOrigin(origin)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        downPoint = convert(event.locationInWindow, from: nil)
+        initialOffset = offset
+        dragIntent = .undecided
+        lastDragX = downPoint?.x ?? 0
+        lastDragTimestamp = event.timestamp
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let downPoint else { return }
+        let current = convert(event.locationInWindow, from: nil)
+        if dragIntent == .undecided {
+            dragIntent = SwipeRevealPolicy.intent(
+                deltaX: Double(current.x - downPoint.x),
+                deltaY: Double(current.y - downPoint.y)
+            )
+        }
+        guard dragIntent == .horizontal else { return }
+        offset = CGFloat(SwipeRevealPolicy.clampedOffset(Double(initialOffset + current.x - downPoint.x)))
+        contentView.setFrameOrigin(NSPoint(x: offset, y: 0))
+        lastDragX = current.x
+        lastDragTimestamp = event.timestamp
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { downPoint = nil }
+        switch dragIntent {
+        case .undecided:
+            if offset < 0 {
+                settle(.closed)
+            } else {
+                onPrimaryAction?()
+            }
+        case .vertical:
+            break
+        case .horizontal:
+            let currentX = convert(event.locationInWindow, from: nil).x
+            let elapsed = max(0.001, event.timestamp - lastDragTimestamp)
+            let velocityX = Double((currentX - lastDragX) / CGFloat(elapsed))
+            settle(SwipeRevealPolicy.settledState(offset: Double(offset), velocityX: velocityX))
+        }
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        if isHorizontalScrollGesture, event.phase == .ended || event.phase == .cancelled {
+            isHorizontalScrollGesture = false
+            settle(SwipeRevealPolicy.settledState(offset: Double(offset), velocityX: 0))
+            return
+        }
+        let deltaX = event.hasPreciseScrollingDeltas ? event.scrollingDeltaX : event.deltaX
+        let deltaY = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.deltaY
+        guard abs(deltaX) > abs(deltaY), abs(deltaX) > 0 else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        isHorizontalScrollGesture = !event.phase.isEmpty
+        offset = CGFloat(SwipeRevealPolicy.clampedOffset(Double(offset - deltaX)))
+        contentView.setFrameOrigin(NSPoint(x: offset, y: 0))
+        if event.phase.isEmpty {
+            settle(SwipeRevealPolicy.settledState(offset: Double(offset), velocityX: 0))
+        }
+    }
+
+    private func settle(_ state: SwipeRevealSettleState) {
+        let revealed = state == .revealed
+        setRevealed(revealed, animated: true)
+        onRevealRequested?(revealed)
+    }
+
+    @objc private func deletePressed() {
+        onDelete?()
     }
 }
 
