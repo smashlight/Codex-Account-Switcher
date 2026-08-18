@@ -4,7 +4,7 @@
 
 - Add swipe-to-delete for inactive saved accounts, using the selected account's exact `codex-auth` selector and never the remove-all command.
 - Tighten the pool verdict card while preserving its full forecast timeline, add separation from reset chance, center the margin badge, and give the Refresh and Quit buttons more horizontal padding.
-- Hide destructive row actions until a physical left swipe reveals them, normalize swipe direction for both macOS scrolling modes, and fall back to a bounded HTTP/1.1 forecast request when URLSession is blocked by a local proxy route.
+- Use native `NSTableView` row actions so clicks and destructive swipes map to the exact account, keep the verdict available from current usage even before history accumulates, and fall back to a bounded HTTP/1.1 forecast request when URLSession is blocked by a local proxy route.
 
 ## 1.8.5 - 2026-08-15
 

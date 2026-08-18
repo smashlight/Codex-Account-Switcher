@@ -56,79 +56,6 @@ enum AccountListPresentationPolicy {
     }
 }
 
-enum AccountListScrollPolicy {
-    static func revealedOrigin(
-        rowMinY: Double,
-        rowMaxY: Double,
-        viewportHeight: Double,
-        currentOrigin: Double,
-        contentHeight: Double
-    ) -> Double {
-        let visibleMaxY = currentOrigin + viewportHeight
-        let requestedOrigin: Double
-        if rowMinY < currentOrigin {
-            requestedOrigin = rowMinY
-        } else if rowMaxY > visibleMaxY {
-            requestedOrigin = rowMaxY - viewportHeight
-        } else {
-            requestedOrigin = currentOrigin
-        }
-        return min(max(0, requestedOrigin), max(0, contentHeight - viewportHeight))
-    }
-}
-
-enum SwipeAxisIntent: Equatable {
-    case undecided
-    case horizontal
-    case vertical
-}
-
-enum SwipeRevealSettleState: Equatable {
-    case closed
-    case revealed
-}
-
-enum SwipeRevealPolicy {
-    static let revealWidth = 84.0
-    static let intentThreshold = 6.0
-    static let velocityRevealThreshold = -420.0
-
-    static func intent(deltaX: Double, deltaY: Double) -> SwipeAxisIntent {
-        guard max(abs(deltaX), abs(deltaY)) >= intentThreshold else { return .undecided }
-        return abs(deltaX) > abs(deltaY) ? .horizontal : .vertical
-    }
-
-    static func clampedOffset(_ proposed: Double) -> Double {
-        min(0, max(-revealWidth, proposed))
-    }
-
-    static func offsetAfterScroll(
-        current: Double,
-        scrollingDeltaX: Double,
-        directionInverted: Bool
-    ) -> Double {
-        let physicalDeltaX = directionInverted ? -scrollingDeltaX : scrollingDeltaX
-        return clampedOffset(current + physicalDeltaX)
-    }
-
-    static func isActionVisible(offset: Double) -> Bool {
-        offset < 0
-    }
-
-    static func settledState(offset: Double, velocityX: Double) -> SwipeRevealSettleState {
-        if velocityX <= velocityRevealThreshold { return .revealed }
-        return offset <= -(revealWidth / 2) ? .revealed : .closed
-    }
-}
-
-enum AccountRowRevealPolicy {
-    static func next(current: String?, requested: String?, canReveal: Bool) -> String? {
-        guard let requested else { return nil }
-        guard canReveal else { return current == requested ? nil : current }
-        return requested
-    }
-}
-
 enum AccountRemovalPolicy {
     static func arguments(selector: String, isActive: Bool) -> [String]? {
         guard !isActive else { return nil }
@@ -1822,6 +1749,21 @@ enum WeeklyResetFormatter {
         return "\(abbreviation) · \(dayMonth)"
     }
 
+    static func upcomingResetDate(
+        from usage: String,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Date? {
+        guard let open = usage.firstIndex(of: "("),
+              let close = usage.firstIndex(of: ")"),
+              open < close else {
+            return nil
+        }
+        let inner = String(usage[usage.index(after: open)..<close])
+        guard let weekday = firstWeekday(in: inner) else { return nil }
+        return upcomingDate(weekday: weekday, time: firstTime(in: inner), now: now, calendar: calendar)
+    }
+
     private static func firstWeekday(in text: String) -> Int? {
         for token in text.split(whereSeparator: { !$0.isLetter }) {
             if let index = weekdayIndexByToken[String(token).lowercased()] {
@@ -1865,8 +1807,11 @@ enum WeeklyResetFormatter {
             }
             daysAhead = 7
         }
+        let resetHour = time?.hour ?? 0
+        let resetMinute = time?.minute ?? 0
         guard let startOfDay = calendar.date(bySettingHour: 0, minute: 0, second: 0, of: now),
-              let target = calendar.date(byAdding: .day, value: daysAhead, to: startOfDay) else {
+              let targetDay = calendar.date(byAdding: .day, value: daysAhead, to: startOfDay),
+              let target = calendar.date(bySettingHour: resetHour, minute: resetMinute, second: 0, of: targetDay) else {
             return now
         }
         return target
@@ -1894,6 +1839,51 @@ extension PoolHistorySample {
     /// Shorthand for history without a captured reset date (tests, legacy code).
     init(ts: Date, n: Int, poolTotal: Double, accounts: [PoolAccountSample]) {
         self.init(ts: ts, n: n, poolTotal: poolTotal, accounts: accounts, resetsAt: nil)
+    }
+
+    static func makeLive(snapshots: [String: DirectUsageSnapshot], now: Date) -> PoolHistorySample? {
+        guard !snapshots.isEmpty else { return nil }
+        let accounts = snapshots.keys.sorted().compactMap { email -> PoolAccountSample? in
+            guard let snapshot = snapshots[email] else { return nil }
+            return PoolAccountSample(key: email, remaining: Double(snapshot.weekly.remainingPercent))
+        }
+        guard !accounts.isEmpty else { return nil }
+        let reset = snapshots.values.compactMap(\.weekly.resetAt).min()
+        return PoolHistorySample(
+            ts: now,
+            n: accounts.count,
+            poolTotal: accounts.reduce(0) { $0 + $1.remaining },
+            accounts: accounts,
+            resetsAt: reset
+        )
+    }
+
+    static func makeCurrent(
+        accounts: [CodexAccount],
+        snapshots: [String: DirectUsageSnapshot],
+        now: Date,
+        calendar: Calendar = .current
+    ) -> PoolHistorySample? {
+        let currentAccounts = accounts.compactMap { account -> PoolAccountSample? in
+            let remaining = snapshots[account.email]
+                .map { Double($0.weekly.remainingPercent) }
+                ?? account.weeklyUsedPercent.map(Double.init)
+            guard let remaining else { return nil }
+            return PoolAccountSample(key: account.email, remaining: remaining)
+        }
+        guard !currentAccounts.isEmpty else { return nil }
+
+        let resetDates = accounts.compactMap { account -> Date? in
+            snapshots[account.email]?.weekly.resetAt
+                ?? WeeklyResetFormatter.upcomingResetDate(from: account.weeklyUsage, now: now, calendar: calendar)
+        }
+        return PoolHistorySample(
+            ts: now,
+            n: currentAccounts.count,
+            poolTotal: currentAccounts.reduce(0) { $0 + $1.remaining },
+            accounts: currentAccounts,
+            resetsAt: resetDates.min()
+        )
     }
 }
 
@@ -2440,6 +2430,28 @@ struct PoolVerdict: Equatable {
             resetInterval: resetInterval,
             exhaustionInterval: exhaustionInterval,
             margin: margin
+        )
+    }
+
+    static func evaluateAvailableData(
+        poolTotal: Double,
+        observedBurnPerDay: Double?,
+        accountCount: Int,
+        eolDate: Date?,
+        resetDate: Date?,
+        now: Date
+    ) -> PoolVerdict {
+        let quotaBaseline = Double(max(1, accountCount)) * 100 / 7
+        let effectiveBurn = observedBurnPerDay.flatMap { value in
+            value.isFinite && value > 1e-9 ? value : nil
+        } ?? quotaBaseline
+        return evaluate(
+            poolTotal: poolTotal,
+            burnPerDay: effectiveBurn,
+            eolDate: eolDate,
+            resetDate: resetDate,
+            hasSufficientHistory: true,
+            now: now
         )
     }
 }

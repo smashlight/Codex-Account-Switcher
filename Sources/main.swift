@@ -252,7 +252,6 @@ final class AccountSwitcherPanelView: NSView {
     private let autoSwitchThreshold: Int
     private let autoSwitchMode: AutoSwitchMode
     private let armedSwitchEmail: String?
-    private let revealedDeleteEmail: String?
     private let quitConfirmationArmed: Bool
     private let protectFrontmostCodex: Bool
     private let apiModeActive: Bool
@@ -267,7 +266,6 @@ final class AccountSwitcherPanelView: NSView {
     private let labelForAccount: (CodexAccount) -> String
     private let compactEmail: (String) -> String
     private let switchAccount: (String) -> Void
-    private let revealDeleteRow: (String?) -> Void
     private let removeAccountRequested: (String) -> Void
     private let cancelSwitchConfirmation: () -> Void
     private let refresh: () -> Void
@@ -310,7 +308,6 @@ final class AccountSwitcherPanelView: NSView {
         autoSwitchThreshold: Int,
         autoSwitchMode: AutoSwitchMode,
         armedSwitchEmail: String?,
-        revealedDeleteEmail: String?,
         quitConfirmationArmed: Bool,
         protectFrontmostCodex: Bool,
         apiModeActive: Bool,
@@ -325,7 +322,6 @@ final class AccountSwitcherPanelView: NSView {
         labelForAccount: @escaping (CodexAccount) -> String,
         compactEmail: @escaping (String) -> String,
         switchAccount: @escaping (String) -> Void,
-        revealDeleteRow: @escaping (String?) -> Void,
         removeAccountRequested: @escaping (String) -> Void,
         cancelSwitchConfirmation: @escaping () -> Void,
         refresh: @escaping () -> Void,
@@ -356,7 +352,6 @@ final class AccountSwitcherPanelView: NSView {
         self.autoSwitchThreshold = autoSwitchThreshold
         self.autoSwitchMode = autoSwitchMode
         self.armedSwitchEmail = armedSwitchEmail
-        self.revealedDeleteEmail = revealedDeleteEmail
         self.quitConfirmationArmed = quitConfirmationArmed
         self.protectFrontmostCodex = protectFrontmostCodex
         self.apiModeActive = apiModeActive
@@ -371,7 +366,6 @@ final class AccountSwitcherPanelView: NSView {
         self.labelForAccount = labelForAccount
         self.compactEmail = compactEmail
         self.switchAccount = switchAccount
-        self.revealDeleteRow = revealDeleteRow
         self.removeAccountRequested = removeAccountRequested
         self.cancelSwitchConfirmation = cancelSwitchConfirmation
         self.refresh = refresh
@@ -541,38 +535,36 @@ final class AccountSwitcherPanelView: NSView {
         let contentHeight = rowHeights.reduce(0, +)
             + CGFloat(max(0, orderedAccounts.count - 1)) * AccountPanelLayout.rowGap
         scrollView.hasVerticalScroller = policyRequiresScrolling || contentHeight > viewportHeight
-        let document = FlippedContainerView(frame: NSRect(
+        let table = AccountListTableView(frame: NSRect(
             x: 0,
             y: 0,
             width: frame.width,
             height: max(viewportHeight, contentHeight)
-        ))
-        var y: CGFloat = 0
-        var armedRowFrame: NSRect?
-        for (index, account) in orderedAccounts.enumerated() {
-            let rowHeight = rowHeights[index]
-            let rowFrame = NSRect(x: 0, y: y, width: frame.width, height: rowHeight)
-            document.addSubview(accountListRow(
-                account,
-                displayIndex: index + 1,
-                frame: rowFrame
-            ))
-            if armedSwitchEmail == account.email && !account.isActive {
-                armedRowFrame = rowFrame
+        ),
+            accounts: orderedAccounts,
+            isInteractionEnabled: !isSwitching,
+            armedEmail: armedSwitchEmail,
+            deleteTitle: LocalizedText.value(.deleteAccountButton, language: language),
+            rowHeightProvider: { [weak self] account in
+                self?.armedSwitchEmail == account.email && !account.isActive
+                    ? AccountPanelLayout.confirmationRowHeight
+                    : AccountPanelLayout.rowHeight
+            },
+            rowViewProvider: { [weak self] account, rowFrame in
+                guard let self else { return NSView(frame: rowFrame) }
+                let index = orderedAccounts.firstIndex(where: { $0.email == account.email }) ?? 0
+                return self.accountListRowContent(account, displayIndex: index + 1, frame: rowFrame)
+            },
+            onSelect: { [weak self] account in
+                self?.switchAccount(account.email)
+            },
+            onDelete: { [weak self] account in
+                self?.removeAccountRequested(account.email)
             }
-            y += rowHeight + AccountPanelLayout.rowGap
-        }
-        scrollView.documentView = document
-        if let armedRowFrame {
-            let originY = AccountListScrollPolicy.revealedOrigin(
-                rowMinY: Double(armedRowFrame.minY),
-                rowMaxY: Double(armedRowFrame.maxY),
-                viewportHeight: Double(viewportHeight),
-                currentOrigin: Double(scrollView.contentView.bounds.minY),
-                contentHeight: Double(document.frame.height)
-            )
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: originY))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
+        )
+        scrollView.documentView = table
+        if let armedRow = orderedAccounts.firstIndex(where: { $0.email == armedSwitchEmail }) {
+            table.scrollRowToVisible(armedRow)
         }
         section.addSubview(scrollView)
         return section
@@ -1082,39 +1074,6 @@ final class AccountSwitcherPanelView: NSView {
         view.addSubview(closeButton)
 
         return view
-    }
-
-    private func accountListRow(_ account: CodexAccount, displayIndex: Int, frame: NSRect) -> NSView {
-        let isArmed = armedSwitchEmail == account.email && !account.isActive
-        let localFrame = NSRect(origin: .zero, size: frame.size)
-        let content = accountListRowContent(account, displayIndex: displayIndex, frame: localFrame)
-        guard !account.isActive, !isSwitching, !isArmed else {
-            content.frame = frame
-            return content
-        }
-
-        let row = SwipeRevealRowView(
-            frame: frame,
-            contentView: content,
-            deleteTitle: LocalizedText.value(.deleteAccountButton, language: language),
-            deleteTooltip: LocalizedText.value(.deleteAccountTooltip, language: language)
-        )
-        row.setRevealed(revealedDeleteEmail == account.email, animated: false)
-        row.onRevealRequested = { [weak self] revealed in
-            self?.revealDeleteRow(revealed ? account.email : nil)
-        }
-        row.onDelete = { [weak self] in
-            self?.removeAccountRequested(account.email)
-        }
-        row.onPrimaryAction = { [weak self] in
-            guard let self else { return }
-            if self.revealedDeleteEmail != nil {
-                self.revealDeleteRow(nil)
-            } else {
-                self.switchAccount(account.email)
-            }
-        }
-        return row
     }
 
     private func accountListRowContent(_ account: CodexAccount, displayIndex: Int, frame: NSRect) -> NSView {
@@ -1887,7 +1846,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var resetStatusText: String?
     private var directUsageSnapshotsByEmail: [String: DirectUsageSnapshot] = [:]
     private var armedSwitchEmail: String?
-    private var revealedDeleteEmail: String?
     private var armedSwitchClearWorkItem: DispatchWorkItem?
     private var quitConfirmationArmed = false
     private var quitConfirmationClearWorkItem: DispatchWorkItem?
@@ -2417,30 +2375,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// to the accounts that actually responded, so the pool average stays
     /// normalized when the pool composition changes.
     private func samplePoolHistory(from snapshots: [String: DirectUsageSnapshot], now: Date = Date()) {
-        var poolTotal = 0.0
-        var accountsInSample: [PoolAccountSample] = []
-        var earliestReset: Date?
-        accountsInSample.reserveCapacity(snapshots.count)
-        for (email, snapshot) in snapshots {
-            let remaining = Double(snapshot.weekly.remainingPercent)
-            poolTotal += remaining
-            accountsInSample.append(PoolAccountSample(key: email, remaining: remaining))
-            if let resetAt = snapshot.weekly.resetAt {
-                if let existing = earliestReset {
-                    if resetAt < existing { earliestReset = resetAt }
-                } else {
-                    earliestReset = resetAt
-                }
-            }
-        }
-        guard !accountsInSample.isEmpty else { return }
+        guard let sample = PoolHistorySample.makeLive(snapshots: snapshots, now: now) else { return }
         let url = PoolHistoryStore.fileURL()
         let history = PoolHistoryStore.load(from: url)
-        let average = PoolHistoryStore.poolAverage(n: accountsInSample.count, poolTotal: poolTotal)
+        let average = PoolHistoryStore.poolAverage(n: sample.n, poolTotal: sample.poolTotal)
         guard PoolHistoryStore.shouldRecord(lastSample: history.last, poolAverage: average, now: now) else {
             return
         }
-        let sample = PoolHistorySample(ts: now, n: accountsInSample.count, poolTotal: poolTotal, accounts: accountsInSample, resetsAt: earliestReset)
         try? PoolHistoryStore.write(history + [sample], to: url, now: now)
         lastPoolSampleAt = now
         poolPaceForecast = PaceEstimator.forecast(samples: history + [sample], now: now)
@@ -2473,19 +2414,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Current pool display state for the panel, evaluated from one instant.
     private func poolPaceState(now: Date) -> PaceDisplayState? {
         guard !accounts.isEmpty else { return nil }
-        let history = PoolHistoryStore.load()
+        var history = PoolHistoryStore.load()
+        if let liveSample = PoolHistorySample.makeCurrent(
+            accounts: accounts,
+            snapshots: directUsageSnapshotsByEmail,
+            now: now
+        ) {
+            history.append(liveSample)
+        }
         guard let last = history.last else {
             return PaceDisplayState(history: [], now: now, verdict: .collecting)
         }
         let forecast = PaceEstimator.forecast(samples: history, now: now)
         let resetDate = last.resetsAt.map { Self.nextResetDate(after: $0, now: now) }
         let burn = poolBurnRatePerDay(history)
-        let verdict = PoolVerdict.evaluate(
+        let verdict = PoolVerdict.evaluateAvailableData(
             poolTotal: last.poolTotal,
-            burnPerDay: burn,
+            observedBurnPerDay: burn,
+            accountCount: last.n,
             eolDate: forecast.eolDate,
             resetDate: resetDate,
-            hasSufficientHistory: !forecast.insufficientData,
             now: now
         )
         return PaceDisplayState(
@@ -2637,7 +2585,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showAccountPanel() {
-        revealedDeleteEmail = nil
         accountPanelMode = .usage
         refreshResetChanceIfNeeded()
         let panel = accountPanel ?? makeAccountPanel()
@@ -2713,7 +2660,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showSettingsPanel() {
-        revealedDeleteEmail = nil
         accountPanelMode = .settings
         let panel = accountPanel ?? makeAccountPanel()
         accountPanel = panel
@@ -2787,7 +2733,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             autoSwitchThreshold: autoSwitchThreshold,
             autoSwitchMode: autoSwitchMode,
             armedSwitchEmail: armedSwitchEmail,
-            revealedDeleteEmail: revealedDeleteEmail,
             quitConfirmationArmed: quitConfirmationArmed,
             protectFrontmostCodex: protectFrontmostCodex,
             apiModeActive: apiModeActive,
@@ -2808,11 +2753,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switchAccount: { [weak self] email in
                 self?.handlePanelSwitchRequest(email)
             },
-            revealDeleteRow: { [weak self] email in
-                self?.setRevealedDeleteRow(email)
-            },
             removeAccountRequested: { [weak self] email in
-                self?.removeAccountFromSwipe(email: email)
+                self?.removeAccountFromRowAction(email: email)
             },
             cancelSwitchConfirmation: { [weak self] in
                 self?.clearArmedSwitch()
@@ -2878,25 +2820,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func setRevealedDeleteRow(_ requestedEmail: String?) {
-        let canReveal: Bool
-        if let requestedEmail,
-           let account = accounts.first(where: { $0.email == requestedEmail }) {
-            canReveal = !account.isActive && !isSwitching
-        } else {
-            canReveal = requestedEmail == nil
-        }
-        let next = AccountRowRevealPolicy.next(
-            current: revealedDeleteEmail,
-            requested: requestedEmail,
-            canReveal: canReveal
-        )
-        guard next != revealedDeleteEmail else { return }
-        revealedDeleteEmail = next
-        refreshAccountPanelContentIfVisible()
-    }
-
-    private func removeAccountFromSwipe(email: String) {
+    private func removeAccountFromRowAction(email: String) {
         guard let account = accounts.first(where: { $0.email == email }),
               let arguments = AccountRemovalPolicy.arguments(
                 selector: account.selector,
@@ -2904,13 +2828,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               ) else {
             return
         }
-        revealedDeleteEmail = nil
         runAccountMaintenance(title: "Removing account", args: arguments)
     }
 
     private func armSwitchConfirmation(for email: String) {
         armedSwitchClearWorkItem?.cancel()
-        revealedDeleteEmail = nil
         armedSwitchEmail = email
         refreshAccountPanelContentIfVisible()
 
@@ -3013,14 +2935,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func closeAccountPanel() {
-        revealedDeleteEmail = nil
         clearArmedSwitch()
         clearQuitConfirmation()
         accountPanel?.orderOut(nil)
     }
 
     private func handleSettingsPanelAction(_ action: SettingsPanelAction) {
-        revealedDeleteEmail = nil
         switch action {
         case .languageRussian:
             setLanguage(.russian)
@@ -3102,7 +3022,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showResetCreditsPanel() {
-        revealedDeleteEmail = nil
         accountPanelMode = .resets
         refreshAccountPanelContentIfVisible()
         refreshResetCreditsIfNeeded(force: false)
@@ -4720,7 +4639,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func switchTo(query: String, automatic: Bool = false) {
         guard !isSwitching else { return }
-        revealedDeleteEmail = nil
         clearArmedSwitch()
         let target = accounts.first(where: { $0.email == query || $0.selector == query })
         if let target, accountNeedsLogin(target) {
@@ -5236,7 +5154,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func runAccountMaintenance(title: String, args: [String], restartAfterSuccess: Bool = false) {
         guard !isSwitching else { return }
-        revealedDeleteEmail = nil
         isSwitching = true
         statusItem.button?.attributedTitle = NSAttributedString(string: "")
         statusItem.button?.title = title

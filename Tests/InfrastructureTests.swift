@@ -43,10 +43,6 @@ struct InfrastructureTests {
         testWeeklyRemainingBand()
         testAccountListPresentationPolicy()
         testAccountListViewportHeightPolicy()
-        testAccountListScrollPolicy()
-        testSwipeRevealPolicy()
-        testSwipeScrollPolicy()
-        testAccountRowRevealPolicy()
         testAccountRemovalPolicy()
         testUsagePanelLayoutMetrics()
         testInlineSwitchConfirmationPolicy()
@@ -74,6 +70,9 @@ struct InfrastructureTests {
         testDailyPoolAggregator()
         testPaceEstimatorForecast()
         testPoolVerdict()
+        testPoolVerdictWithoutHistory()
+        testLivePoolSample()
+        testCurrentPoolSampleFallsBackToAccountRows()
         testPoolHistorySampleResetsAtCoding()
         testResetChanceParsing()
         testResetChanceCommandFallback()
@@ -177,8 +176,6 @@ struct InfrastructureTests {
         expect(LocalizedText.value(.englishOption, language: .russian) == "English", "the English option should remain self-identifying")
         expect(LocalizedText.value(.deleteAccountButton, language: .russian) == "Удалить", "the delete button should be localized in Russian")
         expect(LocalizedText.value(.deleteAccountButton, language: .english) == "Delete", "the delete button should be localized in English")
-        expect(LocalizedText.value(.deleteAccountTooltip, language: .russian) == "Удалить аккаунт", "the delete tooltip should be localized in Russian")
-        expect(LocalizedText.value(.deleteAccountTooltip, language: .english) == "Delete account", "the delete tooltip should be localized in English")
         expect(LocalizedText.lastUpdated(isRefreshing: true, elapsed: nil, language: .russian) == "обновление…", "Russian refreshing state should be localized")
         expect(LocalizedText.lastUpdated(isRefreshing: false, elapsed: 5, language: .english) == "just now", "English update age should preserve current copy")
         expect(LocalizedText.resetCreditsButtonTitle(knownTotal: 1, knownAccounts: 2, hasError: false, language: .russian) == "1 СБРОС", "Russian singular reset count should be localized")
@@ -321,44 +318,6 @@ struct InfrastructureTests {
         expect(!AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 10), "ten rows should not scroll on a tall screen")
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 11, availableRowCapacity: 10), "eleven rows should scroll")
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 6), "short screens should scroll earlier")
-    }
-
-    private static func testAccountListScrollPolicy() {
-        expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 54, rowMaxY: 102, viewportHeight: 300, currentOrigin: 0, contentHeight: 500) == 0, "visible rows should preserve the current scroll origin")
-        expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 420, rowMaxY: 500, viewportHeight: 300, currentOrigin: 0, contentHeight: 500) == 200, "expanded bottom row should scroll fully into view")
-        expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 40, rowMaxY: 120, viewportHeight: 100, currentOrigin: 80, contentHeight: 500) == 40, "expanded row above the viewport should scroll to its top")
-        expect(AccountListScrollPolicy.revealedOrigin(rowMinY: 460, rowMaxY: 560, viewportHeight: 300, currentOrigin: 0, contentHeight: 500) == 200, "scroll origin should clamp to the document bottom")
-    }
-
-    private static func testSwipeRevealPolicy() {
-        expect(SwipeRevealPolicy.intent(deltaX: 3, deltaY: 2) == .undecided, "small motion should preserve click intent")
-        expect(SwipeRevealPolicy.intent(deltaX: -12, deltaY: 3) == .horizontal, "left motion should reveal")
-        expect(SwipeRevealPolicy.intent(deltaX: 4, deltaY: 13) == .vertical, "vertical motion should remain list scrolling")
-        expect(SwipeRevealPolicy.clampedOffset(-120) == -84, "reveal should clamp at the action width")
-        expect(SwipeRevealPolicy.clampedOffset(20) == 0, "right drag from rest should stay closed")
-        expect(SwipeRevealPolicy.settledState(offset: -50, velocityX: 0) == .revealed, "majority reveal should stay open")
-        expect(SwipeRevealPolicy.settledState(offset: -20, velocityX: 0) == .closed, "short reveal should close")
-        expect(SwipeRevealPolicy.settledState(offset: -15, velocityX: -500) == .revealed, "fast left release should reveal")
-    }
-
-    private static func testSwipeScrollPolicy() {
-        expect(
-            SwipeRevealPolicy.offsetAfterScroll(current: 0, scrollingDeltaX: 30, directionInverted: true) == -30,
-            "a physical left swipe should reveal when natural scrolling is enabled"
-        )
-        expect(
-            SwipeRevealPolicy.offsetAfterScroll(current: 0, scrollingDeltaX: -30, directionInverted: false) == -30,
-            "a physical left swipe should reveal when natural scrolling is disabled"
-        )
-        expect(SwipeRevealPolicy.isActionVisible(offset: 0) == false, "a closed row must fully hide its destructive action")
-        expect(SwipeRevealPolicy.isActionVisible(offset: -1), "the destructive action should appear only after reveal begins")
-    }
-
-    private static func testAccountRowRevealPolicy() {
-        expect(AccountRowRevealPolicy.next(current: nil, requested: "a@example.com", canReveal: true) == "a@example.com", "eligible row should reveal")
-        expect(AccountRowRevealPolicy.next(current: "a@example.com", requested: "b@example.com", canReveal: true) == "b@example.com", "revealing a row should replace the prior row")
-        expect(AccountRowRevealPolicy.next(current: "a@example.com", requested: nil, canReveal: true) == nil, "outside interaction should close the row")
-        expect(AccountRowRevealPolicy.next(current: nil, requested: "active@example.com", canReveal: false) == nil, "active row should not reveal")
     }
 
     private static func testAccountRemovalPolicy() {
@@ -1018,6 +977,85 @@ struct InfrastructureTests {
         ]
         expect(collectingInputs.allSatisfy { $0.kind == .collecting }, "incomplete, non-finite, and invalid dates should collect")
         expect(collectingInputs.allSatisfy { $0.margin == nil }, "collecting must not expose display intervals")
+    }
+
+    private static func testPoolVerdictWithoutHistory() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let reset = now.addingTimeInterval(3 * 86_400)
+        let fallback = PoolVerdict.evaluateAvailableData(
+            poolTotal: 200,
+            observedBurnPerDay: nil,
+            accountCount: 5,
+            eolDate: nil,
+            resetDate: reset,
+            now: now
+        )
+        expect(fallback.kind == .notEnough, "missing history should use the weekly quota baseline instead of Collecting")
+        expect(fallback.resetInterval == 3 * 86_400, "the no-history verdict should still show the reset interval")
+        expect(fallback.exhaustionInterval != nil, "the no-history verdict should still show an exhaustion estimate")
+        expect(fallback.margin != nil, "the no-history verdict should still show a signed margin")
+    }
+
+    private static func testLivePoolSample() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let earlyReset = now.addingTimeInterval(2 * 86_400)
+        let lateReset = now.addingTimeInterval(3 * 86_400)
+        let snapshots = [
+            "first@example.com": DirectUsageSnapshot(
+                fiveHour: UsageLimitWindowSnapshot(remainingPercent: 80, resetAt: nil),
+                weekly: UsageLimitWindowSnapshot(remainingPercent: 70, resetAt: lateReset)
+            ),
+            "second@example.com": DirectUsageSnapshot(
+                fiveHour: UsageLimitWindowSnapshot(remainingPercent: 60, resetAt: nil),
+                weekly: UsageLimitWindowSnapshot(remainingPercent: 50, resetAt: earlyReset)
+            )
+        ]
+        let sample = PoolHistorySample.makeLive(snapshots: snapshots, now: now)
+        expect(sample?.n == 2, "a live fallback sample should include every available account")
+        expect(sample?.poolTotal == 120, "a live fallback sample should sum weekly remaining capacity")
+        expect(sample?.resetsAt == earlyReset, "a live fallback sample should use the earliest reset anchor")
+    }
+
+    private static func testCurrentPoolSampleFallsBackToAccountRows() {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let now = utcDate(day: 18, month: 8, year: 2026, hour: 12, minute: 0, calendar: utc)
+        let accounts = [
+            CodexAccount(
+                selector: "01",
+                email: "first@example.com",
+                plan: "plus",
+                fiveHourUsage: "--",
+                weeklyUsage: "70% (Fri 09:00)",
+                fiveHourUsedPercent: nil,
+                weeklyUsedPercent: 70,
+                lastActivity: "--",
+                isActive: true
+            ),
+            CodexAccount(
+                selector: "02",
+                email: "second@example.com",
+                plan: "plus",
+                fiveHourUsage: "--",
+                weeklyUsage: "50% (Thu 09:00)",
+                fiveHourUsedPercent: nil,
+                weeklyUsedPercent: 50,
+                lastActivity: "--",
+                isActive: false
+            )
+        ]
+        let sample = PoolHistorySample.makeCurrent(
+            accounts: accounts,
+            snapshots: [:],
+            now: now,
+            calendar: utc
+        )
+        expect(sample?.n == 2, "current pool display should use account-row percentages when live snapshots are absent")
+        expect(sample?.poolTotal == 120, "account-row fallback should preserve the available pool total")
+        expect(
+            sample?.resetsAt == utcDate(day: 20, month: 8, year: 2026, hour: 9, minute: 0, calendar: utc),
+            "account-row fallback should use the earliest upcoming weekly reset"
+        )
     }
 
     private static func testPoolHistorySampleResetsAtCoding() {

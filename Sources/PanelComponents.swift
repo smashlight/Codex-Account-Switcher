@@ -54,6 +54,116 @@ final class FlippedContainerView: NSView {
     override var isFlipped: Bool { true }
 }
 
+final class AccountListTableView: NSTableView, NSTableViewDataSource, NSTableViewDelegate {
+    typealias RowViewProvider = (CodexAccount, NSRect) -> NSView
+
+    private let accounts: [CodexAccount]
+    private let isInteractionEnabled: Bool
+    private let armedEmail: String?
+    private let deleteTitle: String
+    private let rowHeightProvider: (CodexAccount) -> CGFloat
+    private let rowViewProvider: RowViewProvider
+    private let onSelect: (CodexAccount) -> Void
+    private let onDelete: (CodexAccount) -> Void
+
+    init(
+        frame: NSRect,
+        accounts: [CodexAccount],
+        isInteractionEnabled: Bool,
+        armedEmail: String?,
+        deleteTitle: String,
+        rowHeightProvider: @escaping (CodexAccount) -> CGFloat,
+        rowViewProvider: @escaping RowViewProvider,
+        onSelect: @escaping (CodexAccount) -> Void,
+        onDelete: @escaping (CodexAccount) -> Void
+    ) {
+        self.accounts = accounts
+        self.isInteractionEnabled = isInteractionEnabled
+        self.armedEmail = armedEmail
+        self.deleteTitle = deleteTitle
+        self.rowHeightProvider = rowHeightProvider
+        self.rowViewProvider = rowViewProvider
+        self.onSelect = onSelect
+        self.onDelete = onDelete
+        super.init(frame: frame)
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("account"))
+        column.width = frame.width
+        addTableColumn(column)
+        headerView = nil
+        dataSource = self
+        delegate = self
+        intercellSpacing = NSSize(width: 0, height: 6)
+        backgroundColor = .clear
+        selectionHighlightStyle = .none
+        allowsMultipleSelection = false
+        allowsEmptySelection = true
+        columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        focusRingType = .none
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        accounts.count
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        guard accounts.indices.contains(row) else { return 0 }
+        return rowHeightProvider(accounts[row])
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard accounts.indices.contains(row) else { return nil }
+        let account = accounts[row]
+        return rowViewProvider(
+            account,
+            NSRect(x: 0, y: 0, width: bounds.width, height: rowHeightProvider(account))
+        )
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        guard isInteractionEnabled, armedEmail == nil, accounts.indices.contains(row) else { return false }
+        return !accounts[row].isActive
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        let row = selectedRow
+        guard accounts.indices.contains(row) else { return }
+        let account = accounts[row]
+        deselectAll(nil)
+        onSelect(account)
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        rowActionsForRow row: Int,
+        edge: NSTableView.RowActionEdge
+    ) -> [NSTableViewRowAction] {
+        guard edge == .trailing,
+              isInteractionEnabled,
+              armedEmail == nil,
+              accounts.indices.contains(row),
+              !accounts[row].isActive else {
+            return []
+        }
+        return [NSTableViewRowAction(style: .destructive, title: deleteTitle) { [weak self] _, row in
+            self?.deleteAccount(at: row)
+        }]
+    }
+
+    func deleteAccount(at row: Int) {
+        guard isInteractionEnabled,
+              accounts.indices.contains(row),
+              !accounts[row].isActive else {
+            return
+        }
+        onDelete(accounts[row])
+    }
+}
+
 final class RoundedPanelView: NSView {
     private let fillColor: NSColor
     private let hoverFillColor: NSColor?
@@ -912,162 +1022,6 @@ final class SettingsActionButton: NSButton {
 
     override func mouseExited(with event: NSEvent) {
         layer?.backgroundColor = fillColor.cgColor
-    }
-}
-
-final class SwipeRevealRowView: NSView {
-    let contentView: NSView
-    var onRevealRequested: ((Bool) -> Void)?
-    var onDelete: (() -> Void)?
-    var onPrimaryAction: (() -> Void)?
-
-    private let actionButton: SettingsActionButton
-    private var offset: CGFloat = 0
-    private var downPoint: NSPoint?
-    private var initialOffset: CGFloat = 0
-    private var dragIntent: SwipeAxisIntent = .undecided
-    private var lastDragX: CGFloat = 0
-    private var lastDragTimestamp: TimeInterval = 0
-    private var isHorizontalScrollGesture = false
-
-    init(frame: NSRect, contentView: NSView, deleteTitle: String, deleteTooltip: String) {
-        self.contentView = contentView
-        let revealWidth = CGFloat(SwipeRevealPolicy.revealWidth)
-        actionButton = SettingsActionButton(
-            frame: NSRect(x: frame.width - revealWidth, y: 0, width: revealWidth, height: frame.height),
-            title: deleteTitle,
-            color: NSColor.systemRed.withAlphaComponent(0.78),
-            textColor: .white
-        )
-        super.init(frame: frame)
-
-        wantsLayer = true
-        layer?.masksToBounds = true
-        actionButton.target = self
-        actionButton.action = #selector(deletePressed)
-        actionButton.toolTip = deleteTooltip
-        actionButton.setAccessibilityLabel(deleteTooltip)
-        actionButton.setAccessibilityHidden(true)
-        actionButton.isHidden = true
-        addSubview(actionButton)
-
-        contentView.frame = bounds
-        addSubview(contentView)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var isFlipped: Bool { true }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        if SwipeRevealPolicy.isActionVisible(offset: Double(offset)), actionButton.frame.contains(point) {
-            return actionButton
-        }
-        return bounds.contains(point) ? self : nil
-    }
-
-    func setRevealed(_ revealed: Bool, animated: Bool) {
-        offset = revealed ? -CGFloat(SwipeRevealPolicy.revealWidth) : 0
-        actionButton.setAccessibilityHidden(!revealed)
-        if revealed {
-            actionButton.isHidden = false
-        }
-        let origin = NSPoint(x: offset, y: 0)
-        guard animated else {
-            contentView.setFrameOrigin(origin)
-            actionButton.isHidden = !revealed
-            return
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            contentView.animator().setFrameOrigin(origin)
-        } completionHandler: { [weak self] in
-            guard let self else { return }
-            self.actionButton.isHidden = !SwipeRevealPolicy.isActionVisible(offset: Double(self.offset))
-        }
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        downPoint = convert(event.locationInWindow, from: nil)
-        initialOffset = offset
-        dragIntent = .undecided
-        lastDragX = downPoint?.x ?? 0
-        lastDragTimestamp = event.timestamp
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let downPoint else { return }
-        let current = convert(event.locationInWindow, from: nil)
-        if dragIntent == .undecided {
-            dragIntent = SwipeRevealPolicy.intent(
-                deltaX: Double(current.x - downPoint.x),
-                deltaY: Double(current.y - downPoint.y)
-            )
-        }
-        guard dragIntent == .horizontal else { return }
-        offset = CGFloat(SwipeRevealPolicy.clampedOffset(Double(initialOffset + current.x - downPoint.x)))
-        actionButton.isHidden = !SwipeRevealPolicy.isActionVisible(offset: Double(offset))
-        contentView.setFrameOrigin(NSPoint(x: offset, y: 0))
-        lastDragX = current.x
-        lastDragTimestamp = event.timestamp
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        defer { downPoint = nil }
-        switch dragIntent {
-        case .undecided:
-            if offset < 0 {
-                settle(.closed)
-            } else {
-                onPrimaryAction?()
-            }
-        case .vertical:
-            break
-        case .horizontal:
-            let currentX = convert(event.locationInWindow, from: nil).x
-            let elapsed = max(0.001, event.timestamp - lastDragTimestamp)
-            let velocityX = Double((currentX - lastDragX) / CGFloat(elapsed))
-            settle(SwipeRevealPolicy.settledState(offset: Double(offset), velocityX: velocityX))
-        }
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        if isHorizontalScrollGesture, event.phase == .ended || event.phase == .cancelled {
-            isHorizontalScrollGesture = false
-            settle(SwipeRevealPolicy.settledState(offset: Double(offset), velocityX: 0))
-            return
-        }
-        let deltaX = event.hasPreciseScrollingDeltas ? event.scrollingDeltaX : event.deltaX
-        let deltaY = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.deltaY
-        guard abs(deltaX) > abs(deltaY), abs(deltaX) > 0 else {
-            super.scrollWheel(with: event)
-            return
-        }
-
-        isHorizontalScrollGesture = !event.phase.isEmpty
-        offset = CGFloat(SwipeRevealPolicy.offsetAfterScroll(
-            current: Double(offset),
-            scrollingDeltaX: Double(deltaX),
-            directionInverted: event.isDirectionInvertedFromDevice
-        ))
-        actionButton.isHidden = !SwipeRevealPolicy.isActionVisible(offset: Double(offset))
-        contentView.setFrameOrigin(NSPoint(x: offset, y: 0))
-        if event.phase.isEmpty {
-            settle(SwipeRevealPolicy.settledState(offset: Double(offset), velocityX: 0))
-        }
-    }
-
-    private func settle(_ state: SwipeRevealSettleState) {
-        let revealed = state == .revealed
-        setRevealed(revealed, animated: true)
-        onRevealRequested?(revealed)
-    }
-
-    @objc private func deletePressed() {
-        onDelete?()
     }
 }
 
