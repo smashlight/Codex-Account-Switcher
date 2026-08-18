@@ -14,6 +14,7 @@ struct AppKitInteractionTests {
         testAccountRowHostingViewFollowsTableWidth()
         testAccountRowHostingViewPreservesTableGestures()
         testAccountTableUsesCompactSpacing()
+        testTenCompactRowsFitViewport()
 
         if failures.isEmpty {
             print("AppKit interaction tests passed (\(assertionCount) assertions).")
@@ -27,6 +28,32 @@ struct AppKitInteractionTests {
 
     private static func testAccountTableUsesCompactSpacing() {
         expect(makeTable().intercellSpacing.height == 4, "account table should use compact row spacing")
+    }
+
+    private static func testTenCompactRowsFitViewport() {
+        let accounts = (0..<10).map {
+            account(email: "account-\($0)@example.com", active: $0 == 0)
+        }
+        let viewportHeight: CGFloat = 426 + CGFloat(UsagePanelLayoutMetrics.accountListEdgeAllowance)
+        let table = AccountListTableView(
+            frame: NSRect(x: 0, y: 0, width: 480, height: viewportHeight),
+            accounts: accounts,
+            isInteractionEnabled: true,
+            armedEmail: nil,
+            deleteTitle: "Delete",
+            rowSpacing: 4,
+            rowHeightProvider: { _ in 39 },
+            rowViewProvider: { _, frame in NSView(frame: frame) },
+            onSelect: { _ in },
+            onDelete: { _ in }
+        )
+        table.reloadData()
+        table.layoutSubtreeIfNeeded()
+        let finalCellFrame = table.frameOfCell(atColumn: 0, row: 9)
+        expect(
+            finalCellFrame.maxY <= viewportHeight,
+            "the tenth compact account cell must fit fully (maxY \(finalCellFrame.maxY), viewport \(viewportHeight))"
+        )
     }
 
     private static func testNativeTableMapsSelectionToExactAccount() {

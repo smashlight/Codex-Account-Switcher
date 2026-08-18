@@ -351,6 +351,7 @@ struct InfrastructureTests {
         expect(UsagePanelLayoutMetrics.controlBarHeight == 40, "reset chance and footer should share one height")
         expect(UsagePanelLayoutMetrics.accountRowHeight == 39, "account rows should be compact")
         expect(UsagePanelLayoutMetrics.accountRowGap == 4, "account row gaps should be compact")
+        expect(UsagePanelLayoutMetrics.accountListEdgeAllowance == 2, "native account table should reserve its final cell edge")
     }
 
     private static func testAccountListViewportHeightPolicy() {

@@ -74,6 +74,7 @@ enum UsagePanelLayoutMetrics {
     static let controlBarHeight = 40.0
     static let accountRowHeight = 39.0
     static let accountRowGap = 4.0
+    static let accountListEdgeAllowance = 2.0
 }
 
 enum InlineSwitchDecision: Equatable {

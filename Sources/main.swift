@@ -16,6 +16,7 @@ private enum AccountPanelLayout {
     static let rowHeight = CGFloat(UsagePanelLayoutMetrics.accountRowHeight)
     static let confirmationRowHeight: CGFloat = 78
     static let rowGap = CGFloat(UsagePanelLayoutMetrics.accountRowGap)
+    static let accountListEdgeAllowance = CGFloat(UsagePanelLayoutMetrics.accountListEdgeAllowance)
     static let paceTopGap: CGFloat = 8
     static let paceChartHeight: CGFloat = 104
     static let verdictTopGap: CGFloat = 8
@@ -416,7 +417,8 @@ final class AccountSwitcherPanelView: NSView {
             let availableListHeight = max(AccountPanelLayout.rowHeight, maximumHeight - fixedHeight)
             let rowCapacity = max(
                 1,
-                Int((availableListHeight + AccountPanelLayout.rowGap) / (AccountPanelLayout.rowHeight + AccountPanelLayout.rowGap))
+                Int((availableListHeight - AccountPanelLayout.accountListEdgeAllowance + AccountPanelLayout.rowGap)
+                    / (AccountPanelLayout.rowHeight + AccountPanelLayout.rowGap))
             )
             let visibleRows = AccountListPresentationPolicy.visibleRowCount(
                 accountCount: accountCount,
@@ -428,6 +430,7 @@ final class AccountSwitcherPanelView: NSView {
             } else {
                 desiredListHeight = CGFloat(visibleRows) * AccountPanelLayout.rowHeight
                     + CGFloat(max(0, visibleRows - 1)) * AccountPanelLayout.rowGap
+                    + AccountPanelLayout.accountListEdgeAllowance
             }
             return NSSize(
                 width: AccountPanelLayout.usageWidth,
@@ -499,13 +502,14 @@ final class AccountSwitcherPanelView: NSView {
         let section = FlippedContainerView(frame: frame)
         let rowCapacity = max(
             1,
-            Int((frame.height + AccountPanelLayout.rowGap) / (AccountPanelLayout.rowHeight + AccountPanelLayout.rowGap))
+            Int((frame.height - AccountPanelLayout.accountListEdgeAllowance + AccountPanelLayout.rowGap)
+                / (AccountPanelLayout.rowHeight + AccountPanelLayout.rowGap))
         )
         let visibleRows = AccountListPresentationPolicy.visibleRowCount(
             accountCount: orderedAccounts.count,
             availableRowCapacity: rowCapacity
         )
-        let viewportHeight = CGFloat(AccountListPresentationPolicy.viewportHeight(
+        let viewportHeight = min(frame.height, CGFloat(AccountListPresentationPolicy.viewportHeight(
             accountCount: orderedAccounts.count,
             visibleRowCount: visibleRows,
             maximumHeight: Double(frame.height),
@@ -513,7 +517,7 @@ final class AccountSwitcherPanelView: NSView {
             confirmationRowHeight: Double(AccountPanelLayout.confirmationRowHeight),
             rowGap: Double(AccountPanelLayout.rowGap),
             showsConfirmation: armedSwitchEmail != nil
-        ))
+        )) + AccountPanelLayout.accountListEdgeAllowance)
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: frame.width, height: viewportHeight))
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
@@ -533,6 +537,7 @@ final class AccountSwitcherPanelView: NSView {
         }
         let contentHeight = rowHeights.reduce(0, +)
             + CGFloat(max(0, orderedAccounts.count - 1)) * AccountPanelLayout.rowGap
+            + AccountPanelLayout.accountListEdgeAllowance
         scrollView.hasVerticalScroller = policyRequiresScrolling || contentHeight > viewportHeight
         let table = AccountListTableView(frame: NSRect(
             x: 0,

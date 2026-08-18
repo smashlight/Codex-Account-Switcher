@@ -94,6 +94,7 @@ final class AccountListTableView: NSTableView, NSTableViewDataSource, NSTableVie
         headerView = nil
         dataSource = self
         delegate = self
+        style = .plain
         intercellSpacing = NSSize(width: 0, height: rowSpacing)
         backgroundColor = .clear
         selectionHighlightStyle = .none
