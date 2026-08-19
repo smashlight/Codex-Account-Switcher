@@ -67,6 +67,8 @@ enum LocalizedTextKey: CaseIterable {
     case verdictNotEnoughDetail
     case verdictCollectingTitle
     case verdictCollectingDetail
+    case verdictDeficitSummary
+    case verdictAfterResetSummary
     case nowEvent
     case resetEvent
     case exhaustionEvent
@@ -107,6 +109,8 @@ enum LocalizedText {
             case .verdictNotEnoughDetail: return "Запас закончится раньше следующего сброса."
             case .verdictCollectingTitle: return "Собираем историю"
             case .verdictCollectingDetail: return "Нужно больше данных для надёжного прогноза."
+            case .verdictDeficitSummary: return "Дефицит"
+            case .verdictAfterResetSummary: return "Запас после сброса"
             case .nowEvent: return "Сейчас"
             case .resetEvent: return "Сброс"
             case .exhaustionEvent: return "Запас закончится"
@@ -143,6 +147,8 @@ enum LocalizedText {
             case .verdictNotEnoughDetail: return "Capacity will run out before the next reset."
             case .verdictCollectingTitle: return "Collecting history"
             case .verdictCollectingDetail: return "More data is needed for a reliable forecast."
+            case .verdictDeficitSummary: return "Deficit"
+            case .verdictAfterResetSummary: return "After reset"
             case .nowEvent: return "Now"
             case .resetEvent: return "Reset"
             case .exhaustionEvent: return "Capacity ends"
@@ -372,6 +378,16 @@ struct PoolVerdictEventPresentation: Equatable {
     let intervalText: String?
 }
 
+enum PoolVerdictTimelineGeometry {
+    static func firstEventFraction(
+        firstInterval: TimeInterval,
+        lastInterval: TimeInterval
+    ) -> Double? {
+        guard firstInterval.isFinite, lastInterval.isFinite, lastInterval > 0 else { return nil }
+        return max(0, min(1, firstInterval / lastInterval))
+    }
+}
+
 struct PoolVerdictPresentation: Equatable {
     let kind: PoolVerdictKind
     let language: AppLanguage
@@ -381,6 +397,9 @@ struct PoolVerdictPresentation: Equatable {
     let title: String
     let detail: String
     let marginBadge: String?
+    let firstEventFraction: Double?
+    let marginSummaryLabel: String?
+    let marginSummaryValue: String?
     let accessibilityLabel: String
     let events: [PoolVerdictEventPresentation]
 }
@@ -398,6 +417,9 @@ enum PoolVerdictPresenter {
                 title: LocalizedText.value(.verdictCollectingTitle, language: language),
                 detail: LocalizedText.value(.verdictCollectingDetail, language: language),
                 marginBadge: nil,
+                firstEventFraction: nil,
+                marginSummaryLabel: nil,
+                marginSummaryValue: nil,
                 accessibilityLabel: LocalizedText.value(.collectingAccessibility, language: language),
                 events: []
             )
@@ -411,6 +433,17 @@ enum PoolVerdictPresenter {
             let exhaustionEvent = event(.exhaustion, interval: exhaustion, language: language)
             let events = [event(.now, interval: nil, language: language)]
                 + (verdict.kind == .enough ? [resetEvent, exhaustionEvent] : [exhaustionEvent, resetEvent])
+            let firstInterval = verdict.kind == .enough ? reset : exhaustion
+            let lastInterval = verdict.kind == .enough ? exhaustion : reset
+            guard let firstEventFraction = PoolVerdictTimelineGeometry.firstEventFraction(
+                firstInterval: firstInterval,
+                lastInterval: lastInterval
+            ) else {
+                return make(verdict: .collecting, language: language)
+            }
+            let marginSummaryKey: LocalizedTextKey = verdict.kind == .enough
+                ? .verdictAfterResetSummary
+                : .verdictDeficitSummary
             return PoolVerdictPresentation(
                 kind: verdict.kind,
                 language: language,
@@ -420,6 +453,9 @@ enum PoolVerdictPresenter {
                 title: LocalizedText.value(verdict.kind == .enough ? .verdictEnoughTitle : .verdictNotEnoughTitle, language: language),
                 detail: LocalizedText.value(verdict.kind == .enough ? .verdictEnoughDetail : .verdictNotEnoughDetail, language: language),
                 marginBadge: LocalizedIntervalFormatter.signedMargin(margin, language: language),
+                firstEventFraction: firstEventFraction,
+                marginSummaryLabel: LocalizedText.value(marginSummaryKey, language: language),
+                marginSummaryValue: LocalizedIntervalFormatter.duration(abs(margin), language: language),
                 accessibilityLabel: LocalizedText.value(verdict.kind == .enough ? .enoughAccessibility : .notEnoughAccessibility, language: language),
                 events: events
             )
