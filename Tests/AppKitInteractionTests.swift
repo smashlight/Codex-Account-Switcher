@@ -76,6 +76,10 @@ struct AppKitInteractionTests {
 
         expect(summaryLabel?.alignment == .right, "the margin summary label should be visible and right-aligned")
         expect(summaryValue?.alignment == .right, "the absolute margin value should be visible and right-aligned")
+        expect(summaryLabel?.frame.width == 124, "the summary label should use the stable collision-safe width")
+        expect(summaryValue?.frame.width == 124, "the summary value should use the stable collision-safe width")
+        expect(summaryLabel?.isAccessibilityElement() == false, "the semantic label should not be announced twice")
+        expect(summaryValue?.accessibilityLabel() == "Дефицит 16 часов 48 минут", "the summary value should expose one combined accessibility label")
     }
 
     private static func testNativeTableMapsSelectionToExactAccount() {

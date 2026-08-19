@@ -383,7 +383,8 @@ enum PoolVerdictTimelineGeometry {
         firstInterval: TimeInterval,
         lastInterval: TimeInterval
     ) -> Double? {
-        guard firstInterval.isFinite, lastInterval.isFinite, lastInterval > 0 else { return nil }
+        guard firstInterval.isFinite, lastInterval.isFinite,
+              firstInterval > 0, lastInterval > 0 else { return nil }
         return max(0, min(1, firstInterval / lastInterval))
     }
 }
