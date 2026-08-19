@@ -396,7 +396,6 @@ struct PoolVerdictPresentation: Equatable {
     let margin: TimeInterval?
     let title: String
     let detail: String
-    let marginBadge: String?
     let firstEventFraction: Double?
     let marginSummaryLabel: String?
     let marginSummaryValue: String?
@@ -416,7 +415,6 @@ enum PoolVerdictPresenter {
                 margin: nil,
                 title: LocalizedText.value(.verdictCollectingTitle, language: language),
                 detail: LocalizedText.value(.verdictCollectingDetail, language: language),
-                marginBadge: nil,
                 firstEventFraction: nil,
                 marginSummaryLabel: nil,
                 marginSummaryValue: nil,
@@ -452,7 +450,6 @@ enum PoolVerdictPresenter {
                 margin: margin,
                 title: LocalizedText.value(verdict.kind == .enough ? .verdictEnoughTitle : .verdictNotEnoughTitle, language: language),
                 detail: LocalizedText.value(verdict.kind == .enough ? .verdictEnoughDetail : .verdictNotEnoughDetail, language: language),
-                marginBadge: LocalizedIntervalFormatter.signedMargin(margin, language: language),
                 firstEventFraction: firstEventFraction,
                 marginSummaryLabel: LocalizedText.value(marginSummaryKey, language: language),
                 marginSummaryValue: LocalizedIntervalFormatter.duration(abs(margin), language: language),

@@ -275,7 +275,6 @@ struct InfrastructureTests {
         let enough = PoolVerdict(kind: .enough, resetInterval: 2 * 86_400, exhaustionInterval: 2.9 * 86_400, margin: 0.9 * 86_400)
         let enoughRU = PoolVerdictPresenter.make(verdict: enough, language: .russian)
         expect(enoughRU.title == "Хватит до сброса", "Enough should use the Russian title")
-        expect(enoughRU.marginBadge == "+21 час 36 минут", "Enough should show a positive buffer")
         expect(abs((enoughRU.firstEventFraction ?? -1) - (2.0 / 2.9)) < 0.000_001, "Enough should place reset proportionally before exhaustion")
         expect(enoughRU.marginSummaryLabel == "Запас после сброса", "Enough should explain the positive margin")
         expect(enoughRU.marginSummaryValue == "21 час 36 минут", "Enough should show the absolute localized margin")
@@ -285,7 +284,6 @@ struct InfrastructureTests {
         let notEnough = PoolVerdict(kind: .notEnough, resetInterval: 2 * 86_400, exhaustionInterval: 1.3 * 86_400, margin: -0.7 * 86_400)
         let notEnoughEN = PoolVerdictPresenter.make(verdict: notEnough, language: .english)
         expect(notEnoughEN.title == "Runs out before reset", "Not Enough should use the English title")
-        expect(notEnoughEN.marginBadge == "−16 hours 48 minutes", "Not Enough should show a negative deficit")
         expect(abs((notEnoughEN.firstEventFraction ?? -1) - (1.3 / 2.0)) < 0.000_001, "Not Enough should place exhaustion proportionally before reset")
         expect(notEnoughEN.marginSummaryLabel == "Deficit", "Not Enough should explain the negative margin")
         expect(notEnoughEN.marginSummaryValue == "16 hours 48 minutes", "Not Enough should show the absolute localized margin")
@@ -294,7 +292,6 @@ struct InfrastructureTests {
 
         let collecting = PoolVerdictPresenter.make(verdict: .collecting, language: .russian)
         expect(collecting.kind == .collecting, "incomplete inputs should remain collecting")
-        expect(collecting.marginBadge == nil, "Collecting should not show a badge")
         expect(collecting.firstEventFraction == nil, "Collecting should not expose timeline geometry")
         expect(collecting.marginSummaryLabel == nil, "Collecting should not show a margin label")
         expect(collecting.marginSummaryValue == nil, "Collecting should not show a margin value")

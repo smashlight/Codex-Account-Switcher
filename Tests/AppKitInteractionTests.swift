@@ -15,6 +15,7 @@ struct AppKitInteractionTests {
         testAccountRowHostingViewPreservesTableGestures()
         testAccountTableUsesCompactSpacing()
         testTenCompactRowsFitViewport()
+        testPoolVerdictCardShowsSemanticMarginSummary()
 
         if failures.isEmpty {
             print("AppKit interaction tests passed (\(assertionCount) assertions).")
@@ -54,6 +55,27 @@ struct AppKitInteractionTests {
             finalCellFrame.maxY <= viewportHeight,
             "the tenth compact account cell must fit fully (maxY \(finalCellFrame.maxY), viewport \(viewportHeight))"
         )
+    }
+
+    private static func testPoolVerdictCardShowsSemanticMarginSummary() {
+        let verdict = PoolVerdict(
+            kind: .notEnough,
+            resetInterval: 2 * 86_400,
+            exhaustionInterval: 1.3 * 86_400,
+            margin: -0.7 * 86_400
+        )
+        let presentation = PoolVerdictPresenter.make(verdict: verdict, language: .russian)
+        let card = PoolVerdictCardView(
+            frame: NSRect(x: 0, y: 0, width: 484, height: 108),
+            presentation: presentation,
+            theme: PanelTheme(isDark: true)
+        )
+        let labels = card.subviews.compactMap { $0 as? NSTextField }
+        let summaryLabel = labels.first { $0.stringValue == "Дефицит" }
+        let summaryValue = labels.first { $0.stringValue == "16 часов 48 минут" }
+
+        expect(summaryLabel?.alignment == .right, "the margin summary label should be visible and right-aligned")
+        expect(summaryValue?.alignment == .right, "the absolute margin value should be visible and right-aligned")
     }
 
     private static func testNativeTableMapsSelectionToExactAccount() {
