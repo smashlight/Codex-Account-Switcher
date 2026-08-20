@@ -16,6 +16,7 @@ struct AppKitInteractionTests {
         testAccountTableUsesCompactSpacing()
         testTenCompactRowsFitViewport()
         testPoolVerdictCardShowsSemanticMarginSummary()
+        testPoolVerdictCardDoesNotDrawLabelConnector()
 
         if failures.isEmpty {
             print("AppKit interaction tests passed (\(assertionCount) assertions).")
@@ -80,6 +81,49 @@ struct AppKitInteractionTests {
         expect(summaryValue?.frame.width == 124, "the summary value should use the stable collision-safe width")
         expect(summaryLabel?.isAccessibilityElement() == false, "the semantic label should not be announced twice")
         expect(summaryValue?.accessibilityLabel() == "Дефицит 16 часов 48 минут", "the summary value should expose one combined accessibility label")
+    }
+
+    private static func testPoolVerdictCardDoesNotDrawLabelConnector() {
+        let verdict = PoolVerdict(
+            kind: .enough,
+            resetInterval: 3 * 3_600 + 16 * 60,
+            exhaustionInterval: 2 * 86_400 + 3_600,
+            margin: 86_400 + 22 * 3_600
+        )
+        let card = PoolVerdictCardView(
+            frame: NSRect(x: 0, y: 0, width: 484, height: 108),
+            presentation: PoolVerdictPresenter.make(verdict: verdict, language: .russian),
+            theme: PanelTheme(isDark: true)
+        )
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 484,
+            pixelsHigh: 108,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            expect(false, "the verdict card drawing should render into a bitmap")
+            return
+        }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        card.draw(card.bounds)
+        NSGraphicsContext.restoreGraphicsState()
+
+        let connectorPixelCount = (120..<235).reduce(into: 0) { count, x in
+            for y in 33..<38 where (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.01 {
+                count += 1
+            }
+        }
+        expect(
+            connectorPixelCount == 0,
+            "the area below the timeline should not contain a diagonal label connector"
+        )
     }
 
     private static func testNativeTableMapsSelectionToExactAccount() {

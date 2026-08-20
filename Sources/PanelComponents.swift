@@ -574,15 +574,6 @@ final class PoolVerdictCardView: NSView {
                 .fill()
         }
 
-        if abs(firstEventX - labelCenters[1]) > 4 {
-            lighterAccent.withAlphaComponent(0.38).setStroke()
-            let connector = NSBezierPath()
-            connector.lineWidth = 1
-            connector.move(to: NSPoint(x: firstEventX, y: pointY + 4))
-            connector.line(to: NSPoint(x: labelCenters[1], y: 74))
-            connector.stroke()
-        }
-
         for (index, center) in pointCenters.enumerated() {
             let color = index < 2 ? (index == 0 ? accent : lighterAccent) : theme.secondaryText
             color.setFill()

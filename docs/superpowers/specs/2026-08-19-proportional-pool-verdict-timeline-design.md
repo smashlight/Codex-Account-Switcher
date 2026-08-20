@@ -48,13 +48,13 @@ The point therefore appears near the middle for this specific forecast, but move
 
 ## Event Labels
 
-The three text groups remain in ordered left, center, and right columns so long localized strings never overlap. The points themselves use proportional positions. A subtle connector links the proportional first-event point to the center event-label column when the two centers differ materially.
+The three text groups remain in ordered left, center, and right columns so long localized strings never overlap. The points themselves use proportional positions. No diagonal connector is drawn between a point and its fixed label column; the area below the horizontal track stays visually quiet.
 
 This deliberately separates accurate time geometry from collision-safe text layout:
 
 - point position communicates relative time;
 - ordered columns communicate event identity and exact intervals;
-- the connector preserves their visual association.
+- the event order and exact interval text preserve their semantic association.
 
 The `now` and later-event points stay aligned with the left and right label columns. Exact interval text remains below each event name.
 
@@ -92,7 +92,7 @@ The existing signed-margin formatter remains available for unrelated callers or 
 1. reserves trailing header space for the two-line margin summary;
 2. draws the first event at the supplied fraction;
 3. splits the accent and subdued track at that point;
-4. draws a subtle connector to the center label column when needed;
+4. keeps the area between the horizontal track and event labels free of auxiliary lines;
 5. keeps existing accessibility semantics and verdict styling.
 
 The card height and surrounding panel layout remain unchanged.

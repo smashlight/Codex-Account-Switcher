@@ -226,9 +226,9 @@ let pointCenters = [startX, firstEventX, endX]
 
 Draw the gradient only when `firstEventX > startX`, and draw the subdued segment only when `endX > firstEventX`. This prevents zero-width path work at clamped endpoints.
 
-- [ ] **Step 4: Add the collision-safe connector**
+- [ ] **Step 4: Keep the label band visually quiet**
 
-When `abs(firstEventX - labelCenters[1]) > 4`, draw a `1 pt` line from `(firstEventX, pointY + 4)` to `(labelCenters[1], 74)` using `lighterAccent.withAlphaComponent(0.38)`. The connector associates the true point with the fixed center label without moving or overlapping text.
+Do not draw a diagonal connector from `firstEventX` to the fixed center label column. Keep the proportional point on the horizontal track and let the ordered labels plus exact interval text identify the event. Add an AppKit bitmap regression test that renders `PoolVerdictCardView.draw(_:)` and verifies the band between the track and labels contains no auxiliary stroke.
 
 - [ ] **Step 5: Remove the obsolete badge model and view**
 
