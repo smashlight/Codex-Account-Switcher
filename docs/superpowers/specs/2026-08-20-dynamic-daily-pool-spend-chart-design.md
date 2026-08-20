@@ -50,8 +50,8 @@ The existing local 30-minute sampling and delta-triggered samples are sufficient
 - Adding an account creates capacity but not negative spend.
 - Removing or temporarily missing an account does not invent spend.
 - Use the newest sample at or before local midnight as the opening anchor when it is no more than one sampling interval old.
-- A past day is incomplete when it has no valid opening anchor, when any represented account has fewer than two observations, or when consecutive pool observations are separated by more than two sampling intervals. Treat its result as a lower bound.
-- Today is an in-progress day and is not incomplete merely because the day has not ended. Missing opening coverage or oversized sampling gaps can still make today's value a lower bound.
+- A past day is incomplete when it has no valid opening anchor, when any represented account is absent from that anchor or has fewer than two observations, when consecutive pool observations are separated by more than two sampling intervals, or when the final observation is more than two sampling intervals before day end. Treat its result as a lower bound.
+- Today is an in-progress day and is not incomplete merely because the day has not ended. Missing opening coverage, incomplete account coverage, oversized sampling gaps, or a final sample older than two sampling intervals still make today's value a lower bound.
 - A day with no usable deltas remains a dated empty slot and must not render as `0%` spend.
 
 The aggregation layer must return explicit completeness metadata rather than making the view infer it from sample count.
