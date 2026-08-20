@@ -33,87 +33,43 @@ private enum AccountPanelLayout {
 
 // MARK: - Pool pace chart (Swift Charts inside the AppKit panel)
 
-/// How the chart should interpret `history`: one bar per raw sample (default)
-/// or one bar per calendar day (daily aggregation via `DailyPoolAggregator`).
-enum PoolResolution {
-    case samples
-    case daily
-}
-
-struct PoolPacePoint: Identifiable {
-    let date: Date
-    let value: Double?
-    var endValue: Double?
-    var sampleCount: Int = 1
-    var id: Date { date }
-}
-
 struct PoolPaceChartData {
-    let history: [PoolPacePoint]
-    let resolution: PoolResolution
-    let tint: Color
+    let points: [DailyPoolSpendPoint]
     let gridLine: Color
     let labelText: Color
     let language: AppLanguage
 }
 
-/// CodexBar-style utilization bars: a muted capacity track (0...100) with a
-/// tinted remaining-pool fill per sample, date labels on the X axis, a dashed
-/// hover rule, and localized detail text for the selected bar.
+/// Fourteen daily gross-spend bars over a normalized full-pool track.
 
 struct PoolPaceChartView: View {
     struct Bar: Identifiable {
         let index: Int
-        let date: Date
-        let value: Double?
-        let endValue: Double?
-        let sampleCount: Int
-        let isToday: Bool
-        var id: Int { index }
+        let point: DailyPoolSpendPoint
+        var id: Date { point.date }
     }
 
     let data: PoolPaceChartData
     @State private var hoveredIndex: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let maxSampleBars = 30
     private static let maxDailyBars = 14
     private static let maxAxisLabels = 4
-    private static let sampleBarWidth: CGFloat = 7
     private static let dailyBarWidth: CGFloat = 12
+    private static let popoverWidth = CGFloat(PoolChartPopoverMetrics.width)
+    private static let popoverHeight = CGFloat(PoolChartPopoverMetrics.minimumHeight)
 
     private var bars: [Bar] {
-        let maxBars = data.resolution == .daily ? Self.maxDailyBars : Self.maxSampleBars
-        let calendar = Calendar.current
-        return Array(data.history.suffix(maxBars)).enumerated().map { offset, point in
-            Bar(
-                index: offset,
-                date: point.date,
-                value: point.value,
-                endValue: point.endValue,
-                sampleCount: point.sampleCount,
-                isToday: calendar.isDateInToday(point.date)
-            )
+        Array(data.points.suffix(Self.maxDailyBars)).enumerated().map { offset, point in
+            Bar(index: offset, point: point)
         }
     }
 
     var body: some View {
-        if bars.isEmpty {
-            VStack {
-                Spacer()
-                Text(LocalizedText.value(.poolHistoryCollecting, language: data.language))
-                    .font(.system(size: 11))
-                    .foregroundStyle(data.labelText)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                Spacer()
-            }
-            .frame(height: AccountPanelLayout.paceChartHeight)
-        } else {
-            chart
-        }
+        chart
     }
 
     private var chart: some View {
-        let barWidth = data.resolution == .daily ? Self.dailyBarWidth : Self.sampleBarWidth
         let semanticLabels = PoolChartLocalization.semanticLabels(language: data.language)
         return Chart {
             ForEach(bars) { bar in
@@ -121,27 +77,41 @@ struct PoolPaceChartView: View {
                     x: .value(semanticLabels.index, Double(bar.index)),
                     yStart: .value(semanticLabels.base, 0),
                     yEnd: .value(semanticLabels.capacity, 100),
-                    width: .fixed(barWidth)
+                    width: .fixed(Self.dailyBarWidth)
                 )
                 .foregroundStyle(data.gridLine.opacity(0.28))
                 .cornerRadius(3)
+                .accessibilityLabel(PoolChartLocalization.axisDate(bar.point.date, language: data.language))
+                .accessibilityValue(PoolChartLocalization.accessibilityValue(for: bar.point, language: data.language))
 
-                if let value = bar.value {
+                if let spentPercent = bar.point.spentPercent {
                     BarMark(
                         x: .value(semanticLabels.index, Double(bar.index)),
                         yStart: .value(semanticLabels.base, 0),
-                        yEnd: .value(semanticLabels.pool, value),
-                        width: .fixed(barWidth)
+                        yEnd: .value(semanticLabels.pool, min(100, spentPercent)),
+                        width: .fixed(Self.dailyBarWidth)
                     )
-                    .foregroundStyle(barStyle(for: value))
+                    .foregroundStyle(barStyle(for: spentPercent))
+                    .opacity(barOpacity(for: bar.index))
                     .cornerRadius(3)
+
+                    if hoveredIndex == bar.index {
+                        BarMark(
+                            x: .value(semanticLabels.index, Double(bar.index)),
+                            yStart: .value(semanticLabels.base, 0),
+                            yEnd: .value(semanticLabels.pool, min(100, spentPercent)),
+                            width: .fixed(Self.dailyBarWidth + 4)
+                        )
+                        .foregroundStyle(barStyle(for: spentPercent))
+                        .opacity(0.24)
+                        .cornerRadius(5)
+                    }
                 }
             }
-            if let hoveredIndex {
-                RuleMark(x: .value(semanticLabels.index, Double(hoveredIndex)))
-                    .foregroundStyle(data.gridLine)
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-            }
+            RuleMark(y: .value(semanticLabels.pool, DailyPoolSpendBand.dailyReferencePercent))
+                .foregroundStyle(Color(.nativeGold).opacity(0.38))
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                .accessibilityLabel(PoolChartLocalization.dailyReferenceAccessibility(language: data.language))
         }
         .chartXScale(domain: -0.5...(Double(bars.count) - 0.5))
         .chartYScale(domain: 0...100)
@@ -154,7 +124,7 @@ struct PoolPaceChartView: View {
                     if let raw = axisValue.as(Double.self) {
                         let index = Int(raw.rounded())
                         if bars.indices.contains(index) {
-                            Text(PoolChartLocalization.axisDate(bars[index].date, language: data.language))
+                            Text(PoolChartLocalization.axisDate(bars[index].point.date, language: data.language))
                                 .font(.system(size: 7))
                                 .foregroundStyle(data.labelText.opacity(0.7))
                         }
@@ -164,39 +134,66 @@ struct PoolPaceChartView: View {
         }
         .chartOverlay { proxy in
             GeometryReader { geometry in
-                Rectangle()
-                    .fill(.clear)
-                    .contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let location):
-                            let xValue = proxy.value(atX: location.x, as: Double.self) ?? 0
-                            hoveredIndex = bars.min(by: {
-                                abs(Double($0.index) - xValue) < abs(Double($1.index) - xValue)
-                            })?.index
-                        case .ended:
-                            hoveredIndex = nil
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .fill(.clear)
+                        .contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let location):
+                                guard let plotFrame = proxy.plotFrame else { return }
+                                let frame = geometry[plotFrame]
+                                let x = location.x - frame.minX
+                                guard let xValue = proxy.value(atX: x, as: Double.self) else { return }
+                                hoveredIndex = PoolChartHoverPolicy.nearestIndex(to: xValue, count: bars.count)
+                            case .ended:
+                                hoveredIndex = nil
+                            }
                         }
+
+                    if let hoveredIndex, bars.indices.contains(hoveredIndex) {
+                        let placement = popoverPlacement(
+                            for: bars[hoveredIndex],
+                            proxy: proxy,
+                            geometry: geometry
+                        )
+                        hoverPopover(
+                            for: bars[hoveredIndex].point,
+                            caretOffsetX: placement.caretOffsetX
+                        )
+                            .position(x: placement.centerX, y: placement.centerY)
+                            .allowsHitTesting(false)
                     }
+                }
             }
         }
         .frame(height: AccountPanelLayout.paceChartHeight)
-        .accessibilityValue(detailLine)
+        .accessibilityLabel(PoolChartLocalization.chartSummary(language: data.language))
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: hoveredIndex)
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: 0.25),
+            value: bars.map { $0.point.spentPercent ?? -1 }
+        )
     }
 
-    private func barStyle(for value: Double) -> AnyShapeStyle {
+    private func barStyle(for spentPercent: Double) -> AnyShapeStyle {
         let colors: [Color]
-        switch WeeklyRemainingBand.classify(Int(value.rounded())) {
-        case .healthy:
+        switch DailyPoolSpendBand.classify(spentPercent) {
+        case .withinReference:
             colors = [Color(.nativeMint), Color(.nativeBlue)]
-        case .warning:
+        case .aboveReference:
             colors = [Color(.nativeGold), Color(.nativeOrange)]
-        case .critical:
+        case .high:
             colors = [Color(.nativeCoral), Color(.nativeRed)]
         case .unknown:
             colors = [.secondary.opacity(0.55), .secondary]
         }
         return AnyShapeStyle(LinearGradient(colors: colors, startPoint: .bottom, endPoint: .top))
+    }
+
+    private func barOpacity(for index: Int) -> Double {
+        guard let hoveredIndex else { return 0.86 }
+        return hoveredIndex == index ? 1 : 0.42
     }
 
     private var axisIndexes: [Double] {
@@ -213,26 +210,77 @@ struct PoolPaceChartView: View {
         return indexes.sorted().map(Double.init)
     }
 
-    private var detailLine: String {
-        guard let hoveredIndex, bars.indices.contains(hoveredIndex) else { return "" }
-        let bar = bars[hoveredIndex]
-        switch data.resolution {
-        case .daily:
-            return LocalizedText.dailyChartDetail(
-                date: bar.date,
-                lowPercent: bar.value.map { Int($0.rounded()) },
-                endPercent: bar.endValue.map { Int($0.rounded()) },
-                isToday: bar.isToday,
-                language: data.language
-            )
-        case .samples:
-            guard let value = bar.value else { return "" }
-            return LocalizedText.sampleChartDetail(
-                date: bar.date,
-                remainingPercent: Int(value.rounded()),
-                language: data.language
+    private func hoverPopover(for point: DailyPoolSpendPoint, caretOffsetX: Double) -> some View {
+        let lines = PoolChartLocalization.detailLines(for: point, language: data.language)
+        return VStack(alignment: .leading, spacing: 3) {
+            if let date = lines.first {
+                Text(date)
+                    .font(.system(
+                        size: CGFloat(PoolChartPopoverMetrics.dateFontSize),
+                        weight: .semibold,
+                        design: .rounded
+                    ))
+            }
+            ForEach(Array(lines.dropFirst()), id: \.self) { line in
+                Text(line)
+                    .font(.system(
+                        size: CGFloat(PoolChartPopoverMetrics.bodyFontSize),
+                        weight: .medium,
+                        design: .rounded
+                    ))
+                    .foregroundStyle(data.labelText)
+                    .monospacedDigit()
+            }
+        }
+        .padding(.horizontal, CGFloat(PoolChartPopoverMetrics.horizontalPadding))
+        .padding(.vertical, CGFloat(PoolChartPopoverMetrics.verticalPadding))
+        .frame(
+            minWidth: Self.popoverWidth,
+            maxWidth: Self.popoverWidth,
+            minHeight: Self.popoverHeight,
+            alignment: .leading
+        )
+        .background(.ultraThinMaterial, in: .rect(cornerRadius: 9, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(data.gridLine.opacity(0.65), lineWidth: 1)
+        }
+        .overlay(alignment: .bottom) {
+            Image(systemName: "arrowtriangle.down.fill")
+                .font(.system(size: 7, weight: .semibold))
+                .foregroundStyle(data.gridLine.opacity(0.9))
+                .offset(x: caretOffsetX, y: 5)
+                .accessibilityHidden(true)
+        }
+        .shadow(color: .black.opacity(0.24), radius: 8, y: 4)
+    }
+
+    private func popoverPlacement(
+        for bar: Bar,
+        proxy: ChartProxy,
+        geometry: GeometryProxy
+    ) -> PoolChartPopoverPlacement {
+        guard let plotFrame = proxy.plotFrame else {
+            return PoolChartPopoverPolicy.placement(
+                anchorX: geometry.size.width / 2,
+                preferredCenterY: Self.popoverHeight / 2 + 2,
+                containerWidth: geometry.size.width,
+                containerHeight: geometry.size.height,
+                popoverWidth: Self.popoverWidth,
+                popoverHeight: Self.popoverHeight
             )
         }
+        let frame = geometry[plotFrame]
+        let plotX = proxy.position(forX: Double(bar.index)) ?? frame.width / 2
+        let plotY = proxy.position(forY: min(100, bar.point.spentPercent ?? 0)) ?? frame.height
+        return PoolChartPopoverPolicy.placement(
+            anchorX: frame.minX + plotX,
+            preferredCenterY: frame.minY + plotY - 26,
+            containerWidth: geometry.size.width,
+            containerHeight: geometry.size.height,
+            popoverWidth: Self.popoverWidth,
+            popoverHeight: Self.popoverHeight
+        )
     }
 }
 struct PaceDisplayState {
@@ -1371,39 +1419,12 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func paceChartData(_ state: PaceDisplayState) -> PoolPaceChartData {
-        let dailyPoints = DailyPoolAggregator.dailyPoints(from: state.history)
-        let history = dailyPoints.map {
-            PoolPacePoint(
-                date: $0.date,
-                value: $0.value,
-                endValue: $0.endValue,
-                sampleCount: $0.sampleCount
-            )
-        }
         return PoolPaceChartData(
-            history: history,
-            resolution: .daily,
-            tint: paceTint(for: state),
+            points: DailyPoolSpendAggregator.dailyPoints(from: state.history, now: state.now),
             gridLine: Color(theme.divider),
             labelText: Color(theme.secondaryText),
             language: language
         )
-    }
-
-    private func paceTint(for state: PaceDisplayState) -> Color {
-        let remaining = state.history.last.map {
-            PoolHistoryStore.poolAverage(n: $0.n, poolTotal: $0.poolTotal)
-        } ?? 0
-        switch WeeklyRemainingBand.classify(Int(remaining.rounded())) {
-        case .healthy:
-            return Color(.nativeMint)
-        case .warning:
-            return Color(.nativeOrange)
-        case .critical:
-            return Color(.nativeRed)
-        case .unknown:
-            return .secondary
-        }
     }
 
     private func bottomBar(frame: NSRect) -> NSView {

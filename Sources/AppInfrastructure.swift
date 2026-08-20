@@ -2140,53 +2140,184 @@ enum WeekCurveBuilder {
     }
 }
 
-// MARK: - Daily pool aggregation
+// MARK: - Daily pool spend aggregation
 
-/// One point per calendar day: the minimum pool average observed that day,
-/// the last sample of the day (for tooltips), and the sample count.
-struct DailyPoolPoint: Equatable {
-    let date: Date
-    let value: Double?
-    let endValue: Double?
-    let sampleCount: Int
+enum DailyPoolSpendCoverage: Equatable {
+    case noData
+    case complete
+    case lowerBound
+    case inProgress
+    case inProgressLowerBound
 }
 
-/// Builds day bars from the raw sample history: groups samples by local
-/// calendar day and keeps the last `dayCount` dated slots including today.
-/// Missing days retain nil values so they never look like exhausted capacity.
-enum DailyPoolAggregator {
+enum DailyPoolSpendBand: Equatable {
+    case unknown
+    case withinReference
+    case aboveReference
+    case high
+
+    static let dailyReferencePercent = 100.0 / 7.0
+    private static let withinReferenceUpperBound = 14.3
+
+    static func classify(_ spentPercent: Double?) -> DailyPoolSpendBand {
+        guard let spentPercent else { return .unknown }
+        if spentPercent > 25 { return .high }
+        if spentPercent > withinReferenceUpperBound { return .aboveReference }
+        return .withinReference
+    }
+}
+
+enum PoolChartHoverPolicy {
+    static func nearestIndex(to xValue: Double, count: Int) -> Int? {
+        guard count > 0 else { return nil }
+        return min(count - 1, max(0, Int(xValue.rounded())))
+    }
+}
+
+struct PoolChartPopoverPlacement: Equatable {
+    let centerX: Double
+    let centerY: Double
+    let caretOffsetX: Double
+}
+
+enum PoolChartPopoverMetrics {
+    static let width = 164.0
+    static let minimumHeight = 80.0
+    static let dateFontSize = 13.0
+    static let bodyFontSize = 12.0
+    static let horizontalPadding = 12.0
+    static let verticalPadding = 10.0
+}
+
+enum PoolChartPopoverPolicy {
+    static func placement(
+        anchorX: Double,
+        preferredCenterY: Double,
+        containerWidth: Double,
+        containerHeight: Double,
+        popoverWidth: Double,
+        popoverHeight: Double,
+        edgeInset: Double = 2,
+        caretInset: Double = 12
+    ) -> PoolChartPopoverPlacement {
+        let halfWidth = popoverWidth / 2
+        let halfHeight = popoverHeight / 2
+        let centerX = min(
+            containerWidth - halfWidth - edgeInset,
+            max(halfWidth + edgeInset, anchorX)
+        )
+        let centerY = min(
+            containerHeight - halfHeight - edgeInset,
+            max(halfHeight + edgeInset, preferredCenterY)
+        )
+        let maximumCaretOffset = max(0, halfWidth - caretInset)
+        let caretOffsetX = min(maximumCaretOffset, max(-maximumCaretOffset, anchorX - centerX))
+        return PoolChartPopoverPlacement(
+            centerX: centerX,
+            centerY: centerY,
+            caretOffsetX: caretOffsetX
+        )
+    }
+}
+
+struct DailyPoolSpendPoint: Equatable, Identifiable {
+    let date: Date
+    let spentPercent: Double?
+    let remainingPercent: Double?
+    let accountCount: Int
+    let coverage: DailyPoolSpendCoverage
+
+    var id: Date { date }
+}
+
+/// Builds normalized gross-spend bars from raw per-account remaining values.
+/// Missing dates remain explicit no-data slots, and increases never erase burn.
+enum DailyPoolSpendAggregator {
     static let defaultDayCount = 14
 
     static func dailyPoints(
         from samples: [PoolHistorySample],
         dayCount: Int = Self.defaultDayCount,
         now: Date = Date(),
-        calendar: Calendar = .current
-    ) -> [DailyPoolPoint] {
+        calendar: Calendar = .current,
+        samplingInterval: TimeInterval = PoolHistoryStore.samplingInterval
+    ) -> [DailyPoolSpendPoint] {
         guard dayCount >= 1 else { return [] }
         let today = calendar.startOfDay(for: now)
         guard let windowStart = calendar.date(byAdding: .day, value: -(dayCount - 1), to: today) else { return [] }
+        let orderedHistory = samples.sorted { $0.ts < $1.ts }
 
-        var grouped: [Date: [(ts: Date, value: Double)]] = [:]
-        for sample in samples {
-            let day = calendar.startOfDay(for: sample.ts)
-            guard day >= windowStart, day <= today else { continue }
-            grouped[day, default: []].append((
-                ts: sample.ts,
-                value: min(100, max(0, PoolHistoryStore.poolAverage(n: sample.n, poolTotal: sample.poolTotal)))
-            ))
-        }
         return (0..<dayCount).compactMap { offset in
             guard let day = calendar.date(byAdding: .day, value: offset, to: windowStart) else { return nil }
-            guard let samplesByDay = grouped[day], let first = samplesByDay.first else {
-                return DailyPoolPoint(date: day, value: nil, endValue: nil, sampleCount: 0)
+            guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: day) else { return nil }
+            let samplesByDay = orderedHistory.filter { $0.ts >= day && $0.ts < dayEnd }
+            guard let finalSample = samplesByDay.last else {
+                return DailyPoolSpendPoint(
+                    date: day,
+                    spentPercent: nil,
+                    remainingPercent: nil,
+                    accountCount: 0,
+                    coverage: .noData
+                )
             }
-            let ordered = samplesByDay.sorted { $0.ts < $1.ts }
-            return DailyPoolPoint(
+
+            let openingAnchor = orderedHistory.last {
+                $0.ts < day && day.timeIntervalSince($0.ts) <= samplingInterval
+            }
+            let observations = openingAnchor.map { [$0] + samplesByDay } ?? samplesByDay
+            let anchorKeys = Set(openingAnchor?.accounts.map(\.key) ?? [])
+            let representedKeys = Set(observations.flatMap { $0.accounts.map(\.key) })
+            var previousByKey: [String: Double] = [:]
+            var observationCountByKey: [String: Int] = [:]
+            var spentPoints = 0.0
+            var comparablePairs = 0
+
+            for sample in observations {
+                for account in sample.accounts {
+                    observationCountByKey[account.key, default: 0] += 1
+                    if let previous = previousByKey[account.key] {
+                        spentPoints += max(0, previous - account.remaining)
+                        comparablePairs += 1
+                    }
+                    previousByKey[account.key] = account.remaining
+                }
+            }
+
+            guard !representedKeys.isEmpty, comparablePairs > 0 else {
+                return DailyPoolSpendPoint(
+                    date: day,
+                    spentPercent: nil,
+                    remainingPercent: PoolHistoryStore.poolAverage(n: finalSample.n, poolTotal: finalSample.poolTotal),
+                    accountCount: representedKeys.count,
+                    coverage: .noData
+                )
+            }
+
+            let maximumGap = zip(observations, observations.dropFirst())
+                .map { $1.ts.timeIntervalSince($0.ts) }
+                .max() ?? 0
+            let coverageEnd = day == today ? now : dayEnd
+            let tailGap = max(0, coverageEnd.timeIntervalSince(finalSample.ts))
+            let everyAccountComparable = representedKeys.allSatisfy {
+                observationCountByKey[$0, default: 0] >= 2 && anchorKeys.contains($0)
+            }
+            let isLowerBound = openingAnchor == nil
+                || !everyAccountComparable
+                || maximumGap > samplingInterval * 2
+                || tailGap > samplingInterval * 2
+            let coverage: DailyPoolSpendCoverage
+            if day == today {
+                coverage = isLowerBound ? .inProgressLowerBound : .inProgress
+            } else {
+                coverage = isLowerBound ? .lowerBound : .complete
+            }
+
+            return DailyPoolSpendPoint(
                 date: day,
-                value: ordered.map(\.value).min() ?? first.value,
-                endValue: ordered.last?.value ?? first.value,
-                sampleCount: ordered.count
+                spentPercent: spentPoints / Double(representedKeys.count),
+                remainingPercent: PoolHistoryStore.poolAverage(n: finalSample.n, poolTotal: finalSample.poolTotal),
+                accountCount: representedKeys.count,
+                coverage: coverage
             )
         }
     }

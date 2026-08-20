@@ -2,13 +2,14 @@
 
 ## Unreleased
 
+- Replace the daily minimum-remaining pool chart with dynamic daily-spend bars normalized across the weekly account pool, including a 14.3% pace reference, semantic spend colors, selected-bar emphasis, and localized compact hover details.
 - Add swipe-to-delete for inactive saved accounts, using the selected account's full email and never the remove-all command; keep trailing percentages and confirmation buttons inside compact rows, and tint the reset-chance bolt yellow.
 - Tighten the pool verdict card while preserving its full forecast timeline, add separation from reset chance, center the margin badge, and give the Refresh and Quit buttons more horizontal padding.
 - Use native `NSTableView` row actions so clicks and destructive swipes map to the exact account, keep the verdict available from current usage even before history accumulates, and fall back to a bounded HTTP/1.1 forecast request when URLSession is blocked by a local proxy route.
 
 ## 1.8.5 - 2026-08-15
 
-- Add a pool-wide usage pace forecast for the five-hour window: the app samples the remaining pool of all saved accounts every 30 minutes into a local 56-day JSONL history, then draws a CodexBar-style utilization chart (capped bars over a full track, coloured by remaining level) at the bottom of the account panel.
+- Add a pool-wide usage pace forecast for the weekly window: the app samples the remaining weekly pool of all saved accounts every 30 minutes into a local 56-day JSONL history, then draws a CodexBar-style utilization chart at the bottom of the account panel.
 - Replace raw pool/burn forecast text with an ordered Enough / Not Enough / Collecting verdict card.
 - Add immediate Russian/English switching for the main panel, defaulting to Russian for new installations.
 - Persist the weekly reset timestamps captured from live usage snapshots so the forecast can compare EOL against the actual reset date.

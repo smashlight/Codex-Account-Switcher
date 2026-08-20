@@ -51,7 +51,6 @@ struct InfrastructureTests {
         testToolbarStatusFormatting()
         testAppLanguagePreference()
         testLocalizedTextCompleteness()
-        testLocalizedChartDetails()
         testPoolChartLocalization()
         testLocalizedIntervalFormatting()
         testPoolVerdictPresentation()
@@ -69,6 +68,7 @@ struct InfrastructureTests {
         testPoolBurnRateEstimatorIgnoresAddedCapacity()
         testWeekCurveBuilder()
         testDailyPoolAggregator()
+        testDailyPoolChartPolicies()
         testPaceEstimatorForecast()
         testPoolVerdict()
         testPoolVerdictWithoutHistory()
@@ -188,40 +188,6 @@ struct InfrastructureTests {
         expect(LocalizedText.resetCreditsTooltip(knownTotal: 0, knownAccounts: 0, hasError: false, language: .russian) == "Проверяем кредиты сброса", "Russian checking tooltip should be localized")
     }
 
-    private static func testLocalizedChartDetails() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
-        guard let date = calendar.date(from: DateComponents(year: 2026, month: 8, day: 17, hour: 14, minute: 30)) else {
-            expect(false, "chart detail tests should create a fixed local date")
-            return
-        }
-
-        expect(
-            LocalizedText.sampleChartDetail(date: date, remainingPercent: 42, language: .russian) == "17 августа, 14:30 · осталось 42%",
-            "sample chart details should use the complete Russian sentence"
-        )
-        expect(
-            LocalizedText.sampleChartDetail(date: date, remainingPercent: 42, language: .english) == "Aug 17, 2:30 PM · 42% left",
-            "sample chart details should use the complete English sentence"
-        )
-        expect(
-            LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: 48, isToday: true, language: .russian) == "17 авг. · минимум 42% · конец 48% · сегодня",
-            "daily chart details should include the Russian end value and today marker"
-        )
-        expect(
-            LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: 48, isToday: true, language: .english) == "Aug 17 · low 42% · end 48% · today",
-            "daily chart details should include the English end value and today marker"
-        )
-        expect(
-            LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: nil, isToday: false, language: .english) == "Aug 17 · low 42%",
-            "daily chart details should omit unavailable optional values"
-        )
-        expect(
-            LocalizedText.dailyChartDetail(date: date, lowPercent: nil, endPercent: nil, isToday: false, language: .russian) == "17 авг. · Нет данных",
-            "missing daily values should be described honestly"
-        )
-    }
-
     private static func testPoolChartLocalization() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
@@ -242,14 +208,101 @@ struct InfrastructureTests {
         let russian = PoolChartLocalization.semanticLabels(language: .russian)
         expect(russian.index == "Индекс", "the chart index semantic label should be Russian")
         expect(russian.base == "Основание", "the chart base semantic label should be Russian")
-        expect(russian.capacity == "Ёмкость", "the chart capacity semantic label should be Russian")
-        expect(russian.pool == "Пул", "the chart pool semantic label should be Russian")
+        expect(russian.capacity == "Полная ёмкость", "the chart capacity semantic label should describe the full pool in Russian")
+        expect(russian.pool == "Расход пула", "the chart value semantic label should describe spend in Russian")
 
         let english = PoolChartLocalization.semanticLabels(language: .english)
         expect(english.index == "Index", "the chart index semantic label should be English")
         expect(english.base == "Base", "the chart base semantic label should be English")
-        expect(english.capacity == "Capacity", "the chart capacity semantic label should be English")
-        expect(english.pool == "Pool", "the chart pool semantic label should be English")
+        expect(english.capacity == "Full capacity", "the chart capacity semantic label should describe the full pool in English")
+        expect(english.pool == "Pool spend", "the chart value semantic label should describe spend in English")
+
+        let today = DailyPoolSpendPoint(
+            date: date,
+            spentPercent: 18,
+            remainingPercent: 36.6,
+            accountCount: 7,
+            coverage: .inProgress
+        )
+        expect(
+            PoolChartLocalization.detailLines(for: today, language: .russian) == [
+                "17 авг.",
+                "Потрачено: 18% пула",
+                "Осталось: 36,6%"
+            ],
+            "Russian current-day popover should keep only the at-a-glance values"
+        )
+        expect(
+            PoolChartLocalization.detailLines(for: today, language: .english) == [
+                "Aug 17",
+                "Spent: 18% of pool",
+                "Remaining: 36.6%"
+            ],
+            "English current-day popover should keep only the at-a-glance values"
+        )
+
+        let incompletePast = DailyPoolSpendPoint(
+            date: date,
+            spentPercent: 12,
+            remainingPercent: 6.6,
+            accountCount: 5,
+            coverage: .lowerBound
+        )
+        expect(
+            PoolChartLocalization.detailLines(for: incompletePast, language: .russian) == [
+                "17 авг.",
+                "Потрачено: 12% пула",
+                "Осталось: 6,6%"
+            ],
+            "Russian lower-bound popover should stay concise"
+        )
+
+        let noData = DailyPoolSpendPoint(
+            date: date,
+            spentPercent: nil,
+            remainingPercent: nil,
+            accountCount: 0,
+            coverage: .noData
+        )
+        expect(
+            PoolChartLocalization.detailLines(for: noData, language: .english) == ["Aug 17", "No data"],
+            "no-data popover should remain compact"
+        )
+        expect(
+            PoolChartLocalization.dailyReference(language: .russian) == "Дневной ориентир 14%",
+            "daily reference label should be localized"
+        )
+        expect(
+            PoolChartLocalization.chartSummary(language: .english) == "Daily consumption of the combined weekly account pool over 14 days",
+            "chart summary should explain the accessible time series"
+        )
+        expect(
+            PoolChartLocalization.accessibilityValue(for: incompletePast, language: .english).contains("Spent at least: 12% of pool"),
+            "accessibility value should preserve lower-bound semantics"
+        )
+        expect(
+            PoolChartLocalization.accessibilityValue(for: incompletePast, language: .russian).contains("Неполный день"),
+            "accessibility value should disclose incomplete sampling in Russian"
+        )
+        let completePast = DailyPoolSpendPoint(
+            date: date,
+            spentPercent: 8,
+            remainingPercent: 74,
+            accountCount: 7,
+            coverage: .complete
+        )
+        expect(
+            PoolChartLocalization.accessibilityValue(for: completePast, language: .english).contains("Remaining at day end: 74%"),
+            "accessibility value should preserve completed-day remaining wording"
+        )
+        expect(
+            PoolChartLocalization.accessibilityValue(for: incompletePast, language: .english).contains("daily reference"),
+            "accessibility value should compare lower-bound spend with the daily reference"
+        )
+        expect(
+            PoolChartLocalization.dailyReferenceAccessibility(language: .russian).contains("7 дней"),
+            "the accessible reference description should explain the even seven-day pace"
+        )
     }
 
     private static func testLocalizedIntervalFormatting() {
@@ -899,52 +952,83 @@ struct InfrastructureTests {
 
     private static func testDailyPoolAggregator() {
         let calendar = utcCalendar
-        let day0 = Date(timeIntervalSince1970: 1_752_000_000)
+        let day0 = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_752_000_000))
         let day1 = day0.addingTimeInterval(24 * 3600)
         let day2 = day1.addingTimeInterval(24 * 3600)
-        let day3 = day2.addingTimeInterval(24 * 3600)
 
-        func poolSample(_ ts: Date, total: Double) -> PoolHistorySample {
-            PoolHistorySample(ts: ts, n: 1, poolTotal: total, accounts: [])
+        func poolSample(_ ts: Date, _ values: [String: Double]) -> PoolHistorySample {
+            let accounts = values.keys.sorted().compactMap { key -> PoolAccountSample? in
+                guard let remaining = values[key] else { return nil }
+                return PoolAccountSample(key: key, remaining: remaining)
+            }
+            return PoolHistorySample(
+                ts: ts,
+                n: accounts.count,
+                poolTotal: accounts.reduce(0) { $0 + $1.remaining },
+                accounts: accounts
+            )
         }
 
-        let history = [
-            poolSample(day0.addingTimeInterval(60 * 60), total: 90),
-            poolSample(day0.addingTimeInterval(2 * 60 * 60), total: 80), // day 0: min 80, end 80
-            poolSample(day1.addingTimeInterval(60 * 60), total: 65),
-            poolSample(day1.addingTimeInterval(2 * 60 * 60), total: 70), // day 1: min 65, end 70 (refill)
-            // day 2 has no samples at all
-            poolSample(day3.addingTimeInterval(60 * 60), total: 60) // day 3
-        ]
-
-        let points = DailyPoolAggregator.dailyPoints(
-            from: history,
-            dayCount: 4,
-            now: day3.addingTimeInterval(2 * 3600),
+        let livePoints = DailyPoolSpendAggregator.dailyPoints(
+            from: [
+                poolSample(day0.addingTimeInterval(-15 * 60), ["a": 100, "b": 100]),
+                poolSample(day0.addingTimeInterval(30 * 60), ["a": 90, "b": 100]),
+                poolSample(day0.addingTimeInterval(60 * 60), ["a": 80, "b": 90])
+            ],
+            dayCount: 1,
+            now: day0.addingTimeInterval(90 * 60),
             calendar: calendar
         )
-        expect(points.count == 4, "the window should contain all four calendar-day slots")
-        expect(points.first?.value == 80, "the day value should be the day minimum")
-        expect(points.first?.endValue == 80, "endValue should be the last sample of the day")
-        expect(points.first?.sampleCount == 2, "sampleCount should count the day's samples")
-        expect(points[1].value == 65, "a refill within a day should keep the minimum as the value")
-        expect(points[1].endValue == 70, "endValue should be the newest sample, not the day minimum")
-        expect(points[1].sampleCount == 2, "two samples in one day should be counted")
-        let missingPoint = points.first { $0.date == calendar.startOfDay(for: day2) }
-        expect(missingPoint != nil, "a missing day should keep a dated slot")
-        expect(missingPoint?.value == nil, "a missing day should not invent a value")
-        expect(missingPoint?.sampleCount == 0, "a missing day should have zero samples")
-        expect(points.last?.value == 60, "the final day should keep its single sample value")
-        expect(points.last?.sampleCount == 1, "a single-sample day counts one sample")
+        expect(livePoints.count == 1, "one requested day should produce one slot")
+        expect(abs((livePoints[0].spentPercent ?? -1) - 15) < 0.001, "30 points across two accounts should consume 15% of the pool")
+        expect(abs((livePoints[0].remainingPercent ?? -1) - 85) < 0.001, "the final pool average should be 85% remaining")
+        expect(livePoints[0].accountCount == 2, "both represented accounts should define full pool capacity")
+        expect(livePoints[0].coverage == .inProgress, "a fully anchored current day should be in progress")
 
-        let later = day3.addingTimeInterval(10 * 24 * 3600)
-        let outside = DailyPoolAggregator.dailyPoints(from: history, dayCount: 3, now: later, calendar: calendar)
-        expect(outside.count == 3, "an out-of-range history should still produce dated slots")
-        expect(outside.allSatisfy { ($0.value as Double?) == nil }, "out-of-range samples must not populate slots")
+        let resetPoints = DailyPoolSpendAggregator.dailyPoints(
+            from: [
+                poolSample(day0.addingTimeInterval(-15 * 60), ["a": 10]),
+                poolSample(day0.addingTimeInterval(30 * 60), ["a": 100]),
+                poolSample(day0.addingTimeInterval(60 * 60), ["a": 80])
+            ],
+            dayCount: 1,
+            now: day0.addingTimeInterval(90 * 60),
+            calendar: calendar
+        )
+        expect(abs((resetPoints[0].spentPercent ?? -1) - 20) < 0.001, "a reset increase should not erase or invent spend")
 
-        let empty = DailyPoolAggregator.dailyPoints(from: [], dayCount: 14, now: day3, calendar: calendar)
+        let addedAccountPoints = DailyPoolSpendAggregator.dailyPoints(
+            from: [
+                poolSample(day0.addingTimeInterval(-15 * 60), ["a": 100]),
+                poolSample(day0.addingTimeInterval(30 * 60), ["a": 90, "b": 100]),
+                poolSample(day0.addingTimeInterval(60 * 60), ["a": 80, "b": 80])
+            ],
+            dayCount: 1,
+            now: day0.addingTimeInterval(90 * 60),
+            calendar: calendar
+        )
+        expect(abs((addedAccountPoints[0].spentPercent ?? -1) - 20) < 0.001, "40 points across the two-account pool should normalize to 20%")
+        expect(addedAccountPoints[0].coverage == .inProgressLowerBound, "an account without an opening anchor should make the day a lower bound")
+
+        let sparsePoints = DailyPoolSpendAggregator.dailyPoints(
+            from: [
+                poolSample(day0.addingTimeInterval(30 * 60), ["a": 90]),
+                poolSample(day0.addingTimeInterval(60 * 60), ["a": 80]),
+                poolSample(day2.addingTimeInterval(30 * 60), ["a": 70])
+            ],
+            dayCount: 3,
+            now: day2.addingTimeInterval(60 * 60),
+            calendar: calendar
+        )
+        expect(sparsePoints.count == 3, "the window should preserve all requested calendar slots")
+        expect(sparsePoints[0].coverage == .lowerBound, "a past day without an opening anchor should be a lower bound")
+        expect(sparsePoints[1].coverage == .noData, "a missing day should retain a no-data slot")
+        expect(sparsePoints[1].spentPercent == nil, "a missing day should not invent zero spend")
+        expect(sparsePoints[2].coverage == .noData, "a day without any comparable observations should remain no data")
+
+        let empty = DailyPoolSpendAggregator.dailyPoints(from: [], dayCount: 14, now: day2, calendar: calendar)
         expect(empty.count == 14, "empty history should still produce fourteen slots")
-        expect(empty.allSatisfy { ($0.value as Double?) == nil && $0.sampleCount == 0 }, "empty slots should remain unknown")
+        expect(empty.allSatisfy { $0.spentPercent == nil && $0.coverage == .noData }, "empty slots should remain unknown")
     }
 
     private static func testPoolBurnRateEstimatorIgnoresAddedCapacity() {
@@ -994,6 +1078,48 @@ struct InfrastructureTests {
             )
             expect(verdict.kind == .notEnough, "the observed burn should exhaust the pool before reset")
         }
+    }
+
+    private static func testDailyPoolChartPolicies() {
+        expect(PoolChartPopoverMetrics.width == 164, "popover width should be compact")
+        expect(PoolChartPopoverMetrics.minimumHeight == 80, "popover should be taller")
+        expect(PoolChartPopoverMetrics.dateFontSize == 13, "date should be more readable")
+        expect(PoolChartPopoverMetrics.bodyFontSize == 12, "body should be more readable")
+        expect(PoolChartPopoverMetrics.horizontalPadding == 12, "horizontal padding should remain balanced")
+        expect(PoolChartPopoverMetrics.verticalPadding == 10, "vertical padding should create a taller card")
+        expect(DailyPoolSpendBand.classify(nil) == .unknown, "missing spend should remain neutral")
+        expect(DailyPoolSpendBand.classify(14.3) == .withinReference, "14.3% should remain within the daily reference")
+        expect(DailyPoolSpendBand.classify(14.31) == .aboveReference, "spend above the daily reference should warn")
+        expect(DailyPoolSpendBand.classify(25) == .aboveReference, "25% should remain in the warning band")
+        expect(DailyPoolSpendBand.classify(25.01) == .high, "spend above 25% should be high")
+        expect(PoolChartHoverPolicy.nearestIndex(to: 4.6, count: 14) == 5, "hover should choose the nearest stable slot")
+        expect(PoolChartHoverPolicy.nearestIndex(to: -2, count: 14) == 0, "hover should clamp to the first slot")
+        expect(PoolChartHoverPolicy.nearestIndex(to: 20, count: 14) == 13, "hover should clamp to the final slot")
+        expect(PoolChartHoverPolicy.nearestIndex(to: 2, count: 0) == nil, "an empty chart should not select a slot")
+
+        let leadingPlacement = PoolChartPopoverPolicy.placement(
+            anchorX: 4,
+            preferredCenterY: 10,
+            containerWidth: 520,
+            containerHeight: 104,
+            popoverWidth: 164,
+            popoverHeight: 80
+        )
+        expect(leadingPlacement.centerX == 84, "the first-bar popover should remain inside the leading edge")
+        expect(leadingPlacement.centerY == 42, "the popover should remain inside the chart's top edge")
+        expect(leadingPlacement.caretOffsetX == -70, "the caret should point back toward the first bar")
+
+        let trailingPlacement = PoolChartPopoverPolicy.placement(
+            anchorX: 516,
+            preferredCenterY: 94,
+            containerWidth: 520,
+            containerHeight: 104,
+            popoverWidth: 164,
+            popoverHeight: 80
+        )
+        expect(trailingPlacement.centerX == 436, "the final-bar popover should remain inside the trailing edge")
+        expect(trailingPlacement.centerY == 62, "the popover should remain inside the chart's bottom edge")
+        expect(trailingPlacement.caretOffsetX == 70, "the caret should point back toward the final bar")
     }
 
     private static func testPaceEstimatorForecast() {

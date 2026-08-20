@@ -159,54 +159,6 @@ enum LocalizedText {
         }
     }
 
-    static func sampleChartDetail(date: Date, remainingPercent: Int, language: AppLanguage) -> String {
-        let dateStyle = Date.FormatStyle(locale: language.locale)
-            .day()
-            .month(language == .russian ? .wide : .abbreviated)
-        let timeStyle = Date.FormatStyle(locale: language.locale)
-            .hour()
-            .minute()
-        let dateText = date.formatted(dateStyle)
-        let timeText = date.formatted(timeStyle)
-            .replacingOccurrences(of: "\u{202F}", with: " ")
-            .replacingOccurrences(of: "\u{00A0}", with: " ")
-        switch language {
-        case .russian:
-            return "\(dateText), \(timeText) · осталось \(remainingPercent)%"
-        case .english:
-            return "\(dateText), \(timeText) · \(remainingPercent)% left"
-        }
-    }
-
-    static func dailyChartDetail(
-        date: Date,
-        lowPercent: Int?,
-        endPercent: Int?,
-        isToday: Bool,
-        language: AppLanguage
-    ) -> String {
-        let dateText = date.formatted(
-            Date.FormatStyle(locale: language.locale)
-                .day()
-                .month(.abbreviated)
-        )
-        guard let lowPercent else {
-            return language == .russian ? "\(dateText) · Нет данных" : "\(dateText) · No data"
-        }
-        switch language {
-        case .russian:
-            var text = "\(dateText) · минимум \(lowPercent)%"
-            if let endPercent { text += " · конец \(endPercent)%" }
-            if isToday { text += " · сегодня" }
-            return text
-        case .english:
-            var text = "\(dateText) · low \(lowPercent)%"
-            if let endPercent { text += " · end \(endPercent)%" }
-            if isToday { text += " · today" }
-            return text
-        }
-    }
-
     static func lastUpdated(isRefreshing: Bool, elapsed: TimeInterval?, language: AppLanguage) -> String {
         if isRefreshing { return language == .russian ? "обновление…" : "refreshing..." }
         guard let elapsed else { return language == .russian ? "никогда" : "never" }
@@ -263,6 +215,8 @@ struct PoolChartSemanticLabels: Equatable {
 }
 
 enum PoolChartLocalization {
+    private static let dailyReferencePercent = 100.0 / 7.0
+
     static func axisDate(_ date: Date, language: AppLanguage) -> String {
         date.formatted(
             Date.FormatStyle(locale: language.locale)
@@ -271,21 +225,123 @@ enum PoolChartLocalization {
         )
     }
 
+    static func detailLines(for point: DailyPoolSpendPoint, language: AppLanguage) -> [String] {
+        let dateText = axisDate(point.date, language: language)
+        guard let spentPercent = point.spentPercent, point.coverage != .noData else {
+            return [dateText, language == .russian ? "Нет данных" : "No data"]
+        }
+
+        let spent = number(spentPercent, language: language)
+        switch language {
+        case .russian:
+            var lines = [dateText, "Потрачено: \(spent)% пула"]
+            if let remainingPercent = point.remainingPercent {
+                lines.append("Осталось: \(number(remainingPercent, language: language))%")
+            }
+            return lines
+        case .english:
+            var lines = [dateText, "Spent: \(spent)% of pool"]
+            if let remainingPercent = point.remainingPercent {
+                lines.append("Remaining: \(number(remainingPercent, language: language))%")
+            }
+            return lines
+        }
+    }
+
+    static func accessibilityValue(for point: DailyPoolSpendPoint, language: AppLanguage) -> String {
+        let dateText = axisDate(point.date, language: language)
+        guard let spentPercent = point.spentPercent, point.coverage != .noData else {
+            return [dateText, language == .russian ? "Нет данных" : "No data"].joined(separator: ". ")
+        }
+
+        let spent = number(spentPercent, language: language)
+        let pace = number(spentPercent / dailyReferencePercent, language: language)
+        let isLowerBound = point.coverage == .lowerBound || point.coverage == .inProgressLowerBound
+        let isInProgress = point.coverage == .inProgress || point.coverage == .inProgressLowerBound
+        var lines: [String]
+        switch language {
+        case .russian:
+            lines = [dateText, isLowerBound ? "Потрачено не менее: \(spent)% пула" : "Потрачено: \(spent)% пула"]
+            lines.append("Темп: \(pace)× дневного ориентира")
+            if isLowerBound { lines.append("Неполный день") }
+            if let remainingPercent = point.remainingPercent {
+                let remaining = number(remainingPercent, language: language)
+                lines.append(
+                    isInProgress
+                        ? "Осталось сейчас: \(remaining)%"
+                        : isLowerBound
+                            ? "Осталось в последнем замере: \(remaining)%"
+                            : "Осталось к концу дня: \(remaining)%"
+                )
+            }
+            lines.append(
+                DailyPoolSpendBand.classify(spentPercent) == .withinReference
+                    ? "В пределах дневного ориентира"
+                    : "Выше дневного ориентира"
+            )
+        case .english:
+            lines = [dateText, isLowerBound ? "Spent at least: \(spent)% of pool" : "Spent: \(spent)% of pool"]
+            lines.append("Pace: \(pace)× daily reference")
+            if isLowerBound { lines.append("Incomplete day") }
+            if let remainingPercent = point.remainingPercent {
+                let remaining = number(remainingPercent, language: language)
+                lines.append(
+                    isInProgress
+                        ? "Remaining now: \(remaining)%"
+                        : isLowerBound
+                            ? "Remaining at last sample: \(remaining)%"
+                            : "Remaining at day end: \(remaining)%"
+                )
+            }
+            lines.append(
+                DailyPoolSpendBand.classify(spentPercent) == .withinReference
+                    ? "Within the daily reference"
+                    : "Above the daily reference"
+            )
+        }
+        return lines.joined(separator: ". ")
+    }
+
+    static func dailyReference(language: AppLanguage) -> String {
+        language == .russian ? "Дневной ориентир 14%" : "Daily reference 14%"
+    }
+
+    static func dailyReferenceAccessibility(language: AppLanguage) -> String {
+        language == .russian
+            ? "Дневной ориентир 14% — равномерный расход пула на 7 дней"
+            : "Daily reference 14% — an even seven-day pool pace"
+    }
+
+    static func chartSummary(language: AppLanguage) -> String {
+        language == .russian
+            ? "Дневной расход общего недельного пула аккаунтов за 14 дней"
+            : "Daily consumption of the combined weekly account pool over 14 days"
+    }
+
+    private static func number(_ value: Double, language: AppLanguage) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = language.locale
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 1
+        return formatter.string(from: NSNumber(value: value)) ?? String(Int(value.rounded()))
+    }
+
     static func semanticLabels(language: AppLanguage) -> PoolChartSemanticLabels {
         switch language {
         case .russian:
             return PoolChartSemanticLabels(
                 index: "Индекс",
                 base: "Основание",
-                capacity: "Ёмкость",
-                pool: "Пул"
+                capacity: "Полная ёмкость",
+                pool: "Расход пула"
             )
         case .english:
             return PoolChartSemanticLabels(
                 index: "Index",
                 base: "Base",
-                capacity: "Capacity",
-                pool: "Pool"
+                capacity: "Full capacity",
+                pool: "Pool spend"
             )
         }
     }

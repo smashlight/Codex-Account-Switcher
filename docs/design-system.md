@@ -114,7 +114,7 @@ Do not introduce raw `Color.gray`, opaque charcoal card fills, or pure white tex
 
 ### 3.4 Semantic quota bands
 
-Account quota, pool history, and forecast visuals use remaining capacity:
+Account quota and forecast visuals use remaining capacity:
 
 | Remaining | State | Gradient | Label |
 | --- | --- | --- | --- |
@@ -122,6 +122,17 @@ Account quota, pool history, and forecast visuals use remaining capacity:
 | `11–25%` | warning | gold → orange | orange |
 | `0–10%` | critical | coral → red | red |
 | unknown | neutral | subdued secondary → secondary | secondary |
+
+The 14-day pool chart is the explicit exception: its fill represents gross daily **consumed** capacity across the normalized weekly account pool. It reuses the semantic palette with spend-specific thresholds:
+
+| Daily pool spend | State | Gradient |
+| --- | --- | --- |
+| `0–14.3%` | within daily reference | mint → blue |
+| `>14.3–25%` | above daily reference | gold → orange |
+| `>25%` | high daily spend | coral → red |
+| unknown | no usable observations | track only |
+
+The dashed `14.3%` reference represents an even one-seventh-per-day pace. It is context, not a forecast or hard budget.
 
 These boundaries come from `WeeklyRemainingBand` in [`AppInfrastructure.swift`](../Sources/AppInfrastructure.swift). Always clamp presented percentages to `0...100`.
 
@@ -280,7 +291,8 @@ Native `NSTableView` remains the owner of row identity, selection, scrolling, an
 ### 5.3 Progress indicators
 
 - Linear progress uses a subdued capsule track and semantic gradient fill.
-- Fill represents **remaining**, not used, capacity on account and pool screens.
+- Account progress fill represents **remaining**, not used, capacity.
+- The daily pool chart is separate: its fill represents normalized gross spend for each day and must be labelled as consumed capacity.
 - Track thickness is `4 pt` in the compact account row.
 - Values are clamped to `0...100`.
 - A numeric label always accompanies color.
