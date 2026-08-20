@@ -106,13 +106,14 @@ Respect Reduce Motion. With reduced motion enabled, update emphasis without anim
 
 ### Compact popover
 
-Show a compact glass popover directly above the selected bar. It is an overlay, not a layout participant, so hovering must not resize or reposition the chart or panel.
+Show a readable glass popover directly above the selected bar. It is an overlay, not a layout participant, so hovering must not resize or reposition the chart or panel.
 
 - Anchor the pointer/caret to the selected bar.
 - Clamp the popover inside the available chart bounds near the first and last bars.
 - Prefer the side with available space when centered placement would clip.
 - Use the existing dark material grammar, semantic text colors, low-contrast one-pixel border, compact radius, and restrained shadow.
 - Use monospaced digits for all percentages and changing numeric values.
+- Use an approximately `190 pt` width, an `11 pt` date, a `10 pt` body, and proportionally larger padding so the popup remains legible at a glance.
 - Hide it immediately when the pointer leaves the chart; moving between bars updates it in place.
 
 ### Popover content
@@ -122,8 +123,7 @@ Normal current day:
 ```text
 20 August
 Spent: 18% of pool
-Pace: 1.3× daily reference
-Remaining now: 36.6%
+Remaining: 36.6%
 ```
 
 Normal past day:
@@ -131,20 +131,18 @@ Normal past day:
 ```text
 19 August
 Spent: 27% of pool
-Pace: 1.9× daily reference
-Remaining at day end: 11%
+Remaining: 11%
 ```
 
-Incomplete past day:
+Days with incomplete sampling use the same concise visible wording:
 
 ```text
 15 August
-Spent at least: 12% of pool
-Incomplete day
-Remaining at last sample: 6.6%
+Spent: 12% of pool
+Remaining: 6.6%
 ```
 
-An incomplete current day uses the same `Spent at least` wording but keeps `Remaining now` for its final row.
+The chart is an at-a-glance visualization, not an accounting report. Do not show `at least`, `incomplete day`, sampling gaps, or pace in the visual popover. Keep completeness metadata internally and disclose it in accessibility text, where the additional precision does not burden the default interaction.
 
 Empty day:
 
@@ -153,18 +151,17 @@ Empty day:
 No data
 ```
 
-If the compact panel cannot fit all normal rows without clipping in Russian or English, preserve this priority order:
+If the popup cannot fit all normal rows without clipping in Russian or English, preserve this priority order:
 
 1. date;
 2. spent percentage or no-data state;
-3. pace relative to the daily reference;
-4. remaining value.
+3. remaining value.
 
 Do not show sample counts in the default popover. They are implementation detail and do not help the primary decision.
 
 ## Localization and accessibility
 
-- Add complete Russian and English strings for chart semantics, reference label, hover rows, incomplete state, and no-data state.
+- Add complete Russian and English strings for chart semantics, reference label, concise hover rows, accessibility-only incomplete state, and no-data state.
 - Use locale-aware day/month and decimal formatting.
 - Do not construct translated sentences from fragments.
 - Every dated slot must expose an accessibility label and value even when pointer hover is unavailable.
