@@ -72,6 +72,9 @@ struct InfrastructureTests {
         testPaceEstimatorForecast()
         testPoolVerdict()
         testPoolVerdictWithoutHistory()
+        testPoolSufficiencyForecastHistoryStates()
+        testPoolSufficiencyForecastResetEvents()
+        testPoolSufficiencyForecastCapacityGaps()
         testLivePoolSample()
         testCurrentPoolSampleFallsBackToAccountRows()
         testPoolAccountResetDates()
@@ -1222,6 +1225,191 @@ struct InfrastructureTests {
         expect(fallback.resetInterval == 3 * 86_400, "the no-history verdict should still show the reset interval")
         expect(fallback.exhaustionInterval != nil, "the no-history verdict should still show an exhaustion estimate")
         expect(fallback.margin != nil, "the no-history verdict should still show a signed margin")
+    }
+
+    private static func testPoolSufficiencyForecastHistoryStates() {
+        let day: TimeInterval = 86_400
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let current = [
+            PoolAccountSample(key: "a", remaining: 80, resetsAt: now.addingTimeInterval(3 * day))
+        ]
+
+        let collecting = PoolSufficiencyForecaster.forecast(
+            samples: [poolForecastSample(ts: now, accounts: current)],
+            now: now
+        )
+        expect(collecting.kind == .collecting, "one sample should keep collecting")
+
+        let preliminary = PoolSufficiencyForecaster.forecast(
+            samples: poolForecastHistory(
+                start: now.addingTimeInterval(-2 * day),
+                end: now,
+                startAccounts: [PoolAccountSample(key: "a", remaining: 100, resetsAt: current[0].resetsAt)],
+                currentAccounts: current
+            ),
+            now: now
+        )
+        expect(preliminary.kind == .enough, "a low preliminary burn should be forecast as enough")
+        expect(preliminary.isPreliminary, "less than seven usable days should be preliminary")
+        expect(abs(preliminary.historyDays - 2) < 0.001, "preliminary history span should be reported")
+
+        let established = PoolSufficiencyForecaster.forecast(
+            samples: poolForecastHistory(
+                start: now.addingTimeInterval(-7 * day),
+                end: now,
+                startAccounts: [PoolAccountSample(key: "a", remaining: 100, resetsAt: current[0].resetsAt)],
+                currentAccounts: current
+            ),
+            now: now
+        )
+        expect(!established.isPreliminary, "seven usable days should establish the pace")
+
+        let flat = PoolSufficiencyForecaster.forecast(
+            samples: poolForecastHistory(
+                start: now.addingTimeInterval(-day),
+                end: now,
+                startAccounts: current,
+                currentAccounts: current
+            ),
+            now: now
+        )
+        expect(flat.kind == .collecting, "zero observed consumption should keep collecting")
+        expect(flat.burnPerDay == nil, "collecting should not invent a quota pace")
+    }
+
+    private static func testPoolSufficiencyForecastResetEvents() {
+        let day: TimeInterval = 86_400
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let sharedReset = now.addingTimeInterval(2 * day)
+        let laterReset = now.addingTimeInterval(4 * day)
+        let current = [
+            PoolAccountSample(key: "a", remaining: 90, resetsAt: sharedReset),
+            PoolAccountSample(key: "b", remaining: 90, resetsAt: sharedReset),
+            PoolAccountSample(key: "c", remaining: 90, resetsAt: laterReset)
+        ]
+        let history = poolForecastHistory(
+            start: now.addingTimeInterval(-day),
+            end: now,
+            startAccounts: [
+                PoolAccountSample(key: "a", remaining: 100, resetsAt: sharedReset),
+                PoolAccountSample(key: "b", remaining: 100, resetsAt: sharedReset),
+                PoolAccountSample(key: "c", remaining: 100, resetsAt: laterReset)
+            ],
+            currentAccounts: current
+        )
+
+        let forecast = PoolSufficiencyForecaster.forecast(samples: history, now: now)
+        expect(forecast.kind == .enough, "large balances and upcoming resets should cover the horizon")
+        expect(forecast.resetEvents.count == 2, "distinct reset times should stay ordered and separate")
+        expect(forecast.resetEvents.first?.date == sharedReset, "the earliest reset should be first")
+        expect(forecast.resetEvents.first?.accountCount == 2, "simultaneous resets should be grouped")
+        expect(forecast.resetEvents.last?.date == laterReset, "the later reset should remain visible")
+        expect(forecast.resetEvents.last?.accountCount == 1, "a single reset should keep a count of one")
+    }
+
+    private static func testPoolSufficiencyForecastCapacityGaps() {
+        let day: TimeInterval = 86_400
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        let gapCurrent = [
+            PoolAccountSample(key: "a", remaining: 30, resetsAt: now.addingTimeInterval(3 * day)),
+            PoolAccountSample(key: "b", remaining: 10, resetsAt: now.addingTimeInterval(6 * day))
+        ]
+        let gapForecast = PoolSufficiencyForecaster.forecast(
+            samples: poolForecastHistory(
+                start: now.addingTimeInterval(-2 * day),
+                end: now,
+                startAccounts: [
+                    PoolAccountSample(key: "a", remaining: 70, resetsAt: gapCurrent[0].resetsAt),
+                    PoolAccountSample(key: "b", remaining: 10, resetsAt: gapCurrent[1].resetsAt)
+                ],
+                currentAccounts: gapCurrent
+            ),
+            now: now
+        )
+        expect(gapForecast.kind == .notEnough, "the pool should fail when it cannot bridge to the first reset")
+        expect(
+            gapForecast.exhaustionDate == now.addingTimeInterval(2 * day),
+            "forty points at twenty points per day should exhaust in two days"
+        )
+        expect(gapForecast.coverageRatio.map { abs($0 - (40.0 / 140.0)) < 0.001 } == true, "inaccessible later resets should not inflate coverage")
+
+        let unknownCurrent = [PoolAccountSample(key: "unknown", remaining: 30, resetsAt: nil)]
+        let unknownForecast = PoolSufficiencyForecaster.forecast(
+            samples: poolForecastHistory(
+                start: now.addingTimeInterval(-7 * day),
+                end: now,
+                startAccounts: [PoolAccountSample(key: "unknown", remaining: 100, resetsAt: nil)],
+                currentAccounts: unknownCurrent
+            ),
+            now: now
+        )
+        expect(unknownForecast.kind == .notEnough, "an unknown reset should contribute no invented replenishment")
+        expect(unknownForecast.resetEvents.isEmpty, "unknown reset dates should not create events")
+        expect(unknownForecast.exhaustionDate == now.addingTimeInterval(3 * day), "current unknown-reset balance should remain usable")
+
+        let enoughCurrent = [
+            PoolAccountSample(key: "a", remaining: 30, resetsAt: now.addingTimeInterval(2 * day)),
+            PoolAccountSample(key: "b", remaining: 100, resetsAt: now.addingTimeInterval(5 * day))
+        ]
+        let enoughForecast = PoolSufficiencyForecaster.forecast(
+            samples: poolForecastHistory(
+                start: now.addingTimeInterval(-7 * day),
+                end: now,
+                startAccounts: [
+                    PoolAccountSample(key: "a", remaining: 100, resetsAt: enoughCurrent[0].resetsAt),
+                    PoolAccountSample(key: "b", remaining: 100, resetsAt: enoughCurrent[1].resetsAt)
+                ],
+                currentAccounts: enoughCurrent
+            ),
+            now: now
+        )
+        expect(enoughForecast.kind == .enough, "the pool should survive every reset gap and the full horizon")
+        expect(enoughForecast.coverageRatio.map { $0 > 1 } == true, "surviving capacity should expose a positive reserve")
+        expect(enoughForecast.requiredAccountCount == 1, "seventy points of weekly demand should require about one account")
+
+        let highBurnCurrent = (0..<9).map {
+            PoolAccountSample(key: "high-\($0)", remaining: $0 < 3 ? 80 : 90, resetsAt: nil)
+        }
+        let highBurnStart = highBurnCurrent.map {
+            PoolAccountSample(key: $0.key, remaining: 100, resetsAt: nil)
+        }
+        let highBurn = PoolSufficiencyForecaster.forecast(
+            samples: poolForecastHistory(
+                start: now.addingTimeInterval(-day),
+                end: now,
+                startAccounts: highBurnStart,
+                currentAccounts: highBurnCurrent
+            ),
+            now: now
+        )
+        expect(highBurn.burnPerDay == 120, "the high-burn fixture should consume 120 pool points per day")
+        expect(highBurn.requiredAccountCount == 9, "840 points of weekly demand should require about nine accounts")
+    }
+
+    private static func poolForecastHistory(
+        start: Date,
+        end: Date,
+        startAccounts: [PoolAccountSample],
+        currentAccounts: [PoolAccountSample]
+    ) -> [PoolHistorySample] {
+        [
+            poolForecastSample(ts: start, accounts: startAccounts),
+            poolForecastSample(ts: end, accounts: currentAccounts)
+        ]
+    }
+
+    private static func poolForecastSample(
+        ts: Date,
+        accounts: [PoolAccountSample]
+    ) -> PoolHistorySample {
+        PoolHistorySample(
+            ts: ts,
+            n: accounts.count,
+            poolTotal: accounts.reduce(0) { $0 + $1.remaining },
+            accounts: accounts,
+            resetsAt: accounts.compactMap(\.resetsAt).min()
+        )
     }
 
     private static func testLivePoolSample() {

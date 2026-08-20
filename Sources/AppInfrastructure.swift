@@ -2049,6 +2049,208 @@ enum PoolBurnRateEstimator {
     }
 }
 
+struct PoolResetEvent: Equatable {
+    let date: Date
+    let accountCount: Int
+}
+
+struct PoolSufficiencyForecast: Equatable {
+    let kind: PoolVerdictKind
+    let isPreliminary: Bool
+    let historyDays: Double
+    let burnPerDay: Double?
+    let expectedDemand: Double?
+    let usableCapacity: Double?
+    let coverageRatio: Double?
+    let exhaustionDate: Date?
+    let resetEvents: [PoolResetEvent]
+    let accountCount: Int
+    let requiredAccountCount: Int?
+
+    static func collecting(historyDays: Double, accountCount: Int) -> Self {
+        Self(
+            kind: .collecting,
+            isPreliminary: historyDays < PoolSufficiencyForecaster.horizonDays,
+            historyDays: historyDays,
+            burnPerDay: nil,
+            expectedDemand: nil,
+            usableCapacity: nil,
+            coverageRatio: nil,
+            exhaustionDate: nil,
+            resetEvents: [],
+            accountCount: accountCount,
+            requiredAccountCount: nil
+        )
+    }
+}
+
+enum PoolSufficiencyForecaster {
+    static let secondsPerDay: TimeInterval = 86_400
+    static let horizonDays = 7.0
+    static let horizonSeconds: TimeInterval = horizonDays * secondsPerDay
+
+    private struct SimulatedAccount {
+        let key: String
+        var remaining: Double
+        var resetDate: Date?
+    }
+
+    static func forecast(
+        samples: [PoolHistorySample],
+        now: Date = Date()
+    ) -> PoolSufficiencyForecast {
+        let ordered = samples
+            .filter { $0.ts <= now }
+            .sorted { $0.ts < $1.ts }
+        guard let latest = ordered.last else {
+            return .collecting(historyDays: 0, accountCount: 0)
+        }
+
+        let cutoff = now.addingTimeInterval(-horizonSeconds)
+        let recent = ordered.filter { $0.ts >= cutoff }
+        let historyDays = recent.first.map {
+            max(0, now.timeIntervalSince($0.ts) / secondsPerDay)
+        } ?? 0
+        let collecting = PoolSufficiencyForecast.collecting(
+            historyDays: historyDays,
+            accountCount: latest.accounts.count
+        )
+        guard recent.count >= 2,
+              let first = recent.first,
+              let last = recent.last,
+              first.ts < last.ts,
+              !latest.accounts.isEmpty,
+              let burnPerDay = PoolBurnRateEstimator.grossBurnPerDay(recent),
+              burnPerDay.isFinite,
+              burnPerDay > 1e-9 else {
+            return collecting
+        }
+
+        let horizonEnd = now.addingTimeInterval(horizonSeconds)
+        var accounts = latest.accounts.map {
+            SimulatedAccount(
+                key: $0.key,
+                remaining: max(0, min(100, $0.remaining)),
+                resetDate: $0.resetsAt.map { nextResetDate(after: $0, now: now) }
+            )
+        }
+        let groupedResets = Dictionary(grouping: accounts.indices.compactMap { index -> (Date, Int)? in
+            guard let reset = accounts[index].resetDate, reset < horizonEnd else { return nil }
+            return (reset, index)
+        }, by: \.0)
+        let resetSchedule = groupedResets.keys.sorted().map { date in
+            (date: date, indices: groupedResets[date, default: []].map(\.1))
+        }
+        let resetEvents = resetSchedule.map {
+            PoolResetEvent(date: $0.date, accountCount: $0.indices.count)
+        }
+        let expectedDemand = burnPerDay * horizonDays
+        let requiredAccountCount = Int(ceil(expectedDemand / 100))
+        let burnPerSecond = burnPerDay / secondsPerDay
+        var consumed = 0.0
+        var cursor = now
+
+        for event in resetSchedule + [(date: horizonEnd, indices: [])] {
+            let interval = max(0, event.date.timeIntervalSince(cursor))
+            let demand = burnPerSecond * interval
+            let available = accounts.reduce(0.0) { $0 + $1.remaining }
+            if available + 1e-9 < demand {
+                _ = consume(available, from: &accounts)
+                consumed += available
+                let exhaustionDate = cursor.addingTimeInterval(available / burnPerSecond)
+                return result(
+                    kind: .notEnough,
+                    historyDays: historyDays,
+                    burnPerDay: burnPerDay,
+                    expectedDemand: expectedDemand,
+                    usableCapacity: consumed,
+                    exhaustionDate: exhaustionDate,
+                    resetEvents: resetEvents,
+                    accountCount: accounts.count,
+                    requiredAccountCount: requiredAccountCount
+                )
+            }
+
+            let unmet = consume(demand, from: &accounts)
+            guard unmet <= 1e-9 else { return collecting }
+            consumed += demand
+            cursor = event.date
+            for index in event.indices {
+                accounts[index].remaining = 100
+                accounts[index].resetDate = nil
+            }
+        }
+
+        let remaining = accounts.reduce(0.0) { $0 + $1.remaining }
+        return result(
+            kind: .enough,
+            historyDays: historyDays,
+            burnPerDay: burnPerDay,
+            expectedDemand: expectedDemand,
+            usableCapacity: consumed + remaining,
+            exhaustionDate: nil,
+            resetEvents: resetEvents,
+            accountCount: accounts.count,
+            requiredAccountCount: requiredAccountCount
+        )
+    }
+
+    private static func result(
+        kind: PoolVerdictKind,
+        historyDays: Double,
+        burnPerDay: Double,
+        expectedDemand: Double,
+        usableCapacity: Double,
+        exhaustionDate: Date?,
+        resetEvents: [PoolResetEvent],
+        accountCount: Int,
+        requiredAccountCount: Int
+    ) -> PoolSufficiencyForecast {
+        PoolSufficiencyForecast(
+            kind: kind,
+            isPreliminary: historyDays + 1e-9 < horizonDays,
+            historyDays: historyDays,
+            burnPerDay: burnPerDay,
+            expectedDemand: expectedDemand,
+            usableCapacity: usableCapacity,
+            coverageRatio: usableCapacity / expectedDemand,
+            exhaustionDate: exhaustionDate,
+            resetEvents: resetEvents,
+            accountCount: accountCount,
+            requiredAccountCount: requiredAccountCount
+        )
+    }
+
+    private static func nextResetDate(after anchor: Date, now: Date) -> Date {
+        guard anchor <= now else { return anchor }
+        let cycles = floor(now.timeIntervalSince(anchor) / horizonSeconds) + 1
+        return anchor.addingTimeInterval(cycles * horizonSeconds)
+    }
+
+    private static func consume(
+        _ demand: Double,
+        from accounts: inout [SimulatedAccount]
+    ) -> Double {
+        var unmet = max(0, demand)
+        let order = accounts.indices.sorted { leftIndex, rightIndex in
+            switch (accounts[leftIndex].resetDate, accounts[rightIndex].resetDate) {
+            case let (left?, right?):
+                if left == right { return accounts[leftIndex].key < accounts[rightIndex].key }
+                return left < right
+            case (.some, nil): return true
+            case (nil, .some): return false
+            case (nil, nil): return accounts[leftIndex].key < accounts[rightIndex].key
+            }
+        }
+        for index in order where unmet > 1e-9 {
+            let spent = min(accounts[index].remaining, unmet)
+            accounts[index].remaining -= spent
+            unmet -= spent
+        }
+        return unmet
+    }
+}
+
 // MARK: - Weekly pace curves
 
 /// Builds calendar-week curves of the normalized pool average (remaining %),
