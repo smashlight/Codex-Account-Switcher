@@ -113,7 +113,7 @@ Show a readable glass popover directly above the selected bar. It is an overlay,
 - Prefer the side with available space when centered placement would clip.
 - Use the existing dark material grammar, semantic text colors, low-contrast one-pixel border, compact radius, and restrained shadow.
 - Use monospaced digits for all percentages and changing numeric values.
-- Use an approximately `190 pt` width, an `11 pt` date, a `10 pt` body, and proportionally larger padding so the popup remains legible at a glance.
+- Use a `164 pt` width and an `80 pt` minimum height so the popup reads as a compact, more square card. Use a `13 pt` date, a `12 pt` body, `12 pt` horizontal padding, and `10 pt` vertical padding so the three concise rows occupy most of the useful width.
 - Hide it immediately when the pointer leaves the chart; moving between bars updates it in place.
 
 ### Popover content
