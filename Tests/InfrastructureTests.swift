@@ -51,7 +51,6 @@ struct InfrastructureTests {
         testToolbarStatusFormatting()
         testAppLanguagePreference()
         testLocalizedTextCompleteness()
-        testLocalizedChartDetails()
         testPoolChartLocalization()
         testLocalizedIntervalFormatting()
         testPoolVerdictPresentation()
@@ -69,6 +68,7 @@ struct InfrastructureTests {
         testPoolBurnRateEstimatorIgnoresAddedCapacity()
         testWeekCurveBuilder()
         testDailyPoolAggregator()
+        testDailyPoolChartPolicies()
         testPaceEstimatorForecast()
         testPoolVerdict()
         testPoolVerdictWithoutHistory()
@@ -188,40 +188,6 @@ struct InfrastructureTests {
         expect(LocalizedText.resetCreditsTooltip(knownTotal: 0, knownAccounts: 0, hasError: false, language: .russian) == "Проверяем кредиты сброса", "Russian checking tooltip should be localized")
     }
 
-    private static func testLocalizedChartDetails() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
-        guard let date = calendar.date(from: DateComponents(year: 2026, month: 8, day: 17, hour: 14, minute: 30)) else {
-            expect(false, "chart detail tests should create a fixed local date")
-            return
-        }
-
-        expect(
-            LocalizedText.sampleChartDetail(date: date, remainingPercent: 42, language: .russian) == "17 августа, 14:30 · осталось 42%",
-            "sample chart details should use the complete Russian sentence"
-        )
-        expect(
-            LocalizedText.sampleChartDetail(date: date, remainingPercent: 42, language: .english) == "Aug 17, 2:30 PM · 42% left",
-            "sample chart details should use the complete English sentence"
-        )
-        expect(
-            LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: 48, isToday: true, language: .russian) == "17 авг. · минимум 42% · конец 48% · сегодня",
-            "daily chart details should include the Russian end value and today marker"
-        )
-        expect(
-            LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: 48, isToday: true, language: .english) == "Aug 17 · low 42% · end 48% · today",
-            "daily chart details should include the English end value and today marker"
-        )
-        expect(
-            LocalizedText.dailyChartDetail(date: date, lowPercent: 42, endPercent: nil, isToday: false, language: .english) == "Aug 17 · low 42%",
-            "daily chart details should omit unavailable optional values"
-        )
-        expect(
-            LocalizedText.dailyChartDetail(date: date, lowPercent: nil, endPercent: nil, isToday: false, language: .russian) == "17 авг. · Нет данных",
-            "missing daily values should be described honestly"
-        )
-    }
-
     private static func testPoolChartLocalization() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
@@ -242,14 +208,14 @@ struct InfrastructureTests {
         let russian = PoolChartLocalization.semanticLabels(language: .russian)
         expect(russian.index == "Индекс", "the chart index semantic label should be Russian")
         expect(russian.base == "Основание", "the chart base semantic label should be Russian")
-        expect(russian.capacity == "Ёмкость", "the chart capacity semantic label should be Russian")
-        expect(russian.pool == "Пул", "the chart pool semantic label should be Russian")
+        expect(russian.capacity == "Полная ёмкость", "the chart capacity semantic label should describe the full pool in Russian")
+        expect(russian.pool == "Расход пула", "the chart value semantic label should describe spend in Russian")
 
         let english = PoolChartLocalization.semanticLabels(language: .english)
         expect(english.index == "Index", "the chart index semantic label should be English")
         expect(english.base == "Base", "the chart base semantic label should be English")
-        expect(english.capacity == "Capacity", "the chart capacity semantic label should be English")
-        expect(english.pool == "Pool", "the chart pool semantic label should be English")
+        expect(english.capacity == "Full capacity", "the chart capacity semantic label should describe the full pool in English")
+        expect(english.pool == "Pool spend", "the chart value semantic label should describe spend in English")
 
         let today = DailyPoolSpendPoint(
             date: date,
@@ -308,6 +274,10 @@ struct InfrastructureTests {
         expect(
             PoolChartLocalization.dailyReference(language: .russian) == "Дневной ориентир 14%",
             "daily reference label should be localized"
+        )
+        expect(
+            PoolChartLocalization.chartSummary(language: .english) == "Daily consumption of the combined weekly account pool over 14 days",
+            "chart summary should explain the accessible time series"
         )
         expect(
             PoolChartLocalization.accessibilityValue(for: incompletePast, language: .english).contains("Spent at least: 12% of pool"),
@@ -1088,6 +1058,18 @@ struct InfrastructureTests {
             )
             expect(verdict.kind == .notEnough, "the observed burn should exhaust the pool before reset")
         }
+    }
+
+    private static func testDailyPoolChartPolicies() {
+        expect(DailyPoolSpendBand.classify(nil) == .unknown, "missing spend should remain neutral")
+        expect(DailyPoolSpendBand.classify(14.3) == .withinReference, "14.3% should remain within the daily reference")
+        expect(DailyPoolSpendBand.classify(14.31) == .aboveReference, "spend above the daily reference should warn")
+        expect(DailyPoolSpendBand.classify(25) == .aboveReference, "25% should remain in the warning band")
+        expect(DailyPoolSpendBand.classify(25.01) == .high, "spend above 25% should be high")
+        expect(PoolChartHoverPolicy.nearestIndex(to: 4.6, count: 14) == 5, "hover should choose the nearest stable slot")
+        expect(PoolChartHoverPolicy.nearestIndex(to: -2, count: 14) == 0, "hover should clamp to the first slot")
+        expect(PoolChartHoverPolicy.nearestIndex(to: 20, count: 14) == 13, "hover should clamp to the final slot")
+        expect(PoolChartHoverPolicy.nearestIndex(to: 2, count: 0) == nil, "an empty chart should not select a slot")
     }
 
     private static func testPaceEstimatorForecast() {

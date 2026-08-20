@@ -2150,6 +2150,30 @@ enum DailyPoolSpendCoverage: Equatable {
     case inProgressLowerBound
 }
 
+enum DailyPoolSpendBand: Equatable {
+    case unknown
+    case withinReference
+    case aboveReference
+    case high
+
+    static let dailyReferencePercent = 100.0 / 7.0
+    private static let withinReferenceUpperBound = 14.3
+
+    static func classify(_ spentPercent: Double?) -> DailyPoolSpendBand {
+        guard let spentPercent else { return .unknown }
+        if spentPercent > 25 { return .high }
+        if spentPercent > withinReferenceUpperBound { return .aboveReference }
+        return .withinReference
+    }
+}
+
+enum PoolChartHoverPolicy {
+    static func nearestIndex(to xValue: Double, count: Int) -> Int? {
+        guard count > 0 else { return nil }
+        return min(count - 1, max(0, Int(xValue.rounded())))
+    }
+}
+
 struct DailyPoolSpendPoint: Equatable, Identifiable {
     let date: Date
     let spentPercent: Double?
@@ -2248,52 +2272,6 @@ enum DailyPoolSpendAggregator {
                 remainingPercent: PoolHistoryStore.poolAverage(n: finalSample.n, poolTotal: finalSample.poolTotal),
                 accountCount: representedKeys.count,
                 coverage: coverage
-            )
-        }
-    }
-}
-
-// Transitional adapter used by the existing chart until its rendering task
-// switches to `DailyPoolSpendPoint`.
-struct DailyPoolPoint: Equatable {
-    let date: Date
-    let value: Double?
-    let endValue: Double?
-    let sampleCount: Int
-}
-
-enum DailyPoolAggregator {
-    static func dailyPoints(
-        from samples: [PoolHistorySample],
-        dayCount: Int = DailyPoolSpendAggregator.defaultDayCount,
-        now: Date = Date(),
-        calendar: Calendar = .current
-    ) -> [DailyPoolPoint] {
-        let today = calendar.startOfDay(for: now)
-        guard dayCount >= 1,
-              let windowStart = calendar.date(byAdding: .day, value: -(dayCount - 1), to: today) else {
-            return []
-        }
-        var grouped: [Date: [(ts: Date, value: Double)]] = [:]
-        for sample in samples {
-            let day = calendar.startOfDay(for: sample.ts)
-            guard day >= windowStart, day <= today else { continue }
-            grouped[day, default: []].append((
-                ts: sample.ts,
-                value: min(100, max(0, PoolHistoryStore.poolAverage(n: sample.n, poolTotal: sample.poolTotal)))
-            ))
-        }
-        return (0..<dayCount).compactMap { offset in
-            guard let day = calendar.date(byAdding: .day, value: offset, to: windowStart) else { return nil }
-            guard let samplesByDay = grouped[day], let first = samplesByDay.first else {
-                return DailyPoolPoint(date: day, value: nil, endValue: nil, sampleCount: 0)
-            }
-            let ordered = samplesByDay.sorted { $0.ts < $1.ts }
-            return DailyPoolPoint(
-                date: day,
-                value: ordered.map(\.value).min() ?? first.value,
-                endValue: ordered.last?.value ?? first.value,
-                sampleCount: ordered.count
             )
         }
     }

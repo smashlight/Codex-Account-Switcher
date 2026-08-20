@@ -159,54 +159,6 @@ enum LocalizedText {
         }
     }
 
-    static func sampleChartDetail(date: Date, remainingPercent: Int, language: AppLanguage) -> String {
-        let dateStyle = Date.FormatStyle(locale: language.locale)
-            .day()
-            .month(language == .russian ? .wide : .abbreviated)
-        let timeStyle = Date.FormatStyle(locale: language.locale)
-            .hour()
-            .minute()
-        let dateText = date.formatted(dateStyle)
-        let timeText = date.formatted(timeStyle)
-            .replacingOccurrences(of: "\u{202F}", with: " ")
-            .replacingOccurrences(of: "\u{00A0}", with: " ")
-        switch language {
-        case .russian:
-            return "\(dateText), \(timeText) · осталось \(remainingPercent)%"
-        case .english:
-            return "\(dateText), \(timeText) · \(remainingPercent)% left"
-        }
-    }
-
-    static func dailyChartDetail(
-        date: Date,
-        lowPercent: Int?,
-        endPercent: Int?,
-        isToday: Bool,
-        language: AppLanguage
-    ) -> String {
-        let dateText = date.formatted(
-            Date.FormatStyle(locale: language.locale)
-                .day()
-                .month(.abbreviated)
-        )
-        guard let lowPercent else {
-            return language == .russian ? "\(dateText) · Нет данных" : "\(dateText) · No data"
-        }
-        switch language {
-        case .russian:
-            var text = "\(dateText) · минимум \(lowPercent)%"
-            if let endPercent { text += " · конец \(endPercent)%" }
-            if isToday { text += " · сегодня" }
-            return text
-        case .english:
-            var text = "\(dateText) · low \(lowPercent)%"
-            if let endPercent { text += " · end \(endPercent)%" }
-            if isToday { text += " · today" }
-            return text
-        }
-    }
-
     static func lastUpdated(isRefreshing: Bool, elapsed: TimeInterval?, language: AppLanguage) -> String {
         if isRefreshing { return language == .russian ? "обновление…" : "refreshing..." }
         guard let elapsed else { return language == .russian ? "никогда" : "never" }
@@ -331,6 +283,12 @@ enum PoolChartLocalization {
         language == .russian ? "Дневной ориентир 14%" : "Daily reference 14%"
     }
 
+    static func chartSummary(language: AppLanguage) -> String {
+        language == .russian
+            ? "Дневной расход общего недельного пула аккаунтов за 14 дней"
+            : "Daily consumption of the combined weekly account pool over 14 days"
+    }
+
     private static func number(_ value: Double, language: AppLanguage) -> String {
         let formatter = NumberFormatter()
         formatter.locale = language.locale
@@ -346,15 +304,15 @@ enum PoolChartLocalization {
             return PoolChartSemanticLabels(
                 index: "Индекс",
                 base: "Основание",
-                capacity: "Ёмкость",
-                pool: "Пул"
+                capacity: "Полная ёмкость",
+                pool: "Расход пула"
             )
         case .english:
             return PoolChartSemanticLabels(
                 index: "Index",
                 base: "Base",
-                capacity: "Capacity",
-                pool: "Pool"
+                capacity: "Full capacity",
+                pool: "Pool spend"
             )
         }
     }
