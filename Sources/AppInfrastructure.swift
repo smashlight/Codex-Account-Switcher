@@ -2180,6 +2180,15 @@ struct PoolChartPopoverPlacement: Equatable {
     let caretOffsetX: Double
 }
 
+enum PoolChartPopoverMetrics {
+    static let width = 164.0
+    static let minimumHeight = 80.0
+    static let dateFontSize = 13.0
+    static let bodyFontSize = 12.0
+    static let horizontalPadding = 12.0
+    static let verticalPadding = 10.0
+}
+
 enum PoolChartPopoverPolicy {
     static func placement(
         anchorX: Double,

@@ -1081,6 +1081,12 @@ struct InfrastructureTests {
     }
 
     private static func testDailyPoolChartPolicies() {
+        expect(PoolChartPopoverMetrics.width == 164, "popover width should be compact")
+        expect(PoolChartPopoverMetrics.minimumHeight == 80, "popover should be taller")
+        expect(PoolChartPopoverMetrics.dateFontSize == 13, "date should be more readable")
+        expect(PoolChartPopoverMetrics.bodyFontSize == 12, "body should be more readable")
+        expect(PoolChartPopoverMetrics.horizontalPadding == 12, "horizontal padding should remain balanced")
+        expect(PoolChartPopoverMetrics.verticalPadding == 10, "vertical padding should create a taller card")
         expect(DailyPoolSpendBand.classify(nil) == .unknown, "missing spend should remain neutral")
         expect(DailyPoolSpendBand.classify(14.3) == .withinReference, "14.3% should remain within the daily reference")
         expect(DailyPoolSpendBand.classify(14.31) == .aboveReference, "spend above the daily reference should warn")
@@ -1096,24 +1102,24 @@ struct InfrastructureTests {
             preferredCenterY: 10,
             containerWidth: 520,
             containerHeight: 104,
-            popoverWidth: 190,
-            popoverHeight: 72
+            popoverWidth: 164,
+            popoverHeight: 80
         )
-        expect(leadingPlacement.centerX == 97, "the first-bar popover should remain inside the leading edge")
-        expect(leadingPlacement.centerY == 38, "the popover should remain inside the chart's top edge")
-        expect(leadingPlacement.caretOffsetX == -83, "the caret should point back toward the first bar")
+        expect(leadingPlacement.centerX == 84, "the first-bar popover should remain inside the leading edge")
+        expect(leadingPlacement.centerY == 42, "the popover should remain inside the chart's top edge")
+        expect(leadingPlacement.caretOffsetX == -70, "the caret should point back toward the first bar")
 
         let trailingPlacement = PoolChartPopoverPolicy.placement(
             anchorX: 516,
             preferredCenterY: 94,
             containerWidth: 520,
             containerHeight: 104,
-            popoverWidth: 190,
-            popoverHeight: 72
+            popoverWidth: 164,
+            popoverHeight: 80
         )
-        expect(trailingPlacement.centerX == 423, "the final-bar popover should remain inside the trailing edge")
-        expect(trailingPlacement.centerY == 66, "the popover should remain inside the chart's bottom edge")
-        expect(trailingPlacement.caretOffsetX == 83, "the caret should point back toward the final bar")
+        expect(trailingPlacement.centerX == 436, "the final-bar popover should remain inside the trailing edge")
+        expect(trailingPlacement.centerY == 62, "the popover should remain inside the chart's bottom edge")
+        expect(trailingPlacement.caretOffsetX == 70, "the caret should point back toward the final bar")
     }
 
     private static func testPaceEstimatorForecast() {

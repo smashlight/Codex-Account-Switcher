@@ -56,8 +56,8 @@ struct PoolPaceChartView: View {
     private static let maxDailyBars = 14
     private static let maxAxisLabels = 4
     private static let dailyBarWidth: CGFloat = 12
-    private static let popoverWidth: CGFloat = 190
-    private static let popoverHeight: CGFloat = 72
+    private static let popoverWidth = CGFloat(PoolChartPopoverMetrics.width)
+    private static let popoverHeight = CGFloat(PoolChartPopoverMetrics.minimumHeight)
 
     private var bars: [Bar] {
         Array(data.points.suffix(Self.maxDailyBars)).enumerated().map { offset, point in
@@ -215,18 +215,31 @@ struct PoolPaceChartView: View {
         return VStack(alignment: .leading, spacing: 3) {
             if let date = lines.first {
                 Text(date)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .font(.system(
+                        size: CGFloat(PoolChartPopoverMetrics.dateFontSize),
+                        weight: .semibold,
+                        design: .rounded
+                    ))
             }
             ForEach(Array(lines.dropFirst()), id: \.self) { line in
                 Text(line)
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .font(.system(
+                        size: CGFloat(PoolChartPopoverMetrics.bodyFontSize),
+                        weight: .medium,
+                        design: .rounded
+                    ))
                     .foregroundStyle(data.labelText)
                     .monospacedDigit()
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(width: Self.popoverWidth, alignment: .leading)
+        .padding(.horizontal, CGFloat(PoolChartPopoverMetrics.horizontalPadding))
+        .padding(.vertical, CGFloat(PoolChartPopoverMetrics.verticalPadding))
+        .frame(
+            minWidth: Self.popoverWidth,
+            maxWidth: Self.popoverWidth,
+            minHeight: Self.popoverHeight,
+            alignment: .leading
+        )
         .background(.ultraThinMaterial, in: .rect(cornerRadius: 9, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
