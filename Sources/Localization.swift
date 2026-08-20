@@ -263,12 +263,81 @@ struct PoolChartSemanticLabels: Equatable {
 }
 
 enum PoolChartLocalization {
+    private static let dailyReferencePercent = 100.0 / 7.0
+
     static func axisDate(_ date: Date, language: AppLanguage) -> String {
         date.formatted(
             Date.FormatStyle(locale: language.locale)
                 .day()
                 .month(.abbreviated)
         )
+    }
+
+    static func detailLines(for point: DailyPoolSpendPoint, language: AppLanguage) -> [String] {
+        let dateText = axisDate(point.date, language: language)
+        guard let spentPercent = point.spentPercent, point.coverage != .noData else {
+            return [dateText, language == .russian ? "Нет данных" : "No data"]
+        }
+
+        let spent = number(spentPercent, language: language)
+        let pace = number(spentPercent / dailyReferencePercent, language: language)
+        let isLowerBound = point.coverage == .lowerBound || point.coverage == .inProgressLowerBound
+        let isInProgress = point.coverage == .inProgress || point.coverage == .inProgressLowerBound
+        var lines: [String]
+        switch language {
+        case .russian:
+            lines = [
+                dateText,
+                isLowerBound ? "Потрачено не менее: \(spent)% пула" : "Потрачено: \(spent)% пула"
+            ]
+            if !isLowerBound { lines.append("Темп: \(pace)× дневного ориентира") }
+            if isLowerBound { lines.append("Неполный день") }
+            if let remainingPercent = point.remainingPercent {
+                let remaining = number(remainingPercent, language: language)
+                lines.append(
+                    isInProgress
+                        ? "Осталось сейчас: \(remaining)%"
+                        : isLowerBound
+                            ? "Осталось в последнем замере: \(remaining)%"
+                            : "Осталось к концу дня: \(remaining)%"
+                )
+            }
+        case .english:
+            lines = [
+                dateText,
+                isLowerBound ? "Spent at least: \(spent)% of pool" : "Spent: \(spent)% of pool"
+            ]
+            if !isLowerBound { lines.append("Pace: \(pace)× daily reference") }
+            if isLowerBound { lines.append("Incomplete day") }
+            if let remainingPercent = point.remainingPercent {
+                let remaining = number(remainingPercent, language: language)
+                lines.append(
+                    isInProgress
+                        ? "Remaining now: \(remaining)%"
+                        : isLowerBound
+                            ? "Remaining at last sample: \(remaining)%"
+                            : "Remaining at day end: \(remaining)%"
+                )
+            }
+        }
+        return lines
+    }
+
+    static func accessibilityValue(for point: DailyPoolSpendPoint, language: AppLanguage) -> String {
+        detailLines(for: point, language: language).joined(separator: ". ")
+    }
+
+    static func dailyReference(language: AppLanguage) -> String {
+        language == .russian ? "Дневной ориентир 14%" : "Daily reference 14%"
+    }
+
+    private static func number(_ value: Double, language: AppLanguage) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = language.locale
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 1
+        return formatter.string(from: NSNumber(value: value)) ?? String(Int(value.rounded()))
     }
 
     static func semanticLabels(language: AppLanguage) -> PoolChartSemanticLabels {

@@ -250,6 +250,69 @@ struct InfrastructureTests {
         expect(english.base == "Base", "the chart base semantic label should be English")
         expect(english.capacity == "Capacity", "the chart capacity semantic label should be English")
         expect(english.pool == "Pool", "the chart pool semantic label should be English")
+
+        let today = DailyPoolSpendPoint(
+            date: date,
+            spentPercent: 18,
+            remainingPercent: 36.6,
+            accountCount: 7,
+            coverage: .inProgress
+        )
+        expect(
+            PoolChartLocalization.detailLines(for: today, language: .russian) == [
+                "17 авг.",
+                "Потрачено: 18% пула",
+                "Темп: 1,3× дневного ориентира",
+                "Осталось сейчас: 36,6%"
+            ],
+            "Russian current-day popover should localize spend, pace, and remaining capacity"
+        )
+        expect(
+            PoolChartLocalization.detailLines(for: today, language: .english) == [
+                "Aug 17",
+                "Spent: 18% of pool",
+                "Pace: 1.3× daily reference",
+                "Remaining now: 36.6%"
+            ],
+            "English current-day popover should localize spend, pace, and remaining capacity"
+        )
+
+        let incompletePast = DailyPoolSpendPoint(
+            date: date,
+            spentPercent: 12,
+            remainingPercent: 6.6,
+            accountCount: 5,
+            coverage: .lowerBound
+        )
+        expect(
+            PoolChartLocalization.detailLines(for: incompletePast, language: .russian) == [
+                "17 авг.",
+                "Потрачено не менее: 12% пула",
+                "Неполный день",
+                "Осталось в последнем замере: 6,6%"
+            ],
+            "Russian lower-bound popover should disclose incomplete history"
+        )
+
+        let noData = DailyPoolSpendPoint(
+            date: date,
+            spentPercent: nil,
+            remainingPercent: nil,
+            accountCount: 0,
+            coverage: .noData
+        )
+        expect(
+            PoolChartLocalization.detailLines(for: noData, language: .english) == ["Aug 17", "No data"],
+            "no-data popover should remain compact"
+        )
+        expect(
+            PoolChartLocalization.dailyReference(language: .russian) == "Дневной ориентир 14%",
+            "daily reference label should be localized"
+        )
+        expect(
+            PoolChartLocalization.accessibilityValue(for: incompletePast, language: .english).contains("Spent at least: 12% of pool"),
+            "accessibility value should preserve lower-bound semantics"
+        )
     }
 
     private static func testLocalizedIntervalFormatting() {
