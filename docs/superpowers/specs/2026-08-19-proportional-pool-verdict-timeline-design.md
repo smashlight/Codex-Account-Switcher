@@ -124,6 +124,7 @@ Automated tests cover:
 - Russian and English positive-buffer labels and absolute values;
 - no timeline or margin summary in Collecting state;
 - unchanged verdict event ordering and interval strings;
+- an AppKit bitmap regression proving the band between the track and labels contains no diagonal connector;
 - existing layout metrics, full test suite, and debug build.
 
 Per user request, verification does not include launching the app, browser automation, screenshots, or visual inspection.

@@ -168,6 +168,7 @@ git commit -m "feat: add proportional verdict presentation"
 - Modify: `Sources/PanelComponents.swift:444-640`
 - Modify: `Sources/Localization.swift:375-425`
 - Modify: `Tests/InfrastructureTests.swift:270-295`
+- Modify: `Tests/AppKitInteractionTests.swift`
 
 **Interfaces:**
 - Consumes: `PoolVerdictPresentation.firstEventFraction`
@@ -262,7 +263,7 @@ Expected: prints the path to `build/Codex Account Switcher.app` and exits `0`. D
 - [ ] **Step 8: Commit the AppKit rendering**
 
 ```bash
-git add Sources/Localization.swift Sources/PanelComponents.swift Tests/InfrastructureTests.swift
+git add Sources/Localization.swift Sources/PanelComponents.swift Tests/InfrastructureTests.swift Tests/AppKitInteractionTests.swift
 git diff --cached --check
 git commit -m "feat: render proportional verdict timeline"
 ```
@@ -273,6 +274,7 @@ git commit -m "feat: render proportional verdict timeline"
 - Verify only: `Sources/Localization.swift`
 - Verify only: `Sources/PanelComponents.swift`
 - Verify only: `Tests/InfrastructureTests.swift`
+- Verify only: `Tests/AppKitInteractionTests.swift`
 - Verify only: `docs/superpowers/specs/2026-08-19-proportional-pool-verdict-timeline-design.md`
 
 **Interfaces:**
@@ -302,6 +304,7 @@ Expected committed implementation scope:
 - `Sources/Localization.swift`
 - `Sources/PanelComponents.swift`
 - `Tests/InfrastructureTests.swift`
+- `Tests/AppKitInteractionTests.swift`
 
 Expected unrelated unstaged state remains untouched:
 
