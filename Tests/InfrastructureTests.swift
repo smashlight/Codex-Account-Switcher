@@ -899,52 +899,83 @@ struct InfrastructureTests {
 
     private static func testDailyPoolAggregator() {
         let calendar = utcCalendar
-        let day0 = Date(timeIntervalSince1970: 1_752_000_000)
+        let day0 = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_752_000_000))
         let day1 = day0.addingTimeInterval(24 * 3600)
         let day2 = day1.addingTimeInterval(24 * 3600)
-        let day3 = day2.addingTimeInterval(24 * 3600)
 
-        func poolSample(_ ts: Date, total: Double) -> PoolHistorySample {
-            PoolHistorySample(ts: ts, n: 1, poolTotal: total, accounts: [])
+        func poolSample(_ ts: Date, _ values: [String: Double]) -> PoolHistorySample {
+            let accounts = values.keys.sorted().compactMap { key -> PoolAccountSample? in
+                guard let remaining = values[key] else { return nil }
+                return PoolAccountSample(key: key, remaining: remaining)
+            }
+            return PoolHistorySample(
+                ts: ts,
+                n: accounts.count,
+                poolTotal: accounts.reduce(0) { $0 + $1.remaining },
+                accounts: accounts
+            )
         }
 
-        let history = [
-            poolSample(day0.addingTimeInterval(60 * 60), total: 90),
-            poolSample(day0.addingTimeInterval(2 * 60 * 60), total: 80), // day 0: min 80, end 80
-            poolSample(day1.addingTimeInterval(60 * 60), total: 65),
-            poolSample(day1.addingTimeInterval(2 * 60 * 60), total: 70), // day 1: min 65, end 70 (refill)
-            // day 2 has no samples at all
-            poolSample(day3.addingTimeInterval(60 * 60), total: 60) // day 3
-        ]
-
-        let points = DailyPoolAggregator.dailyPoints(
-            from: history,
-            dayCount: 4,
-            now: day3.addingTimeInterval(2 * 3600),
+        let livePoints = DailyPoolSpendAggregator.dailyPoints(
+            from: [
+                poolSample(day0.addingTimeInterval(-15 * 60), ["a": 100, "b": 100]),
+                poolSample(day0.addingTimeInterval(30 * 60), ["a": 90, "b": 100]),
+                poolSample(day0.addingTimeInterval(60 * 60), ["a": 80, "b": 90])
+            ],
+            dayCount: 1,
+            now: day0.addingTimeInterval(90 * 60),
             calendar: calendar
         )
-        expect(points.count == 4, "the window should contain all four calendar-day slots")
-        expect(points.first?.value == 80, "the day value should be the day minimum")
-        expect(points.first?.endValue == 80, "endValue should be the last sample of the day")
-        expect(points.first?.sampleCount == 2, "sampleCount should count the day's samples")
-        expect(points[1].value == 65, "a refill within a day should keep the minimum as the value")
-        expect(points[1].endValue == 70, "endValue should be the newest sample, not the day minimum")
-        expect(points[1].sampleCount == 2, "two samples in one day should be counted")
-        let missingPoint = points.first { $0.date == calendar.startOfDay(for: day2) }
-        expect(missingPoint != nil, "a missing day should keep a dated slot")
-        expect(missingPoint?.value == nil, "a missing day should not invent a value")
-        expect(missingPoint?.sampleCount == 0, "a missing day should have zero samples")
-        expect(points.last?.value == 60, "the final day should keep its single sample value")
-        expect(points.last?.sampleCount == 1, "a single-sample day counts one sample")
+        expect(livePoints.count == 1, "one requested day should produce one slot")
+        expect(abs((livePoints[0].spentPercent ?? -1) - 15) < 0.001, "30 points across two accounts should consume 15% of the pool")
+        expect(abs((livePoints[0].remainingPercent ?? -1) - 85) < 0.001, "the final pool average should be 85% remaining")
+        expect(livePoints[0].accountCount == 2, "both represented accounts should define full pool capacity")
+        expect(livePoints[0].coverage == .inProgress, "a fully anchored current day should be in progress")
 
-        let later = day3.addingTimeInterval(10 * 24 * 3600)
-        let outside = DailyPoolAggregator.dailyPoints(from: history, dayCount: 3, now: later, calendar: calendar)
-        expect(outside.count == 3, "an out-of-range history should still produce dated slots")
-        expect(outside.allSatisfy { ($0.value as Double?) == nil }, "out-of-range samples must not populate slots")
+        let resetPoints = DailyPoolSpendAggregator.dailyPoints(
+            from: [
+                poolSample(day0.addingTimeInterval(-15 * 60), ["a": 10]),
+                poolSample(day0.addingTimeInterval(30 * 60), ["a": 100]),
+                poolSample(day0.addingTimeInterval(60 * 60), ["a": 80])
+            ],
+            dayCount: 1,
+            now: day0.addingTimeInterval(90 * 60),
+            calendar: calendar
+        )
+        expect(abs((resetPoints[0].spentPercent ?? -1) - 20) < 0.001, "a reset increase should not erase or invent spend")
 
-        let empty = DailyPoolAggregator.dailyPoints(from: [], dayCount: 14, now: day3, calendar: calendar)
+        let addedAccountPoints = DailyPoolSpendAggregator.dailyPoints(
+            from: [
+                poolSample(day0.addingTimeInterval(-15 * 60), ["a": 100]),
+                poolSample(day0.addingTimeInterval(30 * 60), ["a": 90, "b": 100]),
+                poolSample(day0.addingTimeInterval(60 * 60), ["a": 80, "b": 80])
+            ],
+            dayCount: 1,
+            now: day0.addingTimeInterval(90 * 60),
+            calendar: calendar
+        )
+        expect(abs((addedAccountPoints[0].spentPercent ?? -1) - 20) < 0.001, "40 points across the two-account pool should normalize to 20%")
+        expect(addedAccountPoints[0].coverage == .inProgressLowerBound, "an account without an opening anchor should make the day a lower bound")
+
+        let sparsePoints = DailyPoolSpendAggregator.dailyPoints(
+            from: [
+                poolSample(day0.addingTimeInterval(30 * 60), ["a": 90]),
+                poolSample(day0.addingTimeInterval(60 * 60), ["a": 80]),
+                poolSample(day2.addingTimeInterval(30 * 60), ["a": 70])
+            ],
+            dayCount: 3,
+            now: day2.addingTimeInterval(60 * 60),
+            calendar: calendar
+        )
+        expect(sparsePoints.count == 3, "the window should preserve all requested calendar slots")
+        expect(sparsePoints[0].coverage == .lowerBound, "a past day without an opening anchor should be a lower bound")
+        expect(sparsePoints[1].coverage == .noData, "a missing day should retain a no-data slot")
+        expect(sparsePoints[1].spentPercent == nil, "a missing day should not invent zero spend")
+        expect(sparsePoints[2].coverage == .noData, "a day without any comparable observations should remain no data")
+
+        let empty = DailyPoolSpendAggregator.dailyPoints(from: [], dayCount: 14, now: day2, calendar: calendar)
         expect(empty.count == 14, "empty history should still produce fourteen slots")
-        expect(empty.allSatisfy { ($0.value as Double?) == nil && $0.sampleCount == 0 }, "empty slots should remain unknown")
+        expect(empty.allSatisfy { $0.spentPercent == nil && $0.coverage == .noData }, "empty slots should remain unknown")
     }
 
     private static func testPoolBurnRateEstimatorIgnoresAddedCapacity() {
