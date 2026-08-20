@@ -57,6 +57,7 @@ struct PoolPaceChartView: View {
     private static let maxAxisLabels = 4
     private static let dailyBarWidth: CGFloat = 12
     private static let popoverWidth: CGFloat = 158
+    private static let popoverHeight: CGFloat = 58
 
     private var bars: [Bar] {
         Array(data.points.suffix(Self.maxDailyBars)).enumerated().map { offset, point in
@@ -110,7 +111,7 @@ struct PoolPaceChartView: View {
             RuleMark(y: .value(semanticLabels.pool, DailyPoolSpendBand.dailyReferencePercent))
                 .foregroundStyle(Color(.nativeGold).opacity(0.38))
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                .accessibilityLabel(PoolChartLocalization.dailyReference(language: data.language))
+                .accessibilityLabel(PoolChartLocalization.dailyReferenceAccessibility(language: data.language))
         }
         .chartXScale(domain: -0.5...(Double(bars.count) - 0.5))
         .chartYScale(domain: 0...100)
@@ -151,8 +152,16 @@ struct PoolPaceChartView: View {
                         }
 
                     if let hoveredIndex, bars.indices.contains(hoveredIndex) {
-                        hoverPopover(for: bars[hoveredIndex].point)
-                            .position(popoverPosition(for: bars[hoveredIndex], proxy: proxy, geometry: geometry))
+                        let placement = popoverPlacement(
+                            for: bars[hoveredIndex],
+                            proxy: proxy,
+                            geometry: geometry
+                        )
+                        hoverPopover(
+                            for: bars[hoveredIndex].point,
+                            caretOffsetX: placement.caretOffsetX
+                        )
+                            .position(x: placement.centerX, y: placement.centerY)
                             .allowsHitTesting(false)
                     }
                 }
@@ -201,7 +210,7 @@ struct PoolPaceChartView: View {
         return indexes.sorted().map(Double.init)
     }
 
-    private func hoverPopover(for point: DailyPoolSpendPoint) -> some View {
+    private func hoverPopover(for point: DailyPoolSpendPoint, caretOffsetX: Double) -> some View {
         let lines = PoolChartLocalization.detailLines(for: point, language: data.language)
         return VStack(alignment: .leading, spacing: 2) {
             if let date = lines.first {
@@ -227,27 +236,38 @@ struct PoolPaceChartView: View {
             Image(systemName: "arrowtriangle.down.fill")
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(data.gridLine.opacity(0.9))
-                .offset(y: 5)
+                .offset(x: caretOffsetX, y: 5)
                 .accessibilityHidden(true)
         }
         .shadow(color: .black.opacity(0.24), radius: 8, y: 4)
     }
 
-    private func popoverPosition(
+    private func popoverPlacement(
         for bar: Bar,
         proxy: ChartProxy,
         geometry: GeometryProxy
-    ) -> CGPoint {
+    ) -> PoolChartPopoverPlacement {
         guard let plotFrame = proxy.plotFrame else {
-            return CGPoint(x: geometry.size.width / 2, y: 28)
+            return PoolChartPopoverPolicy.placement(
+                anchorX: geometry.size.width / 2,
+                preferredCenterY: Self.popoverHeight / 2 + 2,
+                containerWidth: geometry.size.width,
+                containerHeight: geometry.size.height,
+                popoverWidth: Self.popoverWidth,
+                popoverHeight: Self.popoverHeight
+            )
         }
         let frame = geometry[plotFrame]
         let plotX = proxy.position(forX: Double(bar.index)) ?? frame.width / 2
         let plotY = proxy.position(forY: min(100, bar.point.spentPercent ?? 0)) ?? frame.height
-        let halfWidth = Self.popoverWidth / 2
-        let x = min(geometry.size.width - halfWidth - 2, max(halfWidth + 2, frame.minX + plotX))
-        let y = min(geometry.size.height - 26, max(24, frame.minY + plotY - 26))
-        return CGPoint(x: x, y: y)
+        return PoolChartPopoverPolicy.placement(
+            anchorX: frame.minX + plotX,
+            preferredCenterY: frame.minY + plotY - 26,
+            containerWidth: geometry.size.width,
+            containerHeight: geometry.size.height,
+            popoverWidth: Self.popoverWidth,
+            popoverHeight: Self.popoverHeight
+        )
     }
 }
 struct PaceDisplayState {

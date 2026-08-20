@@ -2174,6 +2174,43 @@ enum PoolChartHoverPolicy {
     }
 }
 
+struct PoolChartPopoverPlacement: Equatable {
+    let centerX: Double
+    let centerY: Double
+    let caretOffsetX: Double
+}
+
+enum PoolChartPopoverPolicy {
+    static func placement(
+        anchorX: Double,
+        preferredCenterY: Double,
+        containerWidth: Double,
+        containerHeight: Double,
+        popoverWidth: Double,
+        popoverHeight: Double,
+        edgeInset: Double = 2,
+        caretInset: Double = 12
+    ) -> PoolChartPopoverPlacement {
+        let halfWidth = popoverWidth / 2
+        let halfHeight = popoverHeight / 2
+        let centerX = min(
+            containerWidth - halfWidth - edgeInset,
+            max(halfWidth + edgeInset, anchorX)
+        )
+        let centerY = min(
+            containerHeight - halfHeight - edgeInset,
+            max(halfHeight + edgeInset, preferredCenterY)
+        )
+        let maximumCaretOffset = max(0, halfWidth - caretInset)
+        let caretOffsetX = min(maximumCaretOffset, max(-maximumCaretOffset, anchorX - centerX))
+        return PoolChartPopoverPlacement(
+            centerX: centerX,
+            centerY: centerY,
+            caretOffsetX: caretOffsetX
+        )
+    }
+}
+
 struct DailyPoolSpendPoint: Equatable, Identifiable {
     let date: Date
     let spentPercent: Double?

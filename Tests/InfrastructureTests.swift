@@ -283,6 +283,14 @@ struct InfrastructureTests {
             PoolChartLocalization.accessibilityValue(for: incompletePast, language: .english).contains("Spent at least: 12% of pool"),
             "accessibility value should preserve lower-bound semantics"
         )
+        expect(
+            PoolChartLocalization.accessibilityValue(for: incompletePast, language: .english).contains("daily reference"),
+            "accessibility value should compare lower-bound spend with the daily reference"
+        )
+        expect(
+            PoolChartLocalization.dailyReferenceAccessibility(language: .russian).contains("7 дней"),
+            "the accessible reference description should explain the even seven-day pace"
+        )
     }
 
     private static func testLocalizedIntervalFormatting() {
@@ -1070,6 +1078,30 @@ struct InfrastructureTests {
         expect(PoolChartHoverPolicy.nearestIndex(to: -2, count: 14) == 0, "hover should clamp to the first slot")
         expect(PoolChartHoverPolicy.nearestIndex(to: 20, count: 14) == 13, "hover should clamp to the final slot")
         expect(PoolChartHoverPolicy.nearestIndex(to: 2, count: 0) == nil, "an empty chart should not select a slot")
+
+        let leadingPlacement = PoolChartPopoverPolicy.placement(
+            anchorX: 4,
+            preferredCenterY: 10,
+            containerWidth: 520,
+            containerHeight: 104,
+            popoverWidth: 158,
+            popoverHeight: 58
+        )
+        expect(leadingPlacement.centerX == 81, "the first-bar popover should remain inside the leading edge")
+        expect(leadingPlacement.centerY == 31, "the popover should remain inside the chart's top edge")
+        expect(leadingPlacement.caretOffsetX == -67, "the caret should point back toward the first bar")
+
+        let trailingPlacement = PoolChartPopoverPolicy.placement(
+            anchorX: 516,
+            preferredCenterY: 94,
+            containerWidth: 520,
+            containerHeight: 104,
+            popoverWidth: 158,
+            popoverHeight: 58
+        )
+        expect(trailingPlacement.centerX == 439, "the final-bar popover should remain inside the trailing edge")
+        expect(trailingPlacement.centerY == 73, "the popover should remain inside the chart's bottom edge")
+        expect(trailingPlacement.caretOffsetX == 67, "the caret should point back toward the final bar")
     }
 
     private static func testPaceEstimatorForecast() {

@@ -276,11 +276,34 @@ enum PoolChartLocalization {
     }
 
     static func accessibilityValue(for point: DailyPoolSpendPoint, language: AppLanguage) -> String {
-        detailLines(for: point, language: language).joined(separator: ". ")
+        var lines = detailLines(for: point, language: language)
+        if let spentPercent = point.spentPercent, point.coverage != .noData {
+            let comparison: String
+            switch DailyPoolSpendBand.classify(spentPercent) {
+            case .withinReference:
+                comparison = language == .russian
+                    ? "В пределах дневного ориентира"
+                    : "Within the daily reference"
+            case .aboveReference, .high:
+                comparison = language == .russian
+                    ? "Выше дневного ориентира"
+                    : "Above the daily reference"
+            case .unknown:
+                comparison = ""
+            }
+            if !comparison.isEmpty { lines.append(comparison) }
+        }
+        return lines.joined(separator: ". ")
     }
 
     static func dailyReference(language: AppLanguage) -> String {
         language == .russian ? "Дневной ориентир 14%" : "Daily reference 14%"
+    }
+
+    static func dailyReferenceAccessibility(language: AppLanguage) -> String {
+        language == .russian
+            ? "Дневной ориентир 14% — равномерный расход пула на 7 дней"
+            : "Daily reference 14% — an even seven-day pool pace"
     }
 
     static func chartSummary(language: AppLanguage) -> String {
