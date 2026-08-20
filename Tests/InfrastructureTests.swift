@@ -74,6 +74,7 @@ struct InfrastructureTests {
         testPoolVerdictWithoutHistory()
         testLivePoolSample()
         testCurrentPoolSampleFallsBackToAccountRows()
+        testPoolAccountResetDates()
         testPoolHistorySampleResetsAtCoding()
         testResetChanceParsing()
         testResetChanceCommandFallback()
@@ -1283,6 +1284,33 @@ struct InfrastructureTests {
             sample?.resetsAt == utcDate(day: 20, month: 8, year: 2026, hour: 9, minute: 0, calendar: utc),
             "account-row fallback should use the earliest upcoming weekly reset"
         )
+    }
+
+    private static func testPoolAccountResetDates() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let firstReset = now.addingTimeInterval(86_400)
+        let secondReset = now.addingTimeInterval(2 * 86_400)
+        let snapshots = [
+            "a@example.com": DirectUsageSnapshot(
+                fiveHour: UsageLimitWindowSnapshot(remainingPercent: 90, resetAt: nil),
+                weekly: UsageLimitWindowSnapshot(remainingPercent: 70, resetAt: firstReset)
+            ),
+            "b@example.com": DirectUsageSnapshot(
+                fiveHour: UsageLimitWindowSnapshot(remainingPercent: 80, resetAt: nil),
+                weekly: UsageLimitWindowSnapshot(remainingPercent: 40, resetAt: secondReset)
+            )
+        ]
+
+        let sample = PoolHistorySample.makeLive(snapshots: snapshots, now: now)
+        let resets = Dictionary(uniqueKeysWithValues: sample?.accounts.map { ($0.key, $0.resetsAt) } ?? [])
+        expect(resets["a@example.com"] == firstReset, "live sample should preserve the first account reset")
+        expect(resets["b@example.com"] == secondReset, "live sample should preserve the second account reset")
+
+        let legacy = Data(#"{"key":"legacy@example.com","remaining":55}"#.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try? decoder.decode(PoolAccountSample.self, from: legacy)
+        expect(decoded?.resetsAt == nil, "legacy account samples should decode without a reset date")
     }
 
     private static func testPoolHistorySampleResetsAtCoding() {

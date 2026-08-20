@@ -1827,6 +1827,13 @@ enum WeeklyResetFormatter {
 struct PoolAccountSample: Codable, Equatable {
     let key: String
     let remaining: Double
+    let resetsAt: Date?
+
+    init(key: String, remaining: Double, resetsAt: Date? = nil) {
+        self.key = key
+        self.remaining = remaining
+        self.resetsAt = resetsAt
+    }
 }
 
 /// One pool-wide sample: remaining percents per account, the pool total, and
@@ -1849,7 +1856,11 @@ extension PoolHistorySample {
         guard !snapshots.isEmpty else { return nil }
         let accounts = snapshots.keys.sorted().compactMap { email -> PoolAccountSample? in
             guard let snapshot = snapshots[email] else { return nil }
-            return PoolAccountSample(key: email, remaining: Double(snapshot.weekly.remainingPercent))
+            return PoolAccountSample(
+                key: email,
+                remaining: Double(snapshot.weekly.remainingPercent),
+                resetsAt: snapshot.weekly.resetAt
+            )
         }
         guard !accounts.isEmpty else { return nil }
         let reset = snapshots.values.compactMap(\.weekly.resetAt).min()
@@ -1873,14 +1884,17 @@ extension PoolHistorySample {
                 .map { Double($0.weekly.remainingPercent) }
                 ?? account.weeklyUsedPercent.map(Double.init)
             guard let remaining else { return nil }
-            return PoolAccountSample(key: account.email, remaining: remaining)
+            let reset = snapshots[account.email]?.weekly.resetAt
+                ?? WeeklyResetFormatter.upcomingResetDate(
+                    from: account.weeklyUsage,
+                    now: now,
+                    calendar: calendar
+                )
+            return PoolAccountSample(key: account.email, remaining: remaining, resetsAt: reset)
         }
         guard !currentAccounts.isEmpty else { return nil }
 
-        let resetDates = accounts.compactMap { account -> Date? in
-            snapshots[account.email]?.weekly.resetAt
-                ?? WeeklyResetFormatter.upcomingResetDate(from: account.weeklyUsage, now: now, calendar: calendar)
-        }
+        let resetDates = currentAccounts.compactMap(\.resetsAt)
         return PoolHistorySample(
             ts: now,
             n: currentAccounts.count,
