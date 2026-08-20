@@ -69,6 +69,13 @@ enum LocalizedTextKey: CaseIterable {
     case verdictCollectingDetail
     case verdictDeficitSummary
     case verdictAfterResetSummary
+    case verdictPreliminaryPace
+    case verdictEstablishedPace
+    case verdictReserveSummary
+    case verdictAccountComparison
+    case verdictMoreResets
+    case verdictDaysShort
+    case verdictHoursShort
     case nowEvent
     case resetEvent
     case exhaustionEvent
@@ -111,6 +118,13 @@ enum LocalizedText {
             case .verdictCollectingDetail: return "Нужно больше данных для надёжного прогноза."
             case .verdictDeficitSummary: return "Дефицит"
             case .verdictAfterResetSummary: return "Запас после сброса"
+            case .verdictPreliminaryPace: return "Предварительный прогноз · темп за"
+            case .verdictEstablishedPace: return "Средний темп за 7 дней"
+            case .verdictReserveSummary: return "Запас"
+            case .verdictAccountComparison: return "аккаунтов / нужно"
+            case .verdictMoreResets: return "ещё"
+            case .verdictDaysShort: return "д"
+            case .verdictHoursShort: return "ч"
             case .nowEvent: return "Сейчас"
             case .resetEvent: return "Сброс"
             case .exhaustionEvent: return "Запас закончится"
@@ -149,6 +163,13 @@ enum LocalizedText {
             case .verdictCollectingDetail: return "More data is needed for a reliable forecast."
             case .verdictDeficitSummary: return "Deficit"
             case .verdictAfterResetSummary: return "After reset"
+            case .verdictPreliminaryPace: return "Preliminary forecast · pace over"
+            case .verdictEstablishedPace: return "Average pace over 7 days"
+            case .verdictReserveSummary: return "Reserve"
+            case .verdictAccountComparison: return "accounts / needed"
+            case .verdictMoreResets: return "more"
+            case .verdictDaysShort: return "d"
+            case .verdictHoursShort: return "h"
             case .nowEvent: return "Now"
             case .resetEvent: return "Reset"
             case .exhaustionEvent: return "Capacity ends"
@@ -458,6 +479,13 @@ struct PoolVerdictPresentation: Equatable {
     let marginSummaryValue: String?
     let accessibilityLabel: String
     let events: [PoolVerdictEventPresentation]
+    let subtitle: String
+    let coverageLabel: String?
+    let coverageValue: String?
+    let capacityFraction: Double?
+    let resetIndicators: [String]
+    let accountValue: String?
+    let accountLabel: String?
 }
 
 enum PoolVerdictPresenter {
@@ -476,7 +504,14 @@ enum PoolVerdictPresenter {
                 marginSummaryLabel: nil,
                 marginSummaryValue: nil,
                 accessibilityLabel: LocalizedText.value(.collectingAccessibility, language: language),
-                events: []
+                events: [],
+                subtitle: LocalizedText.value(.verdictCollectingDetail, language: language),
+                coverageLabel: nil,
+                coverageValue: nil,
+                capacityFraction: nil,
+                resetIndicators: [],
+                accountValue: nil,
+                accountLabel: nil
             )
         case .enough, .notEnough:
             guard let reset = verdict.resetInterval,
@@ -511,9 +546,149 @@ enum PoolVerdictPresenter {
                 marginSummaryLabel: LocalizedText.value(marginSummaryKey, language: language),
                 marginSummaryValue: LocalizedIntervalFormatter.duration(abs(margin), language: language),
                 accessibilityLabel: LocalizedText.value(verdict.kind == .enough ? .enoughAccessibility : .notEnoughAccessibility, language: language),
-                events: events
+                events: events,
+                subtitle: LocalizedText.value(verdict.kind == .enough ? .verdictEnoughDetail : .verdictNotEnoughDetail, language: language),
+                coverageLabel: nil,
+                coverageValue: nil,
+                capacityFraction: nil,
+                resetIndicators: [],
+                accountValue: nil,
+                accountLabel: nil
             )
         }
+    }
+
+    static func make(
+        forecast: PoolSufficiencyForecast,
+        language: AppLanguage,
+        now: Date
+    ) -> PoolVerdictPresentation {
+        guard forecast.kind != .collecting,
+              let coverageRatio = forecast.coverageRatio,
+              coverageRatio.isFinite,
+              let requiredAccountCount = forecast.requiredAccountCount else {
+            return make(verdict: .collecting, language: language)
+        }
+
+        let titleKey: LocalizedTextKey = forecast.kind == .enough
+            ? .verdictEnoughTitle
+            : .verdictNotEnoughTitle
+        let coverageKey: LocalizedTextKey = forecast.kind == .enough
+            ? .verdictReserveSummary
+            : .verdictDeficitSummary
+        let subtitle = forecast.isPreliminary
+            ? preliminarySubtitle(historyDays: forecast.historyDays, language: language)
+            : LocalizedText.value(.verdictEstablishedPace, language: language)
+        let coverageValue = signedCoverage(coverageRatio)
+        let resetIndicators = resetIndicators(
+            events: forecast.resetEvents,
+            now: now,
+            language: language
+        )
+        let resetCount = forecast.resetEvents.reduce(0) { $0 + $1.accountCount }
+        let accountValue = "\(forecast.accountCount) / ≈\(requiredAccountCount)"
+        let accessibilityLabel = accessibilityLabel(
+            title: LocalizedText.value(titleKey, language: language),
+            subtitle: subtitle,
+            coverageLabel: LocalizedText.value(coverageKey, language: language),
+            coverageValue: coverageValue,
+            accountCount: forecast.accountCount,
+            requiredAccountCount: requiredAccountCount,
+            resetCount: resetCount,
+            language: language
+        )
+        return PoolVerdictPresentation(
+            kind: forecast.kind,
+            language: language,
+            resetInterval: nil,
+            exhaustionInterval: forecast.exhaustionDate.map { $0.timeIntervalSince(now) },
+            margin: nil,
+            title: LocalizedText.value(titleKey, language: language),
+            detail: subtitle,
+            firstEventFraction: nil,
+            marginSummaryLabel: nil,
+            marginSummaryValue: nil,
+            accessibilityLabel: accessibilityLabel,
+            events: [],
+            subtitle: subtitle,
+            coverageLabel: LocalizedText.value(coverageKey, language: language),
+            coverageValue: coverageValue,
+            capacityFraction: max(0, min(1, coverageRatio)),
+            resetIndicators: resetIndicators,
+            accountValue: accountValue,
+            accountLabel: LocalizedText.value(.verdictAccountComparison, language: language)
+        )
+    }
+
+    private static func preliminarySubtitle(historyDays: Double, language: AppLanguage) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = language.locale
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 1
+        let number = formatter.string(from: NSNumber(value: historyDays)) ?? String(format: "%.1f", historyDays)
+        let prefix = LocalizedText.value(.verdictPreliminaryPace, language: language)
+        return language == .russian
+            ? "\(prefix) \(number) дня"
+            : "\(prefix) \(number) days"
+    }
+
+    private static func signedCoverage(_ ratio: Double) -> String {
+        let rounded = Int(((ratio - 1) * 100).rounded())
+        if rounded > 0 { return "+\(rounded)%" }
+        if rounded < 0 { return "−\(abs(rounded))%" }
+        return "0%"
+    }
+
+    private static func resetIndicators(
+        events: [PoolResetEvent],
+        now: Date,
+        language: AppLanguage
+    ) -> [String] {
+        let future = events.filter { $0.date > now }.sorted { $0.date < $1.date }
+        let visible = future.count <= 3 ? future : Array(future.prefix(2))
+        var labels = visible.map { resetIndicator(event: $0, now: now, language: language) }
+        if future.count > 3 {
+            labels.append("\(LocalizedText.value(.verdictMoreResets, language: language)) \(future.count - 2)")
+        }
+        return labels
+    }
+
+    private static func resetIndicator(
+        event: PoolResetEvent,
+        now: Date,
+        language: AppLanguage
+    ) -> String {
+        let totalHours = max(0, Int(event.date.timeIntervalSince(now) / 3_600))
+        let days = totalHours / 24
+        let hours = totalHours % 24
+        let dayUnit = LocalizedText.value(.verdictDaysShort, language: language)
+        let hourUnit = LocalizedText.value(.verdictHoursShort, language: language)
+        let interval: String
+        if days > 0, hours > 0 {
+            interval = "\(days) \(dayUnit) \(hours) \(hourUnit)"
+        } else if days > 0 {
+            interval = "\(days) \(dayUnit)"
+        } else {
+            interval = "\(max(1, hours)) \(hourUnit)"
+        }
+        return event.accountCount > 1 ? "\(interval) · ×\(event.accountCount)" : interval
+    }
+
+    private static func accessibilityLabel(
+        title: String,
+        subtitle: String,
+        coverageLabel: String,
+        coverageValue: String,
+        accountCount: Int,
+        requiredAccountCount: Int,
+        resetCount: Int,
+        language: AppLanguage
+    ) -> String {
+        let unsignedCoverage = coverageValue.replacingOccurrences(of: "−", with: "").replacingOccurrences(of: "+", with: "")
+        if language == .russian {
+            return "\(title). \(subtitle). \(coverageLabel) \(unsignedCoverage). \(accountCount) аккаунтов, нужно примерно \(requiredAccountCount). Известно \(resetCount) сбросов."
+        }
+        return "\(title). \(subtitle). \(coverageLabel) \(unsignedCoverage). \(accountCount) accounts, approximately \(requiredAccountCount) needed. \(resetCount) known resets."
     }
 
     private static func event(

@@ -54,6 +54,7 @@ struct InfrastructureTests {
         testPoolChartLocalization()
         testLocalizedIntervalFormatting()
         testPoolVerdictPresentation()
+        testPoolSufficiencyPresentation()
         try testComputerUsePluginDiscovery()
         try testBackupPruning()
         testProcessRunner()
@@ -373,6 +374,79 @@ struct InfrastructureTests {
 
         let exhaustedNow = PoolVerdict(kind: .notEnough, resetInterval: 3_600, exhaustionInterval: 0, margin: -3_600)
         expect(PoolVerdictPresenter.make(verdict: exhaustedNow, language: .russian).kind == .collecting, "a non-positive first event should fall back to Collecting")
+    }
+
+    private static func testPoolSufficiencyPresentation() {
+        let day: TimeInterval = 86_400
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let preliminary = PoolSufficiencyForecast(
+            kind: .notEnough,
+            isPreliminary: true,
+            historyDays: 4.7,
+            burnPerDay: 118.7,
+            expectedDemand: 830.9,
+            usableCapacity: 697.956,
+            coverageRatio: 0.84,
+            exhaustionDate: now.addingTimeInterval(2 * day),
+            resetEvents: [
+                PoolResetEvent(date: now.addingTimeInterval(2 * day + 22 * 3_600), accountCount: 2),
+                PoolResetEvent(date: now.addingTimeInterval(4 * day), accountCount: 1),
+                PoolResetEvent(date: now.addingTimeInterval(5 * day), accountCount: 1),
+                PoolResetEvent(date: now.addingTimeInterval(6 * day), accountCount: 1)
+            ],
+            accountCount: 7,
+            requiredAccountCount: 9
+        )
+        let preliminaryRU = PoolVerdictPresenter.make(
+            forecast: preliminary,
+            language: .russian,
+            now: now
+        )
+        expect(preliminaryRU.title == "Не хватит до сброса", "Russian deficit title should stay unchanged")
+        expect(preliminaryRU.subtitle == "Предварительный прогноз · темп за 4,7 дня", "partial history should be explicit")
+        expect(preliminaryRU.coverageValue == "−16%", "deficit should be rounded to a whole signed percent")
+        expect(preliminaryRU.coverageLabel == "Дефицит", "deficit caption should be semantic")
+        expect(preliminaryRU.capacityFraction == 0.84, "capacity fill should preserve coverage below one")
+        expect(preliminaryRU.accountValue == "7 / ≈9", "account comparison should be compact")
+        expect(preliminaryRU.accountLabel == "аккаунтов / нужно", "account comparison should be explained")
+        expect(
+            preliminaryRU.resetIndicators == ["2 д 22 ч · ×2", "4 д", "ещё 2"],
+            "reset groups should compact overflow"
+        )
+        expect(preliminaryRU.accessibilityLabel.contains("Дефицит 16%"), "accessibility should describe the deficit")
+        expect(preliminaryRU.accessibilityLabel.contains("7 аккаунтов"), "accessibility should describe current accounts")
+        expect(preliminaryRU.accessibilityLabel.contains("5 сбросов"), "accessibility should describe known account resets")
+
+        let enough = PoolSufficiencyForecast(
+            kind: .enough,
+            isPreliminary: false,
+            historyDays: 7,
+            burnPerDay: 100,
+            expectedDemand: 700,
+            usableCapacity: 826,
+            coverageRatio: 1.18,
+            exhaustionDate: nil,
+            resetEvents: [],
+            accountCount: 7,
+            requiredAccountCount: 7
+        )
+        let enoughEN = PoolVerdictPresenter.make(forecast: enough, language: .english, now: now)
+        expect(enoughEN.title == "Enough until reset", "English enough title should stay unchanged")
+        expect(enoughEN.subtitle == "Average pace over 7 days", "established English pace should be localized")
+        expect(enoughEN.coverageValue == "+18%", "reserve should use an explicit plus sign")
+        expect(enoughEN.coverageLabel == "Reserve", "reserve caption should be localized")
+        expect(enoughEN.capacityFraction == 1, "capacity fill should clamp reserve above one")
+
+        let collecting = PoolVerdictPresenter.make(
+            forecast: .collecting(historyDays: 0, accountCount: 7),
+            language: .russian,
+            now: now
+        )
+        expect(collecting.title == "Собираем историю", "collecting title should remain familiar")
+        expect(collecting.coverageValue == nil, "collecting should hide invented coverage")
+        expect(collecting.capacityFraction == nil, "collecting should hide the capacity track")
+        expect(collecting.resetIndicators.isEmpty, "collecting should hide reset indicators")
+        expect(collecting.accountValue == nil, "collecting should hide the account requirement")
     }
 
     private static func testResetRefreshPolicy() {
