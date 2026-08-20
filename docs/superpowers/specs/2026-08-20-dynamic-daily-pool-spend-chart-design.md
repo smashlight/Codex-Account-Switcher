@@ -1,8 +1,8 @@
 # Dynamic Daily Pool Spend Chart — Design
 
-**Date:** 2026-08-20  
-**Status:** Approved  
-**Surface:** macOS usage panel  
+**Date:** 2026-08-20
+**Status:** Approved
+**Surface:** macOS usage panel
 **Selected visual direction:** Compact popover (concept A)
 
 ## Goal

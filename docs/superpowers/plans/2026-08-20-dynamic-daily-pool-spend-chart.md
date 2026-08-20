@@ -62,7 +62,7 @@ expect(abs((points[0].spentPercent ?? -1) - 15) < 0.001, "30 points across two a
 
 - [ ] **Step 2: Run the infrastructure suite and confirm the new test fails**
 
-Run: `./run-tests.sh`  
+Run: `./run-tests.sh`
 Expected: compile failure because `DailyPoolSpendAggregator` and its point types do not exist.
 
 - [ ] **Step 3: Implement the pure aggregator**
@@ -91,7 +91,7 @@ For each day, include a valid opening anchor no older than one sampling interval
 
 - [ ] **Step 4: Run tests and make all aggregation cases pass**
 
-Run: `./run-tests.sh`  
+Run: `./run-tests.sh`
 Expected: all infrastructure assertions pass, followed by existing AppKit, reset self-test, and install-script tests.
 
 - [ ] **Step 5: Commit the aggregation slice**
@@ -135,7 +135,7 @@ expect(
 
 - [ ] **Step 2: Run tests and confirm failure**
 
-Run: `./run-tests.sh`  
+Run: `./run-tests.sh`
 Expected: compile failure because the new localization APIs do not exist.
 
 - [ ] **Step 3: Implement complete localized sentences and locale-aware formatting**
@@ -144,7 +144,7 @@ Use the existing `AppLanguage.locale`, `Date.FormatStyle`, and `FloatingPointFor
 
 - [ ] **Step 4: Run tests and confirm all copy cases pass**
 
-Run: `./run-tests.sh`  
+Run: `./run-tests.sh`
 Expected: all tests pass.
 
 - [ ] **Step 5: Commit the localization slice**
@@ -181,7 +181,7 @@ expect(PoolChartHoverPolicy.nearestIndex(to: -2, count: 14) == 0, "hover should 
 
 - [ ] **Step 2: Run tests and confirm policy failures**
 
-Run: `./run-tests.sh`  
+Run: `./run-tests.sh`
 Expected: compile failure for the new policy types.
 
 - [ ] **Step 3: Implement policy types and update chart data mapping**
@@ -206,9 +206,9 @@ Expose a chart-level daily-spend summary and a localized value for each prepared
 
 - [ ] **Step 8: Run automated verification for the chart slice**
 
-Run: `./run-tests.sh`  
-Expected: all tests pass.  
-Run: `./build.sh`  
+Run: `./run-tests.sh`
+Expected: all tests pass.
+Run: `./build.sh`
 Expected: app compiles and signs successfully; no visual launch is performed.
 
 - [ ] **Step 9: Commit the chart slice**
@@ -245,13 +245,13 @@ Record the opening-anchor, two-interval gap, and past-day tail coverage conditio
 
 - [ ] **Step 4: Run complete non-visual verification**
 
-Run: `./run-tests.sh`  
-Expected: all suites pass.  
-Run: `./build.sh`  
-Expected: successful build and signing.  
-Run: `git diff --check`  
-Expected: no whitespace errors.  
-Run: `git status --short`  
+Run: `./run-tests.sh`
+Expected: all suites pass.
+Run: `./build.sh`
+Expected: successful build and signing.
+Run: `git diff --check`
+Expected: no whitespace errors.
+Run: `git status --short`
 Expected: only intended implementation files are modified before the final commit.
 
 - [ ] **Step 5: Commit documentation**
