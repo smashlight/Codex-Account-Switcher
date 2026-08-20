@@ -275,21 +275,47 @@ struct InfrastructureTests {
         let enough = PoolVerdict(kind: .enough, resetInterval: 2 * 86_400, exhaustionInterval: 2.9 * 86_400, margin: 0.9 * 86_400)
         let enoughRU = PoolVerdictPresenter.make(verdict: enough, language: .russian)
         expect(enoughRU.title == "Хватит до сброса", "Enough should use the Russian title")
-        expect(enoughRU.marginBadge == "+21 час 36 минут", "Enough should show a positive buffer")
+        expect(abs((enoughRU.firstEventFraction ?? -1) - (2.0 / 2.9)) < 0.000_001, "Enough should place reset proportionally before exhaustion")
+        expect(enoughRU.marginSummaryLabel == "Запас после сброса", "Enough should explain the positive margin")
+        expect(enoughRU.marginSummaryValue == "21 час 36 минут", "Enough should show the absolute localized margin")
         expect(enoughRU.events.map(\.kind) == [.now, .reset, .exhaustion], "Enough should order reset before exhaustion")
         expect(enoughRU.events.map(\.intervalText) == [nil, "через 2 дня", "через 2 дня 22 часа"], "Russian events should include localized intervals")
+
+        let enoughEN = PoolVerdictPresenter.make(verdict: enough, language: .english)
+        expect(enoughEN.marginSummaryLabel == "After reset", "English Enough should explain the positive margin")
+        expect(enoughEN.marginSummaryValue == "21 hours 36 minutes", "English Enough should show the absolute localized margin")
 
         let notEnough = PoolVerdict(kind: .notEnough, resetInterval: 2 * 86_400, exhaustionInterval: 1.3 * 86_400, margin: -0.7 * 86_400)
         let notEnoughEN = PoolVerdictPresenter.make(verdict: notEnough, language: .english)
         expect(notEnoughEN.title == "Runs out before reset", "Not Enough should use the English title")
-        expect(notEnoughEN.marginBadge == "−16 hours 48 minutes", "Not Enough should show a negative deficit")
+        expect(abs((notEnoughEN.firstEventFraction ?? -1) - (1.3 / 2.0)) < 0.000_001, "Not Enough should place exhaustion proportionally before reset")
+        expect(notEnoughEN.marginSummaryLabel == "Deficit", "Not Enough should explain the negative margin")
+        expect(notEnoughEN.marginSummaryValue == "16 hours 48 minutes", "Not Enough should show the absolute localized margin")
         expect(notEnoughEN.events.map(\.kind) == [.now, .exhaustion, .reset], "Not Enough should order exhaustion before reset")
         expect(notEnoughEN.events.map(\.intervalText) == [nil, "in 1 day 7 hours", "in 2 days"], "English events should include localized intervals")
 
+        let notEnoughRU = PoolVerdictPresenter.make(verdict: notEnough, language: .russian)
+        expect(notEnoughRU.marginSummaryLabel == "Дефицит", "Russian Not Enough should explain the negative margin")
+        expect(notEnoughRU.marginSummaryValue == "16 часов 48 минут", "Russian Not Enough should show the absolute localized margin")
+
         let collecting = PoolVerdictPresenter.make(verdict: .collecting, language: .russian)
         expect(collecting.kind == .collecting, "incomplete inputs should remain collecting")
-        expect(collecting.marginBadge == nil, "Collecting should not show a badge")
+        expect(collecting.firstEventFraction == nil, "Collecting should not expose timeline geometry")
+        expect(collecting.marginSummaryLabel == nil, "Collecting should not show a margin label")
+        expect(collecting.marginSummaryValue == nil, "Collecting should not show a margin value")
         expect(collecting.events.isEmpty, "Collecting should not show an event scale")
+
+        expect(PoolVerdictTimelineGeometry.firstEventFraction(firstInterval: 5, lastInterval: 10) == 0.5, "timeline geometry should preserve ratios")
+        expect(PoolVerdictTimelineGeometry.firstEventFraction(firstInterval: 1, lastInterval: 100) == 0.01, "timeline geometry should preserve a fraction near the lower endpoint")
+        expect(PoolVerdictTimelineGeometry.firstEventFraction(firstInterval: 99, lastInterval: 100) == 0.99, "timeline geometry should preserve a fraction near the upper endpoint")
+        expect(PoolVerdictTimelineGeometry.firstEventFraction(firstInterval: -1, lastInterval: 10) == nil, "timeline geometry should reject a negative first interval")
+        expect(PoolVerdictTimelineGeometry.firstEventFraction(firstInterval: 0, lastInterval: 10) == nil, "timeline geometry should reject a zero first interval")
+        expect(PoolVerdictTimelineGeometry.firstEventFraction(firstInterval: 12, lastInterval: 10) == 1, "timeline geometry should clamp the upper endpoint")
+        expect(PoolVerdictTimelineGeometry.firstEventFraction(firstInterval: 1, lastInterval: 0) == nil, "timeline geometry should reject an empty horizon")
+        expect(PoolVerdictTimelineGeometry.firstEventFraction(firstInterval: .infinity, lastInterval: 10) == nil, "timeline geometry should reject non-finite intervals")
+
+        let exhaustedNow = PoolVerdict(kind: .notEnough, resetInterval: 3_600, exhaustionInterval: 0, margin: -3_600)
+        expect(PoolVerdictPresenter.make(verdict: exhaustedNow, language: .russian).kind == .collecting, "a non-positive first event should fall back to Collecting")
     }
 
     private static func testResetRefreshPolicy() {

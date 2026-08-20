@@ -473,9 +473,10 @@ final class PoolVerdictCardView: NSView {
         )
         addSubview(symbolView)
 
-        let badgeWidth: CGFloat = presentation.marginBadge == nil ? 0 : 84
-        let badgeGap: CGFloat = presentation.marginBadge == nil ? 0 : 10
-        let textTrailingInset: CGFloat = 14 + badgeWidth + badgeGap
+        let showsMarginSummary = presentation.marginSummaryLabel != nil && presentation.marginSummaryValue != nil
+        let summaryWidth: CGFloat = showsMarginSummary ? 124 : 0
+        let summaryGap: CGFloat = showsMarginSummary ? 10 : 0
+        let textTrailingInset: CGFloat = 14 + summaryWidth + summaryGap
         addSubview(Self.label(
             frame: NSRect(x: 56, y: 10 + headerOffset, width: bounds.width - 56 - textTrailingInset, height: 19),
             text: presentation.title,
@@ -489,16 +490,25 @@ final class PoolVerdictCardView: NSView {
             color: theme.secondaryText
         ))
 
-        if let marginBadge = presentation.marginBadge {
-            let badge = CenteredBadgeTextView(
-                frame: NSRect(x: bounds.width - 14 - badgeWidth, y: 12, width: badgeWidth, height: 28),
-                text: marginBadge,
-                color: style.accent
+        if let marginSummaryLabel = presentation.marginSummaryLabel,
+           let marginSummaryValue = presentation.marginSummaryValue {
+            let summaryX = bounds.width - 14 - summaryWidth
+            addSubview(Self.label(
+                frame: NSRect(x: summaryX, y: 10, width: summaryWidth, height: 13),
+                text: marginSummaryLabel,
+                font: .systemFont(ofSize: 9.5, weight: .semibold),
+                color: theme.secondaryText,
+                alignment: .right
+            ))
+            let summaryValueLabel = Self.label(
+                frame: NSRect(x: summaryX, y: 24, width: summaryWidth, height: 16),
+                text: marginSummaryValue,
+                font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .bold),
+                color: style.accent,
+                alignment: .right
             )
-            badge.layer?.cornerRadius = 14
-            badge.layer?.backgroundColor = style.accent.withAlphaComponent(theme.isDark ? 0.13 : 0.10).cgColor
-            badge.setAccessibilityLabel(marginBadge)
-            addSubview(badge)
+            summaryValueLabel.setAccessibilityLabel("\(marginSummaryLabel) \(marginSummaryValue)")
+            addSubview(summaryValueLabel)
         }
 
         guard showsScale else { return }
@@ -534,26 +544,37 @@ final class PoolVerdictCardView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard presentation.events.count == 3, presentation.kind != .collecting else { return }
+        guard presentation.events.count == 3,
+              presentation.kind != .collecting,
+              let fraction = presentation.firstEventFraction else { return }
 
         let horizontalInset: CGFloat = 18
         let scaleWidth = bounds.width - horizontalInset * 2
         let columnWidth = scaleWidth / 3
         let pointY: CGFloat = 67
-        let centers = (0..<3).map { horizontalInset + columnWidth * (CGFloat($0) + 0.5) }
-        let leftSegment = NSRect(x: centers[0], y: pointY - 2, width: centers[1] - centers[0], height: 4)
-        let rightSegment = NSRect(x: centers[1], y: pointY - 2, width: centers[2] - centers[1], height: 4)
+        let labelCenters = (0..<3).map { horizontalInset + columnWidth * (CGFloat($0) + 0.5) }
+        let startX = labelCenters[0]
+        let endX = labelCenters[2]
+        let firstEventX = startX + (endX - startX) * CGFloat(max(0, min(1, fraction)))
+        let pointCenters = [startX, firstEventX, endX]
         let lighterAccent = accent.blended(withFraction: 0.34, of: .white) ?? accent
 
-        NSGraphicsContext.saveGraphicsState()
-        leftSegment.roundedPath(radius: 2).addClip()
-        NSGradient(starting: accent, ending: lighterAccent)?.draw(in: leftSegment, angle: 0)
-        NSGraphicsContext.restoreGraphicsState()
+        if firstEventX > startX {
+            let accentSegment = NSRect(x: startX, y: pointY - 2, width: firstEventX - startX, height: 4)
+            NSGraphicsContext.saveGraphicsState()
+            accentSegment.roundedPath(radius: 2).addClip()
+            NSGradient(starting: accent, ending: lighterAccent)?.draw(in: accentSegment, angle: 0)
+            NSGraphicsContext.restoreGraphicsState()
+        }
 
-        theme.progressTrack.setFill()
-        rightSegment.roundedPath(radius: 2).fill()
+        if endX > firstEventX {
+            theme.progressTrack.setFill()
+            NSRect(x: firstEventX, y: pointY - 2, width: endX - firstEventX, height: 4)
+                .roundedPath(radius: 2)
+                .fill()
+        }
 
-        for (index, center) in centers.enumerated() {
+        for (index, center) in pointCenters.enumerated() {
             let color = index < 2 ? (index == 0 ? accent : lighterAccent) : theme.secondaryText
             color.setFill()
             NSBezierPath(ovalIn: NSRect(x: center - 3.5, y: pointY - 3.5, width: 7, height: 7)).fill()
@@ -616,38 +637,6 @@ private final class PoolVerdictSymbolView: NSView {
         image.isTemplate = true
         NSColor.black.withAlphaComponent(0.72).set()
         image.draw(in: bounds.insetBy(dx: 8, dy: 8))
-    }
-}
-
-private final class CenteredBadgeTextView: NSView {
-    private let text: String
-    private let color: NSColor
-
-    init(frame: NSRect, text: String, color: NSColor) {
-        self.text = text
-        self.color = color
-        super.init(frame: frame)
-        wantsLayer = true
-        setAccessibilityElement(true)
-        setAccessibilityRole(.staticText)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var isFlipped: Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let value = NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold),
-            .foregroundColor: color
-        ])
-        let size = value.size()
-        value.draw(at: NSPoint(
-            x: (bounds.width - size.width) / 2,
-            y: (bounds.height - size.height) / 2
-        ))
     }
 }
 
