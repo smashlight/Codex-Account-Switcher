@@ -228,19 +228,17 @@ struct InfrastructureTests {
             PoolChartLocalization.detailLines(for: today, language: .russian) == [
                 "17 авг.",
                 "Потрачено: 18% пула",
-                "Темп: 1,3× дневного ориентира",
-                "Осталось сейчас: 36,6%"
+                "Осталось: 36,6%"
             ],
-            "Russian current-day popover should localize spend, pace, and remaining capacity"
+            "Russian current-day popover should keep only the at-a-glance values"
         )
         expect(
             PoolChartLocalization.detailLines(for: today, language: .english) == [
                 "Aug 17",
                 "Spent: 18% of pool",
-                "Pace: 1.3× daily reference",
-                "Remaining now: 36.6%"
+                "Remaining: 36.6%"
             ],
-            "English current-day popover should localize spend, pace, and remaining capacity"
+            "English current-day popover should keep only the at-a-glance values"
         )
 
         let incompletePast = DailyPoolSpendPoint(
@@ -253,11 +251,10 @@ struct InfrastructureTests {
         expect(
             PoolChartLocalization.detailLines(for: incompletePast, language: .russian) == [
                 "17 авг.",
-                "Потрачено не менее: 12% пула",
-                "Неполный день",
-                "Осталось в последнем замере: 6,6%"
+                "Потрачено: 12% пула",
+                "Осталось: 6,6%"
             ],
-            "Russian lower-bound popover should disclose incomplete history"
+            "Russian lower-bound popover should stay concise"
         )
 
         let noData = DailyPoolSpendPoint(
@@ -282,6 +279,21 @@ struct InfrastructureTests {
         expect(
             PoolChartLocalization.accessibilityValue(for: incompletePast, language: .english).contains("Spent at least: 12% of pool"),
             "accessibility value should preserve lower-bound semantics"
+        )
+        expect(
+            PoolChartLocalization.accessibilityValue(for: incompletePast, language: .russian).contains("Неполный день"),
+            "accessibility value should disclose incomplete sampling in Russian"
+        )
+        let completePast = DailyPoolSpendPoint(
+            date: date,
+            spentPercent: 8,
+            remainingPercent: 74,
+            accountCount: 7,
+            coverage: .complete
+        )
+        expect(
+            PoolChartLocalization.accessibilityValue(for: completePast, language: .english).contains("Remaining at day end: 74%"),
+            "accessibility value should preserve completed-day remaining wording"
         )
         expect(
             PoolChartLocalization.accessibilityValue(for: incompletePast, language: .english).contains("daily reference"),
@@ -1084,24 +1096,24 @@ struct InfrastructureTests {
             preferredCenterY: 10,
             containerWidth: 520,
             containerHeight: 104,
-            popoverWidth: 158,
-            popoverHeight: 58
+            popoverWidth: 190,
+            popoverHeight: 72
         )
-        expect(leadingPlacement.centerX == 81, "the first-bar popover should remain inside the leading edge")
-        expect(leadingPlacement.centerY == 31, "the popover should remain inside the chart's top edge")
-        expect(leadingPlacement.caretOffsetX == -67, "the caret should point back toward the first bar")
+        expect(leadingPlacement.centerX == 97, "the first-bar popover should remain inside the leading edge")
+        expect(leadingPlacement.centerY == 38, "the popover should remain inside the chart's top edge")
+        expect(leadingPlacement.caretOffsetX == -83, "the caret should point back toward the first bar")
 
         let trailingPlacement = PoolChartPopoverPolicy.placement(
             anchorX: 516,
             preferredCenterY: 94,
             containerWidth: 520,
             containerHeight: 104,
-            popoverWidth: 158,
-            popoverHeight: 58
+            popoverWidth: 190,
+            popoverHeight: 72
         )
-        expect(trailingPlacement.centerX == 439, "the final-bar popover should remain inside the trailing edge")
-        expect(trailingPlacement.centerY == 73, "the popover should remain inside the chart's bottom edge")
-        expect(trailingPlacement.caretOffsetX == 67, "the caret should point back toward the final bar")
+        expect(trailingPlacement.centerX == 423, "the final-bar popover should remain inside the trailing edge")
+        expect(trailingPlacement.centerY == 66, "the popover should remain inside the chart's bottom edge")
+        expect(trailingPlacement.caretOffsetX == 83, "the caret should point back toward the final bar")
     }
 
     private static func testPaceEstimatorForecast() {

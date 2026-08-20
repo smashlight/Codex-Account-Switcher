@@ -232,17 +232,37 @@ enum PoolChartLocalization {
         }
 
         let spent = number(spentPercent, language: language)
+        switch language {
+        case .russian:
+            var lines = [dateText, "Потрачено: \(spent)% пула"]
+            if let remainingPercent = point.remainingPercent {
+                lines.append("Осталось: \(number(remainingPercent, language: language))%")
+            }
+            return lines
+        case .english:
+            var lines = [dateText, "Spent: \(spent)% of pool"]
+            if let remainingPercent = point.remainingPercent {
+                lines.append("Remaining: \(number(remainingPercent, language: language))%")
+            }
+            return lines
+        }
+    }
+
+    static func accessibilityValue(for point: DailyPoolSpendPoint, language: AppLanguage) -> String {
+        let dateText = axisDate(point.date, language: language)
+        guard let spentPercent = point.spentPercent, point.coverage != .noData else {
+            return [dateText, language == .russian ? "Нет данных" : "No data"].joined(separator: ". ")
+        }
+
+        let spent = number(spentPercent, language: language)
         let pace = number(spentPercent / dailyReferencePercent, language: language)
         let isLowerBound = point.coverage == .lowerBound || point.coverage == .inProgressLowerBound
         let isInProgress = point.coverage == .inProgress || point.coverage == .inProgressLowerBound
         var lines: [String]
         switch language {
         case .russian:
-            lines = [
-                dateText,
-                isLowerBound ? "Потрачено не менее: \(spent)% пула" : "Потрачено: \(spent)% пула"
-            ]
-            if !isLowerBound { lines.append("Темп: \(pace)× дневного ориентира") }
+            lines = [dateText, isLowerBound ? "Потрачено не менее: \(spent)% пула" : "Потрачено: \(spent)% пула"]
+            lines.append("Темп: \(pace)× дневного ориентира")
             if isLowerBound { lines.append("Неполный день") }
             if let remainingPercent = point.remainingPercent {
                 let remaining = number(remainingPercent, language: language)
@@ -254,12 +274,14 @@ enum PoolChartLocalization {
                             : "Осталось к концу дня: \(remaining)%"
                 )
             }
+            lines.append(
+                DailyPoolSpendBand.classify(spentPercent) == .withinReference
+                    ? "В пределах дневного ориентира"
+                    : "Выше дневного ориентира"
+            )
         case .english:
-            lines = [
-                dateText,
-                isLowerBound ? "Spent at least: \(spent)% of pool" : "Spent: \(spent)% of pool"
-            ]
-            if !isLowerBound { lines.append("Pace: \(pace)× daily reference") }
+            lines = [dateText, isLowerBound ? "Spent at least: \(spent)% of pool" : "Spent: \(spent)% of pool"]
+            lines.append("Pace: \(pace)× daily reference")
             if isLowerBound { lines.append("Incomplete day") }
             if let remainingPercent = point.remainingPercent {
                 let remaining = number(remainingPercent, language: language)
@@ -271,27 +293,11 @@ enum PoolChartLocalization {
                             : "Remaining at day end: \(remaining)%"
                 )
             }
-        }
-        return lines
-    }
-
-    static func accessibilityValue(for point: DailyPoolSpendPoint, language: AppLanguage) -> String {
-        var lines = detailLines(for: point, language: language)
-        if let spentPercent = point.spentPercent, point.coverage != .noData {
-            let comparison: String
-            switch DailyPoolSpendBand.classify(spentPercent) {
-            case .withinReference:
-                comparison = language == .russian
-                    ? "В пределах дневного ориентира"
-                    : "Within the daily reference"
-            case .aboveReference, .high:
-                comparison = language == .russian
-                    ? "Выше дневного ориентира"
+            lines.append(
+                DailyPoolSpendBand.classify(spentPercent) == .withinReference
+                    ? "Within the daily reference"
                     : "Above the daily reference"
-            case .unknown:
-                comparison = ""
-            }
-            if !comparison.isEmpty { lines.append(comparison) }
+            )
         }
         return lines.joined(separator: ". ")
     }

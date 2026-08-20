@@ -56,8 +56,8 @@ struct PoolPaceChartView: View {
     private static let maxDailyBars = 14
     private static let maxAxisLabels = 4
     private static let dailyBarWidth: CGFloat = 12
-    private static let popoverWidth: CGFloat = 158
-    private static let popoverHeight: CGFloat = 58
+    private static let popoverWidth: CGFloat = 190
+    private static let popoverHeight: CGFloat = 72
 
     private var bars: [Bar] {
         Array(data.points.suffix(Self.maxDailyBars)).enumerated().map { offset, point in
@@ -212,20 +212,20 @@ struct PoolPaceChartView: View {
 
     private func hoverPopover(for point: DailyPoolSpendPoint, caretOffsetX: Double) -> some View {
         let lines = PoolChartLocalization.detailLines(for: point, language: data.language)
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: 3) {
             if let date = lines.first {
                 Text(date)
-                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
             }
             ForEach(Array(lines.dropFirst()), id: \.self) { line in
                 Text(line)
-                    .font(.system(size: 7.5, weight: .medium, design: .rounded))
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundStyle(data.labelText)
                     .monospacedDigit()
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .frame(width: Self.popoverWidth, alignment: .leading)
         .background(.ultraThinMaterial, in: .rect(cornerRadius: 9, style: .continuous))
         .overlay {
