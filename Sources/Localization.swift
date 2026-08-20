@@ -72,6 +72,7 @@ enum LocalizedTextKey: CaseIterable {
     case verdictPreliminaryPace
     case verdictEstablishedPace
     case verdictReserveSummary
+    case verdictCapacityWithResets
     case verdictAccountComparison
     case verdictMoreResets
     case verdictDaysShort
@@ -121,6 +122,7 @@ enum LocalizedText {
             case .verdictPreliminaryPace: return "Предварительный прогноз · темп за"
             case .verdictEstablishedPace: return "Средний темп за 7 дней"
             case .verdictReserveSummary: return "Запас"
+            case .verdictCapacityWithResets: return "Запас с учётом сбросов"
             case .verdictAccountComparison: return "аккаунтов / нужно"
             case .verdictMoreResets: return "ещё"
             case .verdictDaysShort: return "д"
@@ -166,6 +168,7 @@ enum LocalizedText {
             case .verdictPreliminaryPace: return "Preliminary forecast · pace over"
             case .verdictEstablishedPace: return "Average pace over 7 days"
             case .verdictReserveSummary: return "Reserve"
+            case .verdictCapacityWithResets: return "Capacity with resets"
             case .verdictAccountComparison: return "accounts / needed"
             case .verdictMoreResets: return "more"
             case .verdictDaysShort: return "d"

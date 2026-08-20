@@ -444,13 +444,11 @@ final class ProgressLineView: NSView {
 final class PoolVerdictCardView: NSView {
     private let presentation: PoolVerdictPresentation
     private let theme: PanelTheme
-    private let accent: NSColor
 
     init(frame: NSRect, presentation: PoolVerdictPresentation, theme: PanelTheme) {
         self.presentation = presentation
         self.theme = theme
         let style = Self.style(for: presentation.kind, theme: theme)
-        accent = style.accent
         super.init(frame: frame)
 
         wantsLayer = true
@@ -463,8 +461,13 @@ final class PoolVerdictCardView: NSView {
         setAccessibilityRole(.group)
         setAccessibilityLabel(presentation.accessibilityLabel)
 
-        let showsScale = presentation.events.count == 3 && presentation.kind != .collecting
-        let headerOffset: CGFloat = showsScale ? 0 : 24
+        let showsForecast = presentation.kind != .collecting
+            && presentation.capacityFraction != nil
+            && presentation.coverageLabel != nil
+            && presentation.coverageValue != nil
+            && presentation.accountValue != nil
+            && presentation.accountLabel != nil
+        let headerOffset: CGFloat = showsForecast ? 0 : 24
         let symbolView = PoolVerdictSymbolView(
             frame: NSRect(x: 14, y: 12 + headerOffset, width: 32, height: 32),
             color: style.accent,
@@ -473,9 +476,8 @@ final class PoolVerdictCardView: NSView {
         )
         addSubview(symbolView)
 
-        let showsMarginSummary = presentation.marginSummaryLabel != nil && presentation.marginSummaryValue != nil
-        let summaryWidth: CGFloat = showsMarginSummary ? 124 : 0
-        let summaryGap: CGFloat = showsMarginSummary ? 10 : 0
+        let summaryWidth: CGFloat = showsForecast ? ForecastCardLayout.summaryWidth : 0
+        let summaryGap: CGFloat = showsForecast ? 10 : 0
         let textTrailingInset: CGFloat = 14 + summaryWidth + summaryGap
         addSubview(Self.label(
             frame: NSRect(x: 56, y: 10 + headerOffset, width: bounds.width - 56 - textTrailingInset, height: 19),
@@ -485,55 +487,85 @@ final class PoolVerdictCardView: NSView {
         ))
         addSubview(Self.label(
             frame: NSRect(x: 56, y: 31 + headerOffset, width: bounds.width - 56 - textTrailingInset, height: 16),
-            text: presentation.detail,
+            text: presentation.subtitle,
             font: .systemFont(ofSize: 11),
             color: theme.secondaryText
         ))
 
-        if let marginSummaryLabel = presentation.marginSummaryLabel,
-           let marginSummaryValue = presentation.marginSummaryValue {
+        if let coverageLabel = presentation.coverageLabel,
+           let coverageValue = presentation.coverageValue {
             let summaryX = bounds.width - 14 - summaryWidth
             addSubview(Self.label(
                 frame: NSRect(x: summaryX, y: 10, width: summaryWidth, height: 13),
-                text: marginSummaryLabel,
+                text: coverageLabel,
                 font: .systemFont(ofSize: 9.5, weight: .semibold),
                 color: theme.secondaryText,
                 alignment: .right
             ))
             let summaryValueLabel = Self.label(
-                frame: NSRect(x: summaryX, y: 24, width: summaryWidth, height: 16),
-                text: marginSummaryValue,
-                font: .monospacedDigitSystemFont(ofSize: 10.5, weight: .bold),
+                frame: NSRect(x: summaryX, y: 23, width: summaryWidth, height: 19),
+                text: coverageValue,
+                font: .monospacedDigitSystemFont(ofSize: 15, weight: .bold),
                 color: style.accent,
                 alignment: .right
             )
-            summaryValueLabel.setAccessibilityLabel("\(marginSummaryLabel) \(marginSummaryValue)")
+            summaryValueLabel.setAccessibilityLabel("\(coverageLabel) \(coverageValue)")
             addSubview(summaryValueLabel)
         }
 
-        guard showsScale else { return }
-        let horizontalInset: CGFloat = 18
-        let scaleWidth = bounds.width - horizontalInset * 2
-        let columnWidth = scaleWidth / 3
-        for (index, event) in presentation.events.enumerated() {
-            let columnX = horizontalInset + columnWidth * CGFloat(index)
-            addSubview(Self.label(
-                frame: NSRect(x: columnX, y: 76, width: columnWidth, height: 14),
-                text: event.title,
-                font: .systemFont(ofSize: 9.5, weight: .semibold),
-                color: theme.primaryText.withAlphaComponent(0.82),
-                alignment: .center
-            ))
-            if let intervalText = event.intervalText {
-                addSubview(Self.label(
-                    frame: NSRect(x: columnX, y: 92, width: columnWidth, height: 14),
-                    text: intervalText,
-                    font: .monospacedDigitSystemFont(ofSize: 9, weight: .medium),
-                    color: theme.secondaryText,
-                    alignment: .center
-                ))
-            }
-        }
+        guard showsForecast,
+              let capacityFraction = presentation.capacityFraction,
+              let accountValue = presentation.accountValue,
+              let accountLabel = presentation.accountLabel else { return }
+
+        let accountX = bounds.width - 14 - ForecastCardLayout.accountWidth
+        let trackX = ForecastCardLayout.horizontalInset
+        let trackWidth = accountX - ForecastCardLayout.lowerGap - trackX
+        addSubview(Self.label(
+            frame: NSRect(x: trackX, y: 51, width: trackWidth, height: 12),
+            text: LocalizedText.value(.verdictCapacityWithResets, language: presentation.language),
+            font: .systemFont(ofSize: 9.5, weight: .medium),
+            color: theme.secondaryText
+        ))
+        let trackView = PoolCapacityTrackView(
+            frame: NSRect(
+                x: trackX,
+                y: ForecastCardLayout.trackY,
+                width: trackWidth,
+                height: ForecastCardLayout.trackHeight
+            ),
+            fraction: capacityFraction,
+            accent: style.accent,
+            track: theme.progressTrack
+        )
+        trackView.setAccessibilityIdentifier("pool-capacity-track")
+        trackView.setAccessibilityElement(true)
+        trackView.setAccessibilityRole(.progressIndicator)
+        trackView.setAccessibilityValue("\(Int((capacityFraction * 100).rounded()))%")
+        addSubview(trackView)
+
+        addResetIndicators(
+            presentation.resetIndicators,
+            x: trackX,
+            y: 83,
+            width: trackWidth,
+            accent: style.accent
+        )
+
+        addSubview(Self.label(
+            frame: NSRect(x: accountX, y: 53, width: ForecastCardLayout.accountWidth, height: 20),
+            text: accountValue,
+            font: .monospacedDigitSystemFont(ofSize: 14, weight: .bold),
+            color: theme.primaryText,
+            alignment: .right
+        ))
+        addSubview(Self.label(
+            frame: NSRect(x: accountX, y: 75, width: ForecastCardLayout.accountWidth, height: 14),
+            text: accountLabel,
+            font: .systemFont(ofSize: 9.5, weight: .medium),
+            color: theme.secondaryText,
+            alignment: .right
+        ))
     }
 
     required init?(coder: NSCoder) {
@@ -542,42 +574,36 @@ final class PoolVerdictCardView: NSView {
 
     override var isFlipped: Bool { true }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard presentation.events.count == 3,
-              presentation.kind != .collecting,
-              let fraction = presentation.firstEventFraction else { return }
-
-        let horizontalInset: CGFloat = 18
-        let scaleWidth = bounds.width - horizontalInset * 2
-        let columnWidth = scaleWidth / 3
-        let pointY: CGFloat = 67
-        let labelCenters = (0..<3).map { horizontalInset + columnWidth * (CGFloat($0) + 0.5) }
-        let startX = labelCenters[0]
-        let endX = labelCenters[2]
-        let firstEventX = startX + (endX - startX) * CGFloat(max(0, min(1, fraction)))
-        let pointCenters = [startX, firstEventX, endX]
-        let lighterAccent = accent.blended(withFraction: 0.34, of: .white) ?? accent
-
-        if firstEventX > startX {
-            let accentSegment = NSRect(x: startX, y: pointY - 2, width: firstEventX - startX, height: 4)
-            NSGraphicsContext.saveGraphicsState()
-            accentSegment.roundedPath(radius: 2).addClip()
-            NSGradient(starting: accent, ending: lighterAccent)?.draw(in: accentSegment, angle: 0)
-            NSGraphicsContext.restoreGraphicsState()
-        }
-
-        if endX > firstEventX {
-            theme.progressTrack.setFill()
-            NSRect(x: firstEventX, y: pointY - 2, width: endX - firstEventX, height: 4)
-                .roundedPath(radius: 2)
-                .fill()
-        }
-
-        for (index, center) in pointCenters.enumerated() {
-            let color = index < 2 ? (index == 0 ? accent : lighterAccent) : theme.secondaryText
-            color.setFill()
-            NSBezierPath(ovalIn: NSRect(x: center - 3.5, y: pointY - 3.5, width: 7, height: 7)).fill()
+    private func addResetIndicators(
+        _ indicators: [String],
+        x: CGFloat,
+        y: CGFloat,
+        width: CGFloat,
+        accent: NSColor
+    ) {
+        guard !indicators.isEmpty else { return }
+        let gap: CGFloat = 4
+        let pillWidth = (width - gap * CGFloat(indicators.count - 1)) / CGFloat(indicators.count)
+        for (index, text) in indicators.enumerated() {
+            let pill = NSView(frame: NSRect(
+                x: x + CGFloat(index) * (pillWidth + gap),
+                y: y,
+                width: pillWidth,
+                height: 17
+            ))
+            pill.wantsLayer = true
+            pill.layer?.cornerRadius = 5
+            pill.layer?.backgroundColor = (index == 0
+                ? accent.withAlphaComponent(0.14)
+                : theme.bottomBarFill).cgColor
+            pill.addSubview(Self.label(
+                frame: NSRect(x: 5, y: 2, width: pillWidth - 10, height: 13),
+                text: text,
+                font: .monospacedDigitSystemFont(ofSize: 9, weight: .medium),
+                color: index == 0 ? accent : theme.secondaryText,
+                alignment: .center
+            ))
+            addSubview(pill)
         }
     }
 
@@ -607,6 +633,50 @@ final class PoolVerdictCardView: NSView {
         label.lineBreakMode = .byTruncatingTail
         label.usesSingleLineMode = true
         return label
+    }
+}
+
+private enum ForecastCardLayout {
+    static let horizontalInset: CGFloat = 18
+    static let summaryWidth: CGFloat = 124
+    static let accountWidth: CGFloat = 106
+    static let lowerGap: CGFloat = 12
+    static let trackY: CGFloat = 67
+    static let trackHeight: CGFloat = 8
+}
+
+private final class PoolCapacityTrackView: NSView {
+    private let fraction: CGFloat
+    private let accent: NSColor
+    private let track: NSColor
+
+    init(frame: NSRect, fraction: Double, accent: NSColor, track: NSColor) {
+        self.fraction = CGFloat(max(0, min(1, fraction)))
+        self.accent = accent
+        self.track = track
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        track.setFill()
+        bounds.roundedPath(radius: bounds.height / 2).fill()
+        if fraction > 0 {
+            accent.setFill()
+            NSRect(x: 0, y: 0, width: bounds.width * fraction, height: bounds.height)
+                .roundedPath(radius: bounds.height / 2)
+                .fill()
+        }
+        accent.setFill()
+        NSRect(x: bounds.maxX - 2, y: 0, width: 2, height: bounds.height)
+            .roundedPath(radius: 1)
+            .fill()
     }
 }
 

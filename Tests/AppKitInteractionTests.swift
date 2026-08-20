@@ -15,8 +15,8 @@ struct AppKitInteractionTests {
         testAccountRowHostingViewPreservesTableGestures()
         testAccountTableUsesCompactSpacing()
         testTenCompactRowsFitViewport()
-        testPoolVerdictCardShowsSemanticMarginSummary()
-        testPoolVerdictCardDoesNotDrawLabelConnector()
+        testPoolVerdictCardShowsHybridForecast()
+        testPoolVerdictCardCollectingHidesForecast()
 
         if failures.isEmpty {
             print("AppKit interaction tests passed (\(assertionCount) assertions).")
@@ -58,72 +58,70 @@ struct AppKitInteractionTests {
         )
     }
 
-    private static func testPoolVerdictCardShowsSemanticMarginSummary() {
-        let verdict = PoolVerdict(
+    private static func testPoolVerdictCardShowsHybridForecast() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let forecast = PoolSufficiencyForecast(
             kind: .notEnough,
-            resetInterval: 2 * 86_400,
-            exhaustionInterval: 1.3 * 86_400,
-            margin: -0.7 * 86_400
+            isPreliminary: true,
+            historyDays: 4.7,
+            burnPerDay: 118.7,
+            expectedDemand: 830.9,
+            usableCapacity: 697.956,
+            coverageRatio: 0.84,
+            exhaustionDate: now.addingTimeInterval(2 * 86_400),
+            resetEvents: [
+                PoolResetEvent(date: now.addingTimeInterval(2 * 86_400 + 22 * 3_600), accountCount: 2),
+                PoolResetEvent(date: now.addingTimeInterval(4 * 86_400), accountCount: 1)
+            ],
+            accountCount: 7,
+            requiredAccountCount: 9
         )
-        let presentation = PoolVerdictPresenter.make(verdict: verdict, language: .russian)
+        let presentation = PoolVerdictPresenter.make(forecast: forecast, language: .russian, now: now)
         let card = PoolVerdictCardView(
             frame: NSRect(x: 0, y: 0, width: 484, height: 108),
             presentation: presentation,
             theme: PanelTheme(isDark: true)
         )
-        let labels = card.subviews.compactMap { $0 as? NSTextField }
-        let summaryLabel = labels.first { $0.stringValue == "Дефицит" }
-        let summaryValue = labels.first { $0.stringValue == "16 часов 48 минут" }
+        let labels = allLabels(in: card)
 
-        expect(summaryLabel?.alignment == .right, "the margin summary label should be visible and right-aligned")
-        expect(summaryValue?.alignment == .right, "the absolute margin value should be visible and right-aligned")
-        expect(summaryLabel?.frame.width == 124, "the summary label should use the stable collision-safe width")
-        expect(summaryValue?.frame.width == 124, "the summary value should use the stable collision-safe width")
-        expect(summaryLabel?.isAccessibilityElement() == false, "the semantic label should not be announced twice")
-        expect(summaryValue?.accessibilityLabel() == "Дефицит 16 часов 48 минут", "the summary value should expose one combined accessibility label")
+        expect(labels.contains { $0.stringValue == "−16%" }, "card should show rounded deficit")
+        expect(labels.contains { $0.stringValue == "Запас с учётом сбросов" }, "card should explain the capacity track")
+        expect(labels.contains { $0.stringValue == "7 / ≈9" }, "card should compare current and required accounts")
+        expect(labels.contains { $0.stringValue == "2 д 22 ч · ×2" }, "card should show grouped resets")
+        expect(
+            card.subviews.contains { $0.accessibilityIdentifier() == "pool-capacity-track" },
+            "card should expose the capacity track"
+        )
+        expect(card.accessibilityLabel() == presentation.accessibilityLabel, "card should expose the complete forecast")
     }
 
-    private static func testPoolVerdictCardDoesNotDrawLabelConnector() {
-        let verdict = PoolVerdict(
-            kind: .enough,
-            resetInterval: 3 * 3_600 + 16 * 60,
-            exhaustionInterval: 2 * 86_400 + 3_600,
-            margin: 86_400 + 22 * 3_600
+    private static func testPoolVerdictCardCollectingHidesForecast() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let presentation = PoolVerdictPresenter.make(
+            forecast: .collecting(historyDays: 0, accountCount: 7),
+            language: .russian,
+            now: now
         )
         let card = PoolVerdictCardView(
             frame: NSRect(x: 0, y: 0, width: 484, height: 108),
-            presentation: PoolVerdictPresenter.make(verdict: verdict, language: .russian),
+            presentation: presentation,
             theme: PanelTheme(isDark: true)
         )
-        guard let bitmap = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: 484,
-            pixelsHigh: 108,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
-            expect(false, "the verdict card drawing should render into a bitmap")
-            return
-        }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = context
-        card.draw(card.bounds)
-        NSGraphicsContext.restoreGraphicsState()
+        let labels = allLabels(in: card)
 
-        let connectorPixelCount = (120..<235).reduce(into: 0) { count, x in
-            for y in 33..<38 where (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.01 {
-                count += 1
-            }
-        }
+        expect(labels.contains { $0.stringValue == "Собираем историю" }, "collecting title should remain visible")
+        expect(!labels.contains { $0.stringValue.contains("≈") }, "collecting should hide the account requirement")
         expect(
-            connectorPixelCount == 0,
-            "the area below the timeline should not contain a diagonal label connector"
+            !card.subviews.contains { $0.accessibilityIdentifier() == "pool-capacity-track" },
+            "collecting should hide the capacity track"
         )
+    }
+
+    private static func allLabels(in view: NSView) -> [NSTextField] {
+        view.subviews.flatMap { subview -> [NSTextField] in
+            let own = (subview as? NSTextField).map { [$0] } ?? []
+            return own + allLabels(in: subview)
+        }
     }
 
     private static func testNativeTableMapsSelectionToExactAccount() {
