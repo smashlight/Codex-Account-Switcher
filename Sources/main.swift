@@ -286,7 +286,7 @@ struct PoolPaceChartView: View {
 struct PaceDisplayState {
     let history: [PoolHistorySample]
     let now: Date
-    let verdict: PoolVerdict
+    let forecast: PoolSufficiencyForecast
 }
 
 final class AccountSwitcherPanelView: NSView {
@@ -1411,7 +1411,7 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func pacePresentation(_ state: PaceDisplayState) -> PoolVerdictPresentation {
-        PoolVerdictPresenter.make(verdict: state.verdict, language: language)
+        PoolVerdictPresenter.make(forecast: state.forecast, language: language, now: state.now)
     }
 
     private func verdictSection(_ state: PaceDisplayState, frame: NSRect) -> NSView {
@@ -1749,7 +1749,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var refreshTimer: Timer?
     private var poolSamplingTimer: Timer?
     private var lastPoolSampleAt: Date?
-    private var poolPaceForecast: PaceEstimator.Forecast?
     private var currentStatusTitleKey = ""
     private var currentStatusItemLength: CGFloat = 0
     private var accounts: [CodexAccount] = []
@@ -2307,7 +2306,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         try? PoolHistoryStore.write(history + [sample], to: url, now: now)
         lastPoolSampleAt = now
-        poolPaceForecast = PaceEstimator.forecast(samples: history + [sample], now: now)
         if accountPanel?.isVisible == true {
             refreshAccountPanelContent()
             positionAccountPanel()
@@ -2345,39 +2343,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             history.append(liveSample)
         }
-        guard let last = history.last else {
-            return PaceDisplayState(history: [], now: now, verdict: .collecting)
+        guard !history.isEmpty else {
+            return PaceDisplayState(
+                history: [],
+                now: now,
+                forecast: .collecting(historyDays: 0, accountCount: accounts.count)
+            )
         }
-        let forecast = PaceEstimator.forecast(samples: history, now: now)
-        let resetDate = last.resetsAt.map { Self.nextResetDate(after: $0, now: now) }
-        let burn = poolBurnRatePerDay(history)
-        let verdict = PoolVerdict.evaluateAvailableData(
-            poolTotal: last.poolTotal,
-            observedBurnPerDay: burn,
-            accountCount: last.n,
-            eolDate: forecast.eolDate,
-            resetDate: resetDate,
-            now: now
-        )
+        let forecast = PoolSufficiencyForecaster.forecast(samples: history, now: now)
         return PaceDisplayState(
             history: history,
             now: now,
-            verdict: verdict
+            forecast: forecast
         )
-    }
-
-    /// Gross pool burn per day over the last 7 days.
-    private func poolBurnRatePerDay(_ history: [PoolHistorySample]) -> Double? {
-        PoolBurnRateEstimator.grossBurnPerDay(history)
-    }
-
-    /// Anchor is the earliest weekly reset seen in the sample; roll forward in
-    /// whole weeks when it has passed since the sample was recorded.
-    private static func nextResetDate(after anchor: Date, now: Date) -> Date {
-        let week: TimeInterval = 7 * 24 * 3600
-        guard anchor <= now else { return anchor }
-        let cycles = ceil(now.timeIntervalSince(anchor) / week)
-        return anchor.addingTimeInterval(cycles * week)
     }
 
     private func rebuildMenu() {
