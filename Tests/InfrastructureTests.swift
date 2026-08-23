@@ -617,19 +617,19 @@ struct InfrastructureTests {
 
         let saturday = utcDate(day: 15, month: 8, year: 2026, hour: 12, minute: 0, calendar: utc)
         expect(
-            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", language: .english, now: saturday, calendar: utc) == "FRI · 21 Aug",
+            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", language: .english, now: saturday, calendar: utc) == "FRI · 21 Aug · 09:00",
             "reset formatter should resolve the nearest upcoming weekday from the usage string"
         )
 
         let fridayMorning = utcDate(day: 21, month: 8, year: 2026, hour: 8, minute: 0, calendar: utc)
         expect(
-            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", language: .english, now: fridayMorning, calendar: utc) == "FRI · 21 Aug",
+            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", language: .english, now: fridayMorning, calendar: utc) == "FRI · 21 Aug · 09:00",
             "reset formatter should keep today when the reset time is still upcoming"
         )
 
         let fridayAfterReset = utcDate(day: 21, month: 8, year: 2026, hour: 10, minute: 0, calendar: utc)
         expect(
-            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", language: .english, now: fridayAfterReset, calendar: utc) == "FRI · 28 Aug",
+            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", language: .english, now: fridayAfterReset, calendar: utc) == "FRI · 28 Aug · 09:00",
             "reset formatter should jump to next week once today's reset has fired"
         )
 
@@ -644,7 +644,7 @@ struct InfrastructureTests {
         )
 
         expect(
-            WeeklyResetFormatter.text(from: "82% (Sat 09:00)", language: .english, now: saturday, calendar: utc) == "SAT · 22 Aug",
+            WeeklyResetFormatter.text(from: "82% (Sat 09:00)", language: .english, now: saturday, calendar: utc) == "SAT · 22 Aug · 09:00",
             "reset formatter should resolve non-Friday weekdays"
         )
 
@@ -654,7 +654,7 @@ struct InfrastructureTests {
         )
 
         expect(
-            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", language: .russian, now: saturday, calendar: utc) == "ПТ · 21 авг.",
+            WeeklyResetFormatter.text(from: "82% (Fri 09:00)", language: .russian, now: saturday, calendar: utc) == "ПТ · 21 авг. · 09:00",
             "account-row reset text should use Russian weekday and month"
         )
     }

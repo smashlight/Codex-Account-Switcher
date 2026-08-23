@@ -1740,14 +1740,15 @@ enum WeeklyResetFormatter {
             return inner.uppercased()
         }
 
-        let target = upcomingDate(weekday: weekday, time: firstTime(in: inner), now: now, calendar: calendar)
+        let time = firstTime(in: inner)
+        let target = upcomingDate(weekday: weekday, time: time, now: now, calendar: calendar)
 
         let formatter = DateFormatter()
         let russian = [1: "ВС", 2: "ПН", 3: "ВТ", 4: "СР", 5: "ЧТ", 6: "ПТ", 7: "СБ"]
         let english = [1: "SUN", 2: "MON", 3: "TUES", 4: "WED", 5: "THUR", 6: "FRI", 7: "SAT"]
         formatter.locale = language == .russian ? Locale(identifier: "ru_RU") : Locale(identifier: "en_US_POSIX")
         formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "d MMM"
+        formatter.dateFormat = time == nil ? "d MMM" : "d MMM · HH:mm"
         let dayMonth = formatter.string(from: target)
         let abbreviation = (language == .russian ? russian : english)[weekday] ?? "?"
         return "\(abbreviation) · \(dayMonth)"
@@ -1805,11 +1806,10 @@ enum WeeklyResetFormatter {
             if let time {
                 let sameHour = time.hour == nowHour
                 let resetFiredToday = time.hour < nowHour || (sameHour && time.minute <= nowMinute)
-                if !resetFiredToday {
-                    return calendar.startOfDay(for: now)
-                }
+                if resetFiredToday { daysAhead = 7 }
+            } else {
+                daysAhead = 7
             }
-            daysAhead = 7
         }
         let resetHour = time?.hour ?? 0
         let resetMinute = time?.minute ?? 0
