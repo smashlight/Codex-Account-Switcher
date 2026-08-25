@@ -54,6 +54,7 @@ struct InfrastructureTests {
         testAppLanguagePreference()
         testLocalizedTextCompleteness()
         testRemovedAPIModeHasNoProductionSurface()
+        testMainActorBoundaryIsDeclared()
         testPoolChartLocalization()
         testLocalizedIntervalFormatting()
         testPoolVerdictPresentation()
@@ -229,6 +230,18 @@ struct InfrastructureTests {
         for symbol in removedSymbols {
             expect(!source.contains(symbol), "removed API mode symbol must stay absent: \(symbol)")
         }
+    }
+
+    private static func testMainActorBoundaryIsDeclared() {
+        let testsURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let root = testsURL.deletingLastPathComponent()
+        let mainURL = root.appendingPathComponent("Sources").appendingPathComponent("main.swift")
+        guard let source = try? String(contentsOf: mainURL, encoding: .utf8) else {
+            expect(false, "main actor contract should be readable")
+            return
+        }
+        expect(source.contains("@MainActor\nfinal class AppDelegate"), "AppDelegate should be main-actor isolated")
+        expect(source.contains("private var refreshGeneration = 0"), "refresh generation should remain explicit")
     }
 
     private static func testLocalizedTextCompleteness() {

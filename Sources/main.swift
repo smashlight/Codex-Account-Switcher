@@ -4,7 +4,7 @@ import Charts
 import CryptoKit
 import Foundation
 import SwiftUI
-import UserNotifications
+@preconcurrency import UserNotifications
 
 private enum AccountPanelLayout {
     static let usageWidth: CGFloat = 520
@@ -1595,7 +1595,8 @@ final class AccountFloatingPanel: NSPanel {
     override var canBecomeMain: Bool { true }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotificationCenterDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let languageStore = AppLanguagePreferenceStore()
     private var accountPanel: NSPanel?
@@ -1867,7 +1868,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         let timer = Timer(timeInterval: timerTickInterval, repeats: true) { [weak self] _ in
-            self?.refreshAccountsIfNeeded()
+            Task { @MainActor in self?.refreshAccountsIfNeeded() }
         }
         RunLoop.current.add(timer, forMode: .common)
         refreshTimer = timer
@@ -1875,7 +1876,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Quiet pool history sampling: one wham/usage pass every 30 minutes so
         // the pace chart accumulates data even while the panel stays closed.
         let poolTimer = Timer(timeInterval: poolSamplingInterval, repeats: true) { [weak self] _ in
-            self?.runQuietPoolSampling()
+            Task { @MainActor in self?.runQuietPoolSampling() }
         }
         RunLoop.current.add(poolTimer, forMode: .common)
         poolSamplingTimer = poolTimer
@@ -1901,11 +1902,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: NSApp,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            if self.accountPanel?.isVisible == true, self.mouseIsOverStatusButton() {
-                self.suppressStatusToggleOpenUntil = Date().addingTimeInterval(0.5)
+            Task { @MainActor in
+                guard let self else { return }
+                if self.accountPanel?.isVisible == true, self.mouseIsOverStatusButton() {
+                    self.suppressStatusToggleOpenUntil = Date().addingTimeInterval(0.5)
+                }
+                self.closeAccountPanel()
             }
-            self.closeAccountPanel()
         }
 
         localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
@@ -1945,7 +1948,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         center.setNotificationCategories([switchCategory])
         center.requestAuthorization(options: [.alert, .sound]) { [weak self] _, _ in
-            self?.refreshNotificationHealth(rebuildVisiblePanel: true)
+            Task { @MainActor in self?.refreshNotificationHealth(rebuildVisiblePanel: true) }
         }
         refreshNotificationHealth()
     }
@@ -3478,15 +3481,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     // ChatGPT now contains the Codex desktop surface on this installation.
-    private var codexDesktopAppPath: String {
+    private nonisolated var codexDesktopAppPath: String {
         return "/Applications/ChatGPT.app"
     }
 
-    private var codexDesktopAppName: String {
+    private nonisolated var codexDesktopAppName: String {
         URL(fileURLWithPath: codexDesktopAppPath).deletingPathExtension().lastPathComponent
     }
 
-    private var codexDesktopResourcesPath: String {
+    private nonisolated var codexDesktopResourcesPath: String {
         "\(codexDesktopAppPath)/Contents/Resources"
     }
 
@@ -4307,7 +4310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            DispatchQueue.main.sync {
+            Task { @MainActor in
                 self.refreshAccounts(force: true)
             }
 
@@ -4331,7 +4334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func verifyActiveAccount(expectedEmail: String) -> CommandResult {
+    private nonisolated func verifyActiveAccount(expectedEmail: String) -> CommandResult {
         for attempt in 1...3 {
             let result = runCodexAuth(["list", "--skip-api"])
             if result.status == 0 {
@@ -4353,9 +4356,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         statusAnimationTitle = title
         updateStatusAnimationTitle()
         switchAnimationTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.switchAnimationFrame += 1
-            self.updateStatusAnimationTitle()
+            Task { @MainActor in
+                guard let self else { return }
+                self.switchAnimationFrame += 1
+                self.updateStatusAnimationTitle()
+            }
         }
         return statusAnimationGeneration
     }
@@ -4493,7 +4498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard isAuthorized else {
                 if reportResult {
                     DispatchQueue.main.async {
-                        self.showNotificationSettingsAlert(message: message ?? self.notificationSettingsMessage())
+                        self.showNotificationSettingsAlert(message: message ?? Self.notificationSettingsMessage())
                     }
                 }
                 return
@@ -4518,7 +4523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     NSLog("Codex Account Switcher notification failed: \(error.localizedDescription)")
                     if reportResult {
                         DispatchQueue.main.async {
-                            self.showNotificationSettingsAlert(message: self.notificationSettingsMessage())
+                            self.showNotificationSettingsAlert(message: Self.notificationSettingsMessage())
                         }
                     }
                 } else if reportResult {
@@ -4539,22 +4544,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .notDetermined:
                 center.requestAuthorization(options: [.alert, .sound]) { granted, error in
                     if error != nil {
-                        completion(false, self.notificationSettingsMessage())
+                        completion(false, Self.notificationSettingsMessage())
                     } else if granted {
                         completion(true, nil)
                     } else {
-                        completion(false, self.notificationSettingsMessage())
+                        completion(false, Self.notificationSettingsMessage())
                     }
                 }
             case .denied:
-                completion(false, self.notificationSettingsMessage())
+                completion(false, Self.notificationSettingsMessage())
             @unknown default:
-                completion(false, self.notificationSettingsMessage())
+                completion(false, Self.notificationSettingsMessage())
             }
         }
     }
 
-    private func notificationSettingsMessage() -> String {
+    private nonisolated static func notificationSettingsMessage() -> String {
         "Enable notifications for Codex Account Switcher in System Settings > Notifications, then run Test Notification again. If it is not listed yet, quit and reopen the switcher once after this update."
     }
 
@@ -4693,7 +4698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 
-    private func syncActiveAuthSnapshot() -> String? {
+    private nonisolated func syncActiveAuthSnapshot() -> String? {
         let home = NSHomeDirectory()
         let registryURL = URL(fileURLWithPath: "\(home)/.codex/accounts/registry.json")
         let activeAuthURL = URL(fileURLWithPath: "\(home)/.codex/auth.json")
@@ -4750,7 +4755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func referencePluginStoreDirectory() -> URL {
+    private nonisolated func referencePluginStoreDirectory() -> URL {
         let applicationSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -4795,7 +4800,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func restartCodexApp() -> CommandResult {
+    private nonisolated func restartCodexApp() -> CommandResult {
         var transcript: [String] = []
         guard terminateCodexProcessTree(transcript: &transcript) else {
             return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
@@ -4849,7 +4854,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return CommandResult(status: 0, output: transcript.joined(separator: "\n"))
     }
 
-    private func terminateCodexProcessTree(transcript: inout [String]) -> Bool {
+    private nonisolated func terminateCodexProcessTree(transcript: inout [String]) -> Bool {
         transcript.append("Quitting \(codexDesktopAppName) process tree...")
         for attempt in 1...6 {
             let pids: [String]
@@ -4878,7 +4883,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func openCodexAndVerify(label: String, transcript: inout [String]) -> CommandResult? {
+    private nonisolated func openCodexAndVerify(label: String, transcript: inout [String]) -> CommandResult? {
         transcript.append(label)
         let openResult = run("/usr/bin/open", [codexDesktopAppPath])
         if openResult.status != 0 {
@@ -4901,7 +4906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return CommandResult(status: 1, output: transcript.joined(separator: "\n"))
     }
 
-    private func waitForRemotePluginSync(timeout: TimeInterval) -> Bool {
+    private nonisolated func waitForRemotePluginSync(timeout: TimeInterval) -> Bool {
         let cacheURL = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".codex/plugins/cache/openai-curated-remote", isDirectory: true)
         var tracker = PluginSyncStabilityTracker(requiredStableObservations: 4)
@@ -4918,7 +4923,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return stabilized
     }
 
-    private func applyReferencePlugins(
+    private nonisolated func applyReferencePlugins(
         _ reference: ReferencePluginStore.LoadedReference,
         transcript: inout [String],
         launchAfterApply: Bool = false
@@ -4994,7 +4999,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func verifyReferencePlugins(
+    private nonisolated func verifyReferencePlugins(
         _ reference: ReferencePluginStore.LoadedReference,
         transcript: inout [String]
     ) -> Bool {
@@ -5039,7 +5044,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private func ensureComputerUsePluginConfigured() -> String? {
+    private nonisolated func ensureComputerUsePluginConfigured() -> String? {
         let home = NSHomeDirectory()
         let configURL = URL(fileURLWithPath: "\(home)/.codex/config.toml")
         let stateURL = URL(fileURLWithPath: "\(home)/.codex/.codex-global-state.json")
@@ -5099,7 +5104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return changed ? "Repaired Computer Use plugin config before Codex launch." : nil
     }
 
-    private func ensureBundledPluginsHealthy() -> BundledMarketplaceRepairer.RepairOutcome {
+    private nonisolated func ensureBundledPluginsHealthy() -> BundledMarketplaceRepairer.RepairOutcome {
         let bundledCodex = "\(codexDesktopResourcesPath)/codex"
         let outcome = BundledMarketplaceRepairer.repairIfNeeded(
             homeDirectory: NSHomeDirectory(),
@@ -5112,13 +5117,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return outcome
     }
 
-    private func codexAppPIDs() -> ProcessLookupPolicy.Outcome {
+    private nonisolated func codexAppPIDs() -> ProcessLookupPolicy.Outcome {
         let escapedPath = NSRegularExpression.escapedPattern(for: codexDesktopAppPath)
         let result = run("/usr/bin/pgrep", ["-f", "\(escapedPath)/Contents/"])
         return ProcessLookupPolicy.parse(status: result.status, output: result.output)
     }
 
-    private func parseAccounts(_ output: String, usageIsLive: Bool = true) -> [CodexAccount] {
+    private nonisolated func parseAccounts(_ output: String, usageIsLive: Bool = true) -> [CodexAccount] {
         output.split(whereSeparator: \.isNewline).compactMap { rawLine in
             let line = String(rawLine)
             let tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
@@ -5211,7 +5216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return snapshots
     }
 
-    private static func parseUsage(_ tokens: [String], from startIndex: Int, usageIsLive: Bool = true) -> (text: String, usedPercent: Int?, nextIndex: Int) {
+    private nonisolated static func parseUsage(_ tokens: [String], from startIndex: Int, usageIsLive: Bool = true) -> (text: String, usedPercent: Int?, nextIndex: Int) {
         guard startIndex < tokens.count else {
             return ("-", nil, startIndex)
         }
@@ -5244,7 +5249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return (text, usageIsLive ? firstPercent(in: first) : nil, cursor)
     }
 
-    private static func usageErrorText(for token: String) -> String? {
+    private nonisolated static func usageErrorText(for token: String) -> String? {
         switch token {
         case "400", "401":
             return "Login expired"
@@ -5255,7 +5260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private static func firstPercent(in token: String) -> Int? {
+    private nonisolated static func firstPercent(in token: String) -> Int? {
         let digits = token.prefix { $0.isNumber }
         return digits.isEmpty ? nil : Int(digits)
     }
@@ -5775,7 +5780,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ))
     }
 
-    private func savedAuth(forEmail email: String) -> SavedAccountAuthResult {
+    private nonisolated func savedAuth(forEmail email: String) -> SavedAccountAuthResult {
         let root = URL(fileURLWithPath: "\(NSHomeDirectory())/.codex/accounts")
         let registryURL = root.appendingPathComponent("registry.json")
         guard
@@ -5813,7 +5818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ))
     }
 
-    private func authFileURL(forAccountID accountID: String, root: URL) -> URL? {
+    private nonisolated func authFileURL(forAccountID accountID: String, root: URL) -> URL? {
         guard let urls = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else {
             return nil
         }
@@ -5832,14 +5837,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func runCodexAuth(_ args: [String]) -> CommandResult {
+    private nonisolated func runCodexAuth(_ args: [String]) -> CommandResult {
         guard let path = codexAuthPath() else {
             return CommandResult(status: 127, output: "codex-auth was not found in known locations.")
         }
         return run(path, args)
     }
 
-    private func codexAuthPath() -> String? {
+    private nonisolated func codexAuthPath() -> String? {
         let home = NSHomeDirectory()
         let stableCandidates = [
             "\(home)/.local/bin/codex-auth",
@@ -5881,7 +5886,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func run(_ executable: String, _ args: [String]) -> CommandResult {
+    private nonisolated func run(_ executable: String, _ args: [String]) -> CommandResult {
         var environment = augmentedEnvironment()
         let bundledNode = "\(codexDesktopResourcesPath)/node"
         if FileManager.default.isExecutableFile(atPath: bundledNode) {
@@ -5894,7 +5899,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return ProcessRunner.run(executable, args, environment: environment, timeout: commandTimeout(for: executable, arguments: args))
     }
 
-    private func commandTimeout(for executable: String, arguments: [String]) -> TimeInterval {
+    private nonisolated func commandTimeout(for executable: String, arguments: [String]) -> TimeInterval {
         let command = URL(fileURLWithPath: executable).lastPathComponent
         if command == "codex-auth" {
             return arguments.first == "login" ? 180 : 20
@@ -5903,13 +5908,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return 12
     }
 
-    private func augmentedEnvironment() -> [String: String] {
+    private nonisolated func augmentedEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = augmentedPath(from: environment["PATH"])
         return environment
     }
 
-    private func augmentedPath(from currentPath: String?) -> String {
+    private nonisolated func augmentedPath(from currentPath: String?) -> String {
         let home = NSHomeDirectory()
         let candidates = [
             codexDesktopResourcesPath,
@@ -6101,7 +6106,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 }
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.run()
+}
