@@ -485,6 +485,8 @@ Use this structure when redesigning Settings, API Mode, or Reset Credits:
 
 Do not copy the usage panel's exact information architecture to another screen. Reuse its visual grammar, tokens, component behavior, and density.
 
+The current Settings implementation follows this template with a SwiftUI root screen and an in-panel Advanced screen. Boolean rows use a compact macOS-style switch with a visible thumb, language uses a native segmented control, and numeric notification values commit inline without modal dialogs. The menu-bar status item shows the active account's five-hour remaining percentage; weekly and per-account details remain in the account panel.
+
 ## 12. Migration Priorities
 
 1. **Settings:** replace fixed AppKit coordinates with adaptive SwiftUI sections and localized intrinsic-width controls.

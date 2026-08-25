@@ -301,6 +301,7 @@ final class AccountSwitcherPanelView: NSView {
     private let remindersEnabled: Bool
     private let creditExpiryNotificationsEnabled: Bool
     private let reminderThreshold: Int
+    private let creditExpiryLeadDays: Int
     private let autoSwitchEnabled: Bool
     private let autoSwitchThreshold: Int
     private let autoSwitchMode: AutoSwitchMode
@@ -330,6 +331,10 @@ final class AccountSwitcherPanelView: NSView {
     private let performSettingsAction: (SettingsPanelAction) -> Void
     private let close: () -> Void
     private let toggleLaunchAtLogin: () -> Void
+    private let commitReminderThreshold: (String) -> Bool
+    private let commitCreditExpiryLeadDays: (String) -> Bool
+    private let updateActiveRefreshInterval: (Int) -> Void
+    private let updateIdleRefreshInterval: (Int) -> Void
     private let pace: PaceDisplayState?
     private let resetChance: ResetChanceForecast?
     private var theme: PanelTheme { PanelTheme.current(for: effectiveAppearance) }
@@ -352,6 +357,7 @@ final class AccountSwitcherPanelView: NSView {
         remindersEnabled: Bool,
         creditExpiryNotificationsEnabled: Bool,
         reminderThreshold: Int,
+        creditExpiryLeadDays: Int,
         autoSwitchEnabled: Bool,
         autoSwitchThreshold: Int,
         autoSwitchMode: AutoSwitchMode,
@@ -381,6 +387,10 @@ final class AccountSwitcherPanelView: NSView {
         performSettingsAction: @escaping (SettingsPanelAction) -> Void,
         close: @escaping () -> Void,
         toggleLaunchAtLogin: @escaping () -> Void,
+        commitReminderThreshold: @escaping (String) -> Bool,
+        commitCreditExpiryLeadDays: @escaping (String) -> Bool,
+        updateActiveRefreshInterval: @escaping (Int) -> Void,
+        updateIdleRefreshInterval: @escaping (Int) -> Void,
         pace: PaceDisplayState?,
         resetChance: ResetChanceForecast?,
         maximumPanelHeight: CGFloat
@@ -396,6 +406,7 @@ final class AccountSwitcherPanelView: NSView {
         self.remindersEnabled = remindersEnabled
         self.creditExpiryNotificationsEnabled = creditExpiryNotificationsEnabled
         self.reminderThreshold = reminderThreshold
+        self.creditExpiryLeadDays = creditExpiryLeadDays
         self.autoSwitchEnabled = autoSwitchEnabled
         self.autoSwitchThreshold = autoSwitchThreshold
         self.autoSwitchMode = autoSwitchMode
@@ -425,6 +436,10 @@ final class AccountSwitcherPanelView: NSView {
         self.performSettingsAction = performSettingsAction
         self.close = close
         self.toggleLaunchAtLogin = toggleLaunchAtLogin
+        self.commitReminderThreshold = commitReminderThreshold
+        self.commitCreditExpiryLeadDays = commitCreditExpiryLeadDays
+        self.updateActiveRefreshInterval = updateActiveRefreshInterval
+        self.updateIdleRefreshInterval = updateIdleRefreshInterval
         self.pace = pace
         self.resetChance = resetChance
         let panelSize = AccountSwitcherPanelView.preferredSize(
@@ -624,33 +639,38 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func buildSettingsContent() {
-        let contentWidth = bounds.width - (outerInset * 2)
-        addSubview(settingsHeader(frame: NSRect(x: outerInset, y: outerInset, width: contentWidth, height: 54)))
-
-        let displaySection = settingsSection(frame: NSRect(x: outerInset, y: 84, width: contentWidth, height: 104), title: "Display")
-        displaySection.addSubview(segmentedRow(label: "Menu bar", frame: NSRect(x: 16, y: 38, width: contentWidth - 32, height: 24), options: [
-            ("Weekly", usageMode == .weekly, SettingsPanelAction.usageWeekly),
-            ("5H", usageMode == .fiveHour, SettingsPanelAction.usageFiveHour)
-        ]))
-        displaySection.addSubview(segmentedRow(
-            label: LocalizedText.value(.languageLabel, language: language),
-            frame: NSRect(x: 16, y: 70, width: contentWidth - 32, height: 24),
-            options: [
-                (LocalizedText.value(.russianOption, language: language), language == .russian, .languageRussian),
-                (LocalizedText.value(.englishOption, language: language), language == .english, .languageEnglish)
-            ]
-        ))
-        addSubview(displaySection)
-
-        let automationSection = settingsSection(frame: NSRect(x: outerInset, y: 192, width: contentWidth, height: 184), title: "Automation")
-        automationSection.addSubview(settingToggleRow(title: "Follow Codex / ChatGPT", detail: "Show only while either app is open", isOn: launchAtLoginEnabled, action: .toggleLaunchAtLogin, frame: NSRect(x: 16, y: 34, width: contentWidth - 32, height: 34)))
-        automationSection.addSubview(settingToggleRow(title: "Usage reminder", detail: "Alert at \(reminderThreshold)%", isOn: remindersEnabled, action: .toggleUsageReminder, frame: NSRect(x: 16, y: 70, width: contentWidth - 32, height: 34)))
-        automationSection.addSubview(settingToggleRow(title: "Credit expiry", detail: "Alert 3 days before reset credits expire", isOn: creditExpiryNotificationsEnabled, action: .toggleCreditExpiryNotifications, frame: NSRect(x: 16, y: 106, width: contentWidth - 32, height: 34)))
-        automationSection.addSubview(settingToggleRow(title: "Auto switch", detail: autoSwitchDetailText(), isOn: autoSwitchEnabled, action: .editAutoSwitch, frame: NSRect(x: 16, y: 142, width: contentWidth - 32, height: 34)))
-        addSubview(automationSection)
-
-        addSubview(healthSection(frame: NSRect(x: outerInset, y: 384, width: contentWidth, height: 104)))
-        addSubview(settingsFooter(frame: NSRect(x: outerInset, y: 496, width: contentWidth, height: 76)))
+        let content = SettingsScreenView(
+            language: language,
+            theme: theme,
+            followsCodex: launchAtLoginEnabled,
+            remindersEnabled: remindersEnabled,
+            creditExpiryEnabled: creditExpiryNotificationsEnabled,
+            reminderThreshold: reminderThreshold,
+            creditExpiryLeadDays: creditExpiryLeadDays,
+            autoSwitchSummary: autoSwitchDetailText(),
+            activeRefreshInterval: activeRefreshInterval,
+            idleRefreshInterval: idleRefreshInterval,
+            onLanguageChanged: { [weak self] language in
+                guard let self else { return }
+                self.performSettingsAction(language == .russian ? .languageRussian : .languageEnglish)
+            },
+            onFollowChanged: { [weak self] _ in self?.toggleLaunchAtLogin() },
+            onRemindersChanged: { [weak self] _ in self?.performSettingsAction(.toggleUsageReminder) },
+            onCreditExpiryChanged: { [weak self] _ in self?.performSettingsAction(.toggleCreditExpiryNotifications) },
+            onAutoSwitch: { [weak self] in self?.performSettingsAction(.editAutoSwitch) },
+            onReminderThresholdCommit: commitReminderThreshold,
+            onCreditExpiryLeadDaysCommit: commitCreditExpiryLeadDays,
+            onActiveRefreshChanged: updateActiveRefreshInterval,
+            onIdleRefreshChanged: updateIdleRefreshInterval,
+            onCheckUpdates: { [weak self] in self?.checkUpdates() },
+            onSavePlugins: { [weak self] in self?.performSettingsAction(.saveReferencePlugins) },
+            onDiagnostics: { [weak self] in self?.performSettingsAction(.diagnostics) },
+            onDone: { [weak self] in self?.performSettingsAction(.usageView) }
+        )
+        let hosting = NSHostingView(rootView: content)
+        hosting.frame = bounds.insetBy(dx: 2, dy: 2)
+        hosting.autoresizingMask = [.width, .height]
+        addSubview(hosting)
     }
 
     private func buildResetCreditsContent() {
@@ -1714,8 +1734,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let labelsDefaultsKey = "accountDisplayLabels"
     private let remindersEnabledDefaultsKey = "usageReminderEnabled"
     private let creditExpiryNotificationsDefaultsKey = "creditExpiryNotificationsEnabled"
+    private let creditExpiryLeadDaysDefaultsKey = "creditExpiryLeadDays"
     private let creditExpiryFingerprintDefaultsKey = "resetCreditExpiryFingerprints"
-    private let creditExpiryWindow: TimeInterval = 3 * 24 * 60 * 60
     private let creditExpiryFingerprintLimit = 64
     private let reminderThresholdDefaultsKey = "usageReminderThreshold"
     private let autoSwitchEnabledDefaultsKey = "autoSwitchEnabled"
@@ -1816,6 +1836,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private var creditExpiryLeadDays: Int {
+        get {
+            let stored = UserDefaults.standard.integer(forKey: creditExpiryLeadDaysDefaultsKey)
+            return stored == 0
+                ? SettingsNumericPolicy.creditExpiryLeadDaysDefault
+                : min(max(stored, SettingsNumericPolicy.creditExpiryLeadDaysRange.lowerBound), SettingsNumericPolicy.creditExpiryLeadDaysRange.upperBound)
+        }
+        set {
+            UserDefaults.standard.set(
+                min(max(newValue, SettingsNumericPolicy.creditExpiryLeadDaysRange.lowerBound), SettingsNumericPolicy.creditExpiryLeadDaysRange.upperBound),
+                forKey: creditExpiryLeadDaysDefaultsKey
+            )
+        }
+    }
+
+    private var creditExpiryWindow: TimeInterval {
+        SettingsNumericPolicy.creditExpiryInterval(leadDays: creditExpiryLeadDays)
+    }
+
     private var creditExpiryFingerprints: [String] {
         get { UserDefaults.standard.stringArray(forKey: creditExpiryFingerprintDefaultsKey) ?? [] }
         set { UserDefaults.standard.set(newValue, forKey: creditExpiryFingerprintDefaultsKey) }
@@ -1824,10 +1863,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var reminderThreshold: Int {
         get {
             let stored = UserDefaults.standard.integer(forKey: reminderThresholdDefaultsKey)
-            return stored == 0 ? 10 : max(1, min(99, stored))
+            return stored == 0 ? SettingsNumericPolicy.reminderThresholdDefault : max(SettingsNumericPolicy.reminderThresholdRange.lowerBound, min(SettingsNumericPolicy.reminderThresholdRange.upperBound, stored))
         }
         set {
-            UserDefaults.standard.set(max(1, min(99, newValue)), forKey: reminderThresholdDefaultsKey)
+            UserDefaults.standard.set(max(SettingsNumericPolicy.reminderThresholdRange.lowerBound, min(SettingsNumericPolicy.reminderThresholdRange.upperBound, newValue)), forKey: reminderThresholdDefaultsKey)
         }
     }
     private var autoSwitchEnabled: Bool {
@@ -2413,10 +2452,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             labelsItem.target = self
             menu.addItem(labelsItem)
 
-            let displayItem = NSMenuItem(title: "Menu Bar Display", action: #selector(showMenuBarDisplayDialog), keyEquivalent: "")
-            displayItem.target = self
-            menu.addItem(displayItem)
-
             let removeItem = NSMenuItem(title: "Remove Account", action: #selector(showRemoveAccountDialog), keyEquivalent: "")
             removeItem.target = self
             removeItem.isEnabled = !isSwitching
@@ -2566,6 +2601,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.makeKey()
     }
 
+    private func commitReminderThreshold(_ draft: String) -> Bool {
+        guard case .success(let value) = SettingsNumericPolicy.normalizedInteger(draft, within: SettingsNumericPolicy.reminderThresholdRange) else { return false }
+        reminderThreshold = value
+        rebuildMenu()
+        return true
+    }
+
+    private func commitCreditExpiryLeadDays(_ draft: String) -> Bool {
+        guard case .success(let value) = SettingsNumericPolicy.normalizedInteger(draft, within: SettingsNumericPolicy.creditExpiryLeadDaysRange) else { return false }
+        creditExpiryLeadDays = value
+        checkCreditExpiryNotifications()
+        rebuildMenu()
+        return true
+    }
+
     @objc private func showApiModePanel() {
         showAccountPanel()
     }
@@ -2625,6 +2675,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             remindersEnabled: remindersEnabled,
             creditExpiryNotificationsEnabled: creditExpiryNotificationsEnabled,
             reminderThreshold: reminderThreshold,
+            creditExpiryLeadDays: creditExpiryLeadDays,
             autoSwitchEnabled: autoSwitchEnabled,
             autoSwitchThreshold: autoSwitchThreshold,
             autoSwitchMode: autoSwitchMode,
@@ -2683,6 +2734,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             toggleLaunchAtLogin: { [weak self] in
                 self?.toggleLaunchAtLogin()
+            },
+            commitReminderThreshold: { [weak self] draft in
+                self?.commitReminderThreshold(draft) ?? false
+            },
+            commitCreditExpiryLeadDays: { [weak self] draft in
+                self?.commitCreditExpiryLeadDays(draft) ?? false
+            },
+            updateActiveRefreshInterval: { [weak self] seconds in
+                self?.activeRefreshInterval = seconds
+                self?.rebuildMenu()
+            },
+            updateIdleRefreshInterval: { [weak self] seconds in
+                self?.idleRefreshInterval = seconds
+                self?.rebuildMenu()
             },
             pace: paceState,
             resetChance: resetChanceForecast,
@@ -3518,33 +3583,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ]
             )
         }
-        let result = NSMutableAttributedString()
-        for (index, account) in toolbarStatusAccounts().enumerated() {
-            if index > 0 {
-                result.append(NSAttributedString(string: " ", attributes: toolbarTitleAttributes(for: nil)))
-            }
-            result.append(NSAttributedString(
-                string: toolbarStatusText(for: account),
-                attributes: toolbarTitleAttributes(for: account)
-            ))
+        guard let active = toolbarStatusAccounts().first else {
+            return NSAttributedString(string: "")
         }
-        return result
+        return NSAttributedString(
+            string: toolbarStatusText(for: active),
+            attributes: toolbarTitleAttributes(for: active)
+        )
     }
 
     private func statusTitleKey() -> String {
         if let resetStatusText {
             return "reset|\(resetStatusText)"
         }
-        return toolbarStatusAccounts().map { account in
-            [
-                toolbarStatusText(for: account),
-                account.email,
-                account.isActive ? "active" : "inactive",
-                accountNeedsLogin(account) ? "login" : "ok",
-                "\(toolbarUsagePercent(for: account) ?? -1)",
-                usageMode.rawValue
-            ].joined(separator: "|")
-        }.joined(separator: "||")
+        return toolbarStatusAccounts().first.map { account in
+            "\(account.email)|\(account.fiveHourUsedPercent ?? -1)|\(account.isActive ? "active" : "inactive")|\(accountNeedsLogin(account) ? "login" : "ok")"
+        } ?? "empty"
     }
 
     private func setResetStatus(_ text: String?) {
@@ -3583,12 +3637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func toolbarUsagePercent(for account: CodexAccount) -> Int? {
-        switch usageMode {
-        case .fiveHour:
-            return account.fiveHourUsedPercent
-        case .weekly:
-            return account.weeklyUsedPercent
-        }
+        return account.fiveHourUsedPercent
     }
 
     private func toolbarAccounts() -> [CodexAccount] {
@@ -3909,7 +3958,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func checkForUpdates(showResult: Bool) {
-        guard let url = URL(string: "https://api.github.com/repos/lordydord/Codex-Account-Switcher/releases/latest") else { return }
+        guard let url = URL(string: "https://api.github.com/repos/smashlight/Codex-Account-Switcher/releases/latest") else { return }
         updateHealthTitle = "Checking"
         updateHealthColor = .systemOrange
         refreshAccountPanelContentIfVisible()

@@ -13,6 +13,7 @@ struct AppKitInteractionTests {
         testNativeTableProvidesFinalCellWidth()
         testAccountRowHostingViewFollowsTableWidth()
         testAccountRowHostingViewPreservesTableGestures()
+        testNativeSettingsSwitchUsesSmallSystemControl()
         testAccountTableUsesCompactSpacing()
         testTenCompactRowsFitViewport()
         testPoolVerdictCardShowsHybridForecast()
@@ -192,6 +193,14 @@ struct AppKitInteractionTests {
         )
         expect(passiveHost.hitTest(NSPoint(x: 10, y: 10)) == nil, "normal rows must leave click and swipe handling to NSTableView")
         expect(interactiveHost.hitTest(NSPoint(x: 10, y: 10)) != nil, "confirmation rows must deliver clicks to their SwiftUI buttons")
+    }
+
+    private static func testNativeSettingsSwitchUsesSmallSystemControl() {
+        let enabled = NativeSettingsSwitch.makeControl(isOn: true)
+        let disabled = NativeSettingsSwitch.makeControl(isOn: false)
+        expect(enabled.controlSize == .small, "settings switch must use the compact native macOS control size")
+        expect(enabled.state == .on, "enabled native settings switch must preserve its on state")
+        expect(disabled.state == .off, "disabled native settings switch must preserve its off state")
     }
 
     private static func makeTable(

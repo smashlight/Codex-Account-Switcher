@@ -1,4 +1,48 @@
+import AppKit
 import SwiftUI
+
+struct NativeSettingsSwitch: NSViewRepresentable {
+    let isOn: Bool
+    let onChange: (Bool) -> Void
+
+    final class Coordinator: NSObject {
+        let onChange: (Bool) -> Void
+
+        init(onChange: @escaping (Bool) -> Void) {
+            self.onChange = onChange
+        }
+
+        @objc func changed(_ sender: NSSwitch) {
+            onChange(sender.state == .on)
+        }
+    }
+
+    static func makeControl(isOn: Bool) -> NSSwitch {
+        let control = NSSwitch()
+        control.controlSize = .small
+        control.state = isOn ? .on : .off
+        control.sizeToFit()
+        return control
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    func makeNSView(context: Context) -> NSSwitch {
+        let control = Self.makeControl(isOn: isOn)
+        control.target = context.coordinator
+        control.action = #selector(Coordinator.changed(_:))
+        return control
+    }
+
+    func updateNSView(_ control: NSSwitch, context: Context) {
+        let nextState: NSControl.StateValue = isOn ? .on : .off
+        if control.state != nextState {
+            control.state = nextState
+        }
+    }
+}
 
 struct SettingsScreenView: View {
     let language: AppLanguage
@@ -102,7 +146,7 @@ struct SettingsScreenView: View {
                 SettingsToggleRow(
                     symbol: "bell",
                     title: LocalizedText.value(.usageReminderToggle, language: language),
-                    detail: language == .russian ? "Предупреждать при остатке (reminderThreshold)%" : "Alert at (reminderThreshold)% remaining",
+                    detail: language == .russian ? "Предупреждать при остатке \(reminderThreshold)%" : "Alert at \(reminderThreshold)% remaining",
                     isOn: remindersEnabled,
                     language: language,
                     theme: theme,
@@ -111,7 +155,7 @@ struct SettingsScreenView: View {
                 SettingsToggleRow(
                     symbol: "clock.badge.exclamationmark",
                     title: LocalizedText.value(.creditExpiryToggle, language: language),
-                    detail: language == .russian ? "За (creditExpiryLeadDays) дн. до истечения" : "(creditExpiryLeadDays) days before expiry",
+                    detail: language == .russian ? "За \(creditExpiryLeadDays) дн. до истечения" : "\(creditExpiryLeadDays) days before expiry",
                     isOn: creditExpiryEnabled,
                     language: language,
                     theme: theme,
@@ -319,18 +363,52 @@ private struct SettingsToggleRow: View {
         HStack(spacing: 10) {
             SettingsSymbol(symbol: symbol, theme: theme)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(.body, design: .rounded)).foregroundStyle(Color(nsColor: theme.primaryText))
-                Text(detail).font(.system(.caption, design: .rounded)).foregroundStyle(Color(nsColor: theme.secondaryText)).lineLimit(2)
+                Text(title).font(.system(size: 12.5, weight: .semibold, design: .rounded)).foregroundStyle(Color(nsColor: theme.primaryText))
+                Text(detail).font(.system(size: 10, weight: .medium, design: .rounded)).foregroundStyle(Color(nsColor: theme.secondaryText)).lineLimit(2)
             }
             Spacer(minLength: 8)
-            Toggle("", isOn: Binding(get: { isOn }, set: action))
-                .labelsHidden()
-                .toggleStyle(.switch)
+            MacOSSettingsSwitch(isOn: isOn, onChange: action, accessibilityLabel: title)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .accessibilityElement(children: .combine)
         .accessibilityHint(LocalizedText.value(.settingsToggleHint, language: language))
+    }
+}
+
+private struct MacOSSettingsSwitch: View {
+    let isOn: Bool
+    let onChange: (Bool) -> Void
+    let accessibilityLabel: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button {
+            let update = { onChange(!isOn) }
+            if reduceMotion {
+                update()
+            } else {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    update()
+                }
+            }
+        } label: {
+            Capsule(style: .continuous)
+                .fill(isOn ? Color.accentColor : Color(nsColor: NSColor.tertiaryLabelColor).opacity(0.42))
+                .frame(width: 38, height: 22)
+                .overlay(alignment: isOn ? .trailing : .leading) {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 18, height: 18)
+                        .padding(2)
+                        .shadow(color: .black.opacity(0.18), radius: 1, y: 0.5)
+                }
+        }
+        .buttonStyle(.plain)
+        .contentShape(.capsule)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -347,8 +425,8 @@ private struct SettingsNavigationRow: View {
             HStack(spacing: 10) {
                 SettingsSymbol(symbol: symbol, theme: theme)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(.body, design: .rounded)).foregroundStyle(Color(nsColor: theme.primaryText))
-                    Text(detail).font(.system(.caption, design: .rounded)).foregroundStyle(Color(nsColor: theme.secondaryText)).lineLimit(2)
+                    Text(title).font(.system(size: 12.5, weight: .semibold, design: .rounded)).foregroundStyle(Color(nsColor: theme.primaryText))
+                    Text(detail).font(.system(size: 10, weight: .medium, design: .rounded)).foregroundStyle(Color(nsColor: theme.secondaryText)).lineLimit(2)
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Color(nsColor: theme.tertiaryText))
@@ -373,7 +451,7 @@ private struct SettingsActionRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 SettingsSymbol(symbol: symbol, theme: theme)
-                Text(title).font(.system(.body, design: .rounded)).foregroundStyle(Color(nsColor: theme.primaryText))
+                Text(title).font(.system(size: 12.5, weight: .semibold, design: .rounded)).foregroundStyle(Color(nsColor: theme.primaryText))
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Color(nsColor: theme.tertiaryText))
             }
@@ -461,7 +539,7 @@ private struct SettingsPickerRow: View {
     var body: some View {
         HStack(spacing: 10) {
             SettingsSymbol(symbol: symbol, theme: theme)
-            Text(title).font(.system(.body, design: .rounded)).foregroundStyle(Color(nsColor: theme.primaryText))
+            Text(title).font(.system(size: 12.5, weight: .semibold, design: .rounded)).foregroundStyle(Color(nsColor: theme.primaryText))
             Spacer(minLength: 8)
             Picker("", selection: Binding(get: { value }, set: action)) {
                 ForEach(choices, id: \.self) { choice in Text("\(choice)\(suffix)").tag(choice) }

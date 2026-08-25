@@ -23,6 +23,7 @@ mkdir -p "$TEST_BUILD_DIR"
   "$ROOT_DIR/Sources/AppInfrastructure.swift" \
   "$ROOT_DIR/Sources/PanelComponents.swift" \
   "$ROOT_DIR/Sources/AccountRowView.swift" \
+  "$ROOT_DIR/Sources/SettingsView.swift" \
   "$ROOT_DIR/Tests/AppKitInteractionTests.swift" \
   -target arm64-apple-macosx14.0 \
   -framework SwiftUI \
