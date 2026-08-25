@@ -38,6 +38,7 @@ struct InfrastructureTests {
     private static var assertionCount = 0
 
     static func main() throws {
+        testSettingsNumericPolicy()
         testResetRefreshPolicy()
         testUsageRefreshPolicy()
         testWeeklyRemainingBand()
@@ -140,6 +141,40 @@ struct InfrastructureTests {
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         assertionCount += 1
         if !condition() { failures.append(message) }
+    }
+
+    private static func testSettingsNumericPolicy() {
+        let reminderRange = SettingsNumericPolicy.reminderThresholdRange
+        for (draft, expected) in [("1", 1), ("99", 99)] {
+            expect(
+                SettingsNumericPolicy.normalizedInteger(draft, within: reminderRange) == .success(expected),
+                "reminder draft \(draft) should normalize to \(expected)"
+            )
+        }
+        for draft in ["0", "100", "", "   ", "ten"] {
+            expect(
+                (try? SettingsNumericPolicy.normalizedInteger(draft, within: reminderRange).get()) == nil,
+                "reminder draft \(draft.debugDescription) should fail validation"
+            )
+        }
+
+        let creditDaysRange = SettingsNumericPolicy.creditExpiryLeadDaysRange
+        for (draft, expected) in [("1", 1), ("30", 30)] {
+            expect(
+                SettingsNumericPolicy.normalizedInteger(draft, within: creditDaysRange) == .success(expected),
+                "credit-days draft \(draft) should normalize to \(expected)"
+            )
+        }
+        for draft in ["0", "31"] {
+            expect(
+                (try? SettingsNumericPolicy.normalizedInteger(draft, within: creditDaysRange).get()) == nil,
+                "credit-days draft \(draft) should fail validation"
+            )
+        }
+
+        expect(SettingsNumericPolicy.reminderThresholdDefault == 10, "reminder default should be 10")
+        expect(SettingsNumericPolicy.creditExpiryLeadDaysDefault == 3, "credit-days default should be 3")
+        expect(SettingsNumericPolicy.creditExpiryInterval(leadDays: 3) == 259_200, "three lead days should equal 259200 seconds")
     }
 
     private static func testAppLanguagePreference() {

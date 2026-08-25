@@ -2,6 +2,36 @@ import Darwin
 import Foundation
 import CryptoKit
 
+enum SettingsNumericValidationError: Error, Equatable {
+    case invalidDraft
+    case outOfRange
+}
+
+enum SettingsNumericPolicy {
+    static let reminderThresholdRange = 1...99
+    static let creditExpiryLeadDaysRange = 1...30
+    static let reminderThresholdDefault = 10
+    static let creditExpiryLeadDaysDefault = 3
+
+    static func normalizedInteger(
+        _ draft: String,
+        within range: ClosedRange<Int>
+    ) -> Result<Int, SettingsNumericValidationError> {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty, let value = Int(trimmedDraft) else {
+            return .failure(.invalidDraft)
+        }
+        guard range.contains(value) else {
+            return .failure(.outOfRange)
+        }
+        return .success(value)
+    }
+
+    static func creditExpiryInterval(leadDays: Int) -> TimeInterval {
+        TimeInterval(leadDays) * 24 * 60 * 60
+    }
+}
+
 struct CommandResult {
     let status: Int32
     let output: String
