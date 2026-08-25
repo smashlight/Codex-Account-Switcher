@@ -57,6 +57,8 @@ enum LocalizedTextKey: CaseIterable {
     case cancelButton
     case switchButton
     case deleteAccountButton
+    case fiveHourShort
+    case weeklyShort
     case resetChanceTitle
     case languageLabel
     case russianOption
@@ -107,6 +109,8 @@ enum LocalizedText {
             case .cancelButton: return "Отмена"
             case .switchButton: return "Переключить"
             case .deleteAccountButton: return "Удалить"
+            case .fiveHourShort: return "5 Ч"
+            case .weeklyShort: return "НЕД"
             case .resetChanceTitle: return "Шанс сброса от Tibo"
             case .languageLabel: return "Язык / Language"
             case .russianOption: return "Русский"
@@ -153,6 +157,8 @@ enum LocalizedText {
             case .cancelButton: return "Cancel"
             case .switchButton: return "Switch"
             case .deleteAccountButton: return "Delete"
+            case .fiveHourShort: return "5H"
+            case .weeklyShort: return "WK"
             case .resetChanceTitle: return "Reset chance by Tibo"
             case .languageLabel: return "Язык / Language"
             case .russianOption: return "Русский"
@@ -180,6 +186,19 @@ enum LocalizedText {
             case .notEnoughAccessibility: return "Capacity runs out before reset"
             case .collectingAccessibility: return "Collecting history for a forecast"
             }
+        }
+    }
+
+    static func accountUsageAccessibility(
+        pair: AccountUsagePairText,
+        weeklyReset: String,
+        language: AppLanguage
+    ) -> String {
+        switch language {
+        case .russian:
+            return "Остаток на 5 часов: \(pair.fiveHour). Недельный остаток: \(pair.weekly). \(weeklyReset)"
+        case .english:
+            return "Five-hour remaining: \(pair.fiveHour). Weekly remaining: \(pair.weekly). \(weeklyReset)"
         }
     }
 

@@ -22,6 +22,25 @@ enum WeeklyRemainingBand: Equatable {
     }
 }
 
+struct AccountUsagePairText: Equatable {
+    let fiveHour: String
+    let weekly: String
+}
+
+enum AccountUsagePresentationPolicy {
+    static func pair(fiveHourRemaining: Int?, weeklyRemaining: Int?) -> AccountUsagePairText {
+        AccountUsagePairText(
+            fiveHour: percentText(fiveHourRemaining),
+            weekly: percentText(weeklyRemaining)
+        )
+    }
+
+    private static func percentText(_ remaining: Int?) -> String {
+        guard let remaining else { return "--" }
+        return "\(min(100, max(0, remaining)))%"
+    }
+}
+
 enum AccountListPresentationPolicy {
     static let maximumRowsWithoutScrolling = 10
 
@@ -74,6 +93,9 @@ enum UsagePanelLayoutMetrics {
     static let controlBarHeight = 40.0
     static let accountRowHeight = 39.0
     static let accountRowGap = 4.0
+    static let accountPrimaryTrackHeight = 4.0
+    static let accountSecondaryTrackHeight = 3.0
+    static let accountSecondaryOpacity = 0.55
     static let accountListEdgeAllowance = 2.0
 }
 

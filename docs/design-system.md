@@ -228,9 +228,9 @@ Current metrics:
 | Element | Value |
 | --- | ---: |
 | Usage outer inset | `14 pt` |
-| Account row | `48 pt` |
+| Account row | `39 pt` |
 | Expanded confirmation row | `78 pt` |
-| Account row gap | `6 pt` |
+| Account row gap | `4 pt` |
 | Pool chart | `104 pt` |
 | Verdict card | `108 pt` |
 | Verdict → reset chance gap | `12 pt` |
@@ -271,16 +271,18 @@ Normal state contains:
 
 - `28 pt` numbered badge;
 - email and weekly reset detail;
-- flexible remaining-capacity progress line;
-- fixed, visible percentage at the trailing edge.
+- a flexible two-line remaining-capacity meter with five-hour usage above weekly usage;
+- a fixed, visible `five-hour / weekly` percentage pair at the trailing edge.
 
-The identity column expands and truncates first. The progress line has a useful minimum width; the percentage never leaves the row.
+The five-hour meter is the primary actionable status. Its `4 pt` track, semantic palette, trailing value, active badge, and active border use the five-hour remaining percentage. The weekly `3 pt` meter and trailing value use their own semantic palette at reduced opacity so the longer-term allowance remains visible without competing with the current window.
+
+The identity column expands and truncates first. The meter stack has a useful minimum width; the percentage pair never leaves the row. Unknown and mixed availability remain explicit, for example `-- / 80%` or `10% / --`.
 
 States:
 
 - inactive: neutral glass;
 - hover: brighter neutral glass, no movement;
-- active: mint/blue semantic border, badge, and progress;
+- active: five-hour semantic border and badge, with independently colored five-hour and weekly progress;
 - warning/critical: semantic quota palette;
 - unknown: `--` plus neutral progress treatment;
 - confirmation: email, prompt, relaunch detail, intrinsic-width Cancel and Switch buttons;
@@ -291,9 +293,10 @@ Native `NSTableView` remains the owner of row identity, selection, scrolling, an
 ### 5.3 Progress indicators
 
 - Linear progress uses a subdued capsule track and semantic gradient fill.
-- Account progress fill represents **remaining**, not used, capacity.
+- Both account progress fills represent **remaining**, not used, capacity.
+- The five-hour account track is `4 pt`; the secondary weekly track is `3 pt` at `55%` opacity.
+- Each account track derives its semantic palette independently from its own remaining percentage.
 - The daily pool chart is separate: its fill represents normalized gross spend for each day and must be labelled as consumed capacity.
-- Track thickness is `4 pt` in the compact account row.
 - Values are clamped to `0...100`.
 - A numeric label always accompanies color.
 - Do not force a fake visible minimum for `0%`; only circular legacy meters may use a documented minimum arc for discoverability.
@@ -425,7 +428,7 @@ Rules:
 - Color is always paired with text, percentage, shape, or symbol.
 - Decorative symbols use `accessibilityHidden(true)`; meaningful symbols have localized labels.
 - Group related row/card content with `.accessibilityElement(children:)` or the AppKit equivalent.
-- Expose the account email, remaining percentage, reset detail, and active state in the account-row accessibility value.
+- Expose the account email, five-hour and weekly remaining percentages, reset detail, and active state in the account-row accessibility value.
 - Custom controls require a native accessibility representation or explicit role, label, value, and action.
 - Disabled controls remain visible and announce their disabled state.
 - Dynamic/scalable text must not overlap or hide actions.

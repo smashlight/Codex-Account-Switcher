@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Show five-hour and weekly remaining limits together in every account row, with a primary labelled five-hour meter, a subdued weekly meter, and the ordered `five-hour / weekly` percentage pair.
 - Replace the daily minimum-remaining pool chart with dynamic daily-spend bars normalized across the weekly account pool, including a 14.3% pace reference, semantic spend colors, selected-bar emphasis, and localized compact hover details.
 - Add swipe-to-delete for inactive saved accounts, using the selected account's full email and never the remove-all command; keep trailing percentages and confirmation buttons inside compact rows, and tint the reset-chance bolt yellow.
 - Tighten the pool verdict card while preserving its full forecast timeline, add separation from reset chance, center the margin badge, and give the Refresh and Quit buttons more horizontal padding.

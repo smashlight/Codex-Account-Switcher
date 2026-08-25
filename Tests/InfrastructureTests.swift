@@ -41,6 +41,7 @@ struct InfrastructureTests {
         testResetRefreshPolicy()
         testUsageRefreshPolicy()
         testWeeklyRemainingBand()
+        testAccountUsagePresentationPolicy()
         testAccountListPresentationPolicy()
         testAccountListViewportHeightPolicy()
         testAccountRemovalPolicy()
@@ -488,6 +489,61 @@ struct InfrastructureTests {
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 6), "short screens should scroll earlier")
     }
 
+    private static func testAccountUsagePresentationPolicy() {
+        let pair = AccountUsagePresentationPolicy.pair(
+            fiveHourRemaining: 10,
+            weeklyRemaining: 80
+        )
+        expect(
+            pair == AccountUsagePairText(fiveHour: "10%", weekly: "80%"),
+            "usage pair should preserve five-hour then weekly order"
+        )
+
+        let unknownFiveHour = AccountUsagePresentationPolicy.pair(
+            fiveHourRemaining: nil,
+            weeklyRemaining: 120
+        )
+        expect(
+            unknownFiveHour == AccountUsagePairText(fiveHour: "--", weekly: "100%"),
+            "usage pair should preserve unknown values and clamp high values"
+        )
+
+        let unknownWeekly = AccountUsagePresentationPolicy.pair(
+            fiveHourRemaining: -5,
+            weeklyRemaining: nil
+        )
+        expect(
+            unknownWeekly == AccountUsagePairText(fiveHour: "0%", weekly: "--"),
+            "usage pair should clamp low values and preserve unknown weekly usage"
+        )
+
+        expect(
+            LocalizedText.value(.fiveHourShort, language: .russian) == "5 Ч",
+            "Russian five-hour label should be compact"
+        )
+        expect(
+            LocalizedText.value(.weeklyShort, language: .russian) == "НЕД",
+            "Russian weekly label should be compact"
+        )
+        expect(
+            LocalizedText.value(.fiveHourShort, language: .english) == "5H",
+            "English five-hour label should be compact"
+        )
+        expect(
+            LocalizedText.value(.weeklyShort, language: .english) == "WK",
+            "English weekly label should be compact"
+        )
+
+        let accessibility = LocalizedText.accountUsageAccessibility(
+            pair: pair,
+            weeklyReset: "Недельный сброс: пт, 09:00",
+            language: .russian
+        )
+        expect(accessibility.contains("5 часов: 10%"), "accessibility should name five-hour remaining usage")
+        expect(accessibility.contains("Недельный остаток: 80%"), "accessibility should name weekly remaining usage")
+        expect(accessibility.contains("Недельный сброс: пт, 09:00"), "accessibility should include the weekly reset detail")
+    }
+
     private static func testAccountRemovalPolicy() {
         let robert = AccountRemovalPolicy.arguments(email: "r.oberttonyer677408@gmail.com", isActive: false)
         let riccardo = AccountRemovalPolicy.arguments(email: "riccardoroberts6408@gmail.com", isActive: false)
@@ -511,6 +567,9 @@ struct InfrastructureTests {
         expect(UsagePanelLayoutMetrics.controlBarHeight == 40, "reset chance and footer should share one height")
         expect(UsagePanelLayoutMetrics.accountRowHeight == 39, "account rows should be compact")
         expect(UsagePanelLayoutMetrics.accountRowGap == 4, "account row gaps should be compact")
+        expect(UsagePanelLayoutMetrics.accountPrimaryTrackHeight == 4, "five-hour track should remain primary")
+        expect(UsagePanelLayoutMetrics.accountSecondaryTrackHeight == 3, "weekly track should be visually quieter")
+        expect(UsagePanelLayoutMetrics.accountSecondaryOpacity == 0.55, "weekly track should keep the approved subdued treatment")
         expect(UsagePanelLayoutMetrics.accountListEdgeAllowance == 2, "native account table should reserve its final cell edge")
     }
 

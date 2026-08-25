@@ -30,8 +30,23 @@ struct AccountRowView: View {
     let onCancel: () -> Void
     let onSwitch: () -> Void
 
-    private var palette: AccountRowPalette {
+    private var fiveHourPalette: AccountRowPalette {
+        AccountRowPalette.make(remainingPercent: account.fiveHourUsedPercent, theme: theme)
+    }
+
+    private var weeklyPalette: AccountRowPalette {
         AccountRowPalette.make(remainingPercent: account.weeklyUsedPercent, theme: theme)
+    }
+
+    private var usagePair: AccountUsagePairText {
+        AccountUsagePresentationPolicy.pair(
+            fiveHourRemaining: account.fiveHourUsedPercent,
+            weeklyRemaining: account.weeklyUsedPercent
+        )
+    }
+
+    private var weeklyResetText: String {
+        WeeklyResetFormatter.text(from: account.weeklyUsage, language: language)
     }
 
     var body: some View {
@@ -48,6 +63,11 @@ struct AccountRowView: View {
         .contentShape(.rect(cornerRadius: 16))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(account.email)
+        .accessibilityValue(LocalizedText.accountUsageAccessibility(
+            pair: usagePair,
+            weeklyReset: weeklyResetText,
+            language: language
+        ))
     }
 
     private var usageContent: some View {
@@ -55,21 +75,37 @@ struct AccountRowView: View {
             badge
             accountIdentity
                 .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
-            AccountProgressLine(
-                percent: account.weeklyUsedPercent,
-                startColor: Color(nsColor: palette.start),
-                endColor: Color(nsColor: palette.end),
+            AccountUsageMetersView(
+                fiveHourLabel: LocalizedText.value(.fiveHourShort, language: language),
+                weeklyLabel: LocalizedText.value(.weeklyShort, language: language),
+                fiveHourPercent: account.fiveHourUsedPercent,
+                weeklyPercent: account.weeklyUsedPercent,
+                fiveHourPalette: fiveHourPalette,
+                weeklyPalette: weeklyPalette,
                 trackColor: Color(nsColor: theme.progressTrack)
             )
-            .frame(minWidth: 76, idealWidth: 130, maxWidth: 130)
-            Text(percentText)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(Color(nsColor: palette.label))
-                .monospacedDigit()
-                .frame(width: 40, alignment: .trailing)
-                .fixedSize(horizontal: true, vertical: false)
-                .accessibilityValue(percentText)
+            .frame(minWidth: 104, idealWidth: 140, maxWidth: 140)
+            percentagePair
         }
+    }
+
+    private var percentagePair: some View {
+        HStack(spacing: 2) {
+            Text(usagePair.fiveHour)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(nsColor: fiveHourPalette.label))
+            Text("/")
+                .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                .foregroundStyle(Color(nsColor: theme.tertiaryText))
+            Text(usagePair.weekly)
+                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color(nsColor: weeklyPalette.label))
+                .opacity(UsagePanelLayoutMetrics.accountSecondaryOpacity)
+        }
+        .monospacedDigit()
+        .frame(width: 74, alignment: .trailing)
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityHidden(true)
     }
 
     private var confirmationContent: some View {
@@ -101,7 +137,7 @@ struct AccountRowView: View {
                     ))
                 Button(LocalizedText.value(.switchButton, language: language), action: onSwitch)
                     .buttonStyle(AccountRowButtonStyle(
-                        fillColor: Color(nsColor: palette.end.withAlphaComponent(0.82)),
+                        fillColor: Color(nsColor: fiveHourPalette.end.withAlphaComponent(0.82)),
                         textColor: Color(nsColor: theme.primaryText)
                     ))
             }
@@ -112,15 +148,15 @@ struct AccountRowView: View {
     private var badge: some View {
         Text("\(displayIndex)")
             .font(.system(size: 11, weight: .bold, design: .rounded))
-            .foregroundStyle(Color(nsColor: account.isActive ? palette.label : theme.secondaryText))
+            .foregroundStyle(Color(nsColor: account.isActive ? fiveHourPalette.label : theme.secondaryText))
             .frame(width: 28, height: 28)
             .background(
                 Circle()
-                    .fill(Color(nsColor: account.isActive ? palette.start.withAlphaComponent(0.22) : theme.inactiveButtonFill))
+                    .fill(Color(nsColor: account.isActive ? fiveHourPalette.start.withAlphaComponent(0.22) : theme.inactiveButtonFill))
             )
             .overlay(
                 Circle()
-                    .stroke(Color(nsColor: account.isActive ? palette.start.withAlphaComponent(0.78) : theme.inactiveCardBorder), lineWidth: 1)
+                    .stroke(Color(nsColor: account.isActive ? fiveHourPalette.start.withAlphaComponent(0.78) : theme.inactiveCardBorder), lineWidth: 1)
             )
             .accessibilityHidden(true)
     }
@@ -133,7 +169,7 @@ struct AccountRowView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(account.email)
-            Text(WeeklyResetFormatter.text(from: account.weeklyUsage, language: language))
+            Text(weeklyResetText)
                 .font(.system(size: 10, weight: .medium, design: .rounded))
                 .foregroundStyle(Color(nsColor: theme.tertiaryText))
                 .lineLimit(1)
@@ -147,7 +183,7 @@ struct AccountRowView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(
                         Color(nsColor: account.isActive
-                            ? palette.start.withAlphaComponent(theme.isDark ? 0.48 : 0.40)
+                            ? fiveHourPalette.start.withAlphaComponent(theme.isDark ? 0.48 : 0.40)
                             : theme.inactiveCardBorder),
                         lineWidth: 1
                     )
@@ -155,9 +191,56 @@ struct AccountRowView: View {
             .shadow(color: Color.black.opacity(account.isActive ? 0.18 : 0.09), radius: account.isActive ? 9 : 5, y: 3)
     }
 
-    private var percentText: String {
-        guard let percent = account.weeklyUsedPercent else { return "--" }
-        return "\(max(0, min(100, percent)))%"
+}
+
+private struct AccountUsageMetersView: View {
+    let fiveHourLabel: String
+    let weeklyLabel: String
+    let fiveHourPercent: Int?
+    let weeklyPercent: Int?
+    let fiveHourPalette: AccountRowPalette
+    let weeklyPalette: AccountRowPalette
+    let trackColor: Color
+
+    var body: some View {
+        VStack(spacing: 4) {
+            labelledProgress(
+                label: fiveHourLabel,
+                percent: fiveHourPercent,
+                palette: fiveHourPalette,
+                height: CGFloat(UsagePanelLayoutMetrics.accountPrimaryTrackHeight)
+            )
+            labelledProgress(
+                label: weeklyLabel,
+                percent: weeklyPercent,
+                palette: weeklyPalette,
+                height: CGFloat(UsagePanelLayoutMetrics.accountSecondaryTrackHeight)
+            )
+            .opacity(UsagePanelLayoutMetrics.accountSecondaryOpacity)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func labelledProgress(
+        label: String,
+        percent: Int?,
+        palette: AccountRowPalette,
+        height: CGFloat
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 7.8, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color(nsColor: palette.label))
+                .lineLimit(1)
+                .frame(width: 24, alignment: .leading)
+            AccountProgressLine(
+                percent: percent,
+                startColor: Color(nsColor: palette.start),
+                endColor: Color(nsColor: palette.end),
+                trackColor: trackColor,
+                height: height
+            )
+        }
     }
 }
 
@@ -166,6 +249,7 @@ private struct AccountProgressLine: View {
     let startColor: Color
     let endColor: Color
     let trackColor: Color
+    let height: CGFloat
 
     private var progress: CGFloat {
         CGFloat(max(0, min(100, percent ?? 0))) / 100
@@ -180,7 +264,7 @@ private struct AccountProgressLine: View {
                     .frame(width: proxy.size.width * progress)
             }
         }
-        .frame(height: 4)
+        .frame(height: height)
         .accessibilityHidden(true)
     }
 }
