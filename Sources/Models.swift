@@ -39,23 +39,6 @@ struct ResetHistoryEntry: Codable {
     let detail: String
 }
 
-struct ApiUsageSnapshot: Equatable {
-    let usedTokens: Int
-    let limitTokens: Int
-    let warningPercent: Int
-    let lastUpdatedText: String
-    let lastError: String?
-
-    var usedPercent: Int {
-        guard limitTokens > 0 else { return 0 }
-        return max(0, min(100, Int((Double(usedTokens) / Double(limitTokens)) * 100.0)))
-    }
-
-    var remainingTokens: Int {
-        max(0, limitTokens - usedTokens)
-    }
-}
-
 struct ResetCredit: Equatable {
     let id: String
     let title: String
@@ -120,7 +103,6 @@ enum AutoSwitchMode: String {
 enum AccountPanelMode {
     case usage
     case settings
-    case api
     case resets
 }
 
@@ -129,12 +111,6 @@ enum SettingsPanelAction: String {
     case settingsView
     case resetCreditsView
     case addAccount
-    case apiView
-    case setupApiMode
-    case switchApiMode
-    case editApiLimit
-    case refreshApiUsage
-    case testApiReminder
     case editLabels
     case removeAccount
     case usageWeekly
@@ -267,11 +243,6 @@ struct PanelTheme {
     var switchOffFill: NSColor {
         NSColor.white.withAlphaComponent(0.18)
     }
-}
-
-enum ApiUsageFetchResult {
-    case success(Int)
-    case failure(String)
 }
 
 enum ResetCreditsFetchResult {

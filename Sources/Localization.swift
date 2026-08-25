@@ -118,9 +118,55 @@ enum LocalizedTextKey: CaseIterable {
     case settingsNavigationHint
     case settingsToggleHint
     case settingsNumericHint
+    case usageResetsTitle
+    case updatedPrefix
+    case useResetButton
+    case redeemResetTooltip
+    case displaySection
+    case menuBarLabel
+    case weeklyOption
+    case fiveHourOption
+    case followAppsTitle
+    case followAppsDetail
+    case usageReminderTitle
+    case usageReminderDetail
+    case creditExpiryTitle
+    case creditExpiryDetail
+    case autoSwitchTitle
+    case healthSection
+    case settingsAddAccount
+    case settingsReminder
+    case settingsRefreshRate
+    case settingsCheckUpdate
+    case settingsSavePlugins
+    case accountsButton
+    case resetVaultTitle
+    case checkingAccounts
+    case unavailable
+    case checkingResetCredits
+    case noAvailableResetCredits
+    case toggleAccount
+    case addAccountMenu
+    case accountLabelsMenu
+    case menuBarDisplayMenu
+    case removeAccountMenu
+    case forceRefreshMenu
+    case checkUpdatesMenu
+    case cleanBackupsMenu
+    case quitAppMenu
+    case activeAccountPrefix
+    case noActiveAccount
+    case activeButton
+    case switchButtonShort
+    case labelButton
+    case deleteButtonShort
 }
 
 enum LocalizedText {
+    static func activeAccount(_ account: String, language: AppLanguage) -> String {
+        "\(value(.activeAccountPrefix, language: language)) \(account)"
+    }
+
     static func value(_ key: LocalizedTextKey, language: AppLanguage) -> String {
         switch language {
         case .russian:
@@ -202,6 +248,48 @@ enum LocalizedText {
             case .settingsNavigationHint: return "Открывает подраздел настроек"
             case .settingsToggleHint: return "Переключатель"
             case .settingsNumericHint: return "Введите значение и нажмите Return"
+            case .usageResetsTitle: return "Сбросы использования"
+            case .updatedPrefix: return "Обновлено"
+            case .useResetButton: return "Использовать"
+            case .redeemResetTooltip: return "Использовать этот кредит после подтверждения"
+            case .displaySection: return "Отображение"
+            case .menuBarLabel: return "Строка меню"
+            case .weeklyOption: return "Неделя"
+            case .fiveHourOption: return "5 ч"
+            case .followAppsTitle: return "Следовать за Codex / ChatGPT"
+            case .followAppsDetail: return "Показывать только пока открыто одно из приложений"
+            case .usageReminderTitle: return "Напоминание об использовании"
+            case .usageReminderDetail: return "Показывать при достижении порога"
+            case .creditExpiryTitle: return "Срок действия кредитов"
+            case .creditExpiryDetail: return "Уведомлять за 3 дня до истечения кредитов сброса"
+            case .autoSwitchTitle: return "Автопереключение"
+            case .healthSection: return "Состояние"
+            case .settingsAddAccount: return "Добавить аккаунт"
+            case .settingsReminder: return "Напоминание"
+            case .settingsRefreshRate: return "Частота обновления"
+            case .settingsCheckUpdate: return "Проверить обновления"
+            case .settingsSavePlugins: return "Сохранить плагины"
+            case .accountsButton: return "Аккаунты"
+            case .resetVaultTitle: return "ХРАНИЛИЩЕ СБРОСОВ"
+            case .checkingAccounts: return "Проверяем сохранённые аккаунты"
+            case .unavailable: return "Недоступно"
+            case .checkingResetCredits: return "Проверяем кредиты сброса…"
+            case .noAvailableResetCredits: return "Нет доступных кредитов сброса"
+            case .toggleAccount: return "Переключить аккаунт"
+            case .addAccountMenu: return "Добавить аккаунт…"
+            case .accountLabelsMenu: return "Подписи аккаунтов"
+            case .menuBarDisplayMenu: return "Отображение в строке меню"
+            case .removeAccountMenu: return "Удалить аккаунт"
+            case .forceRefreshMenu: return "Принудительно обновить"
+            case .checkUpdatesMenu: return "Проверить обновления"
+            case .cleanBackupsMenu: return "Очистить резервные копии"
+            case .quitAppMenu: return "Выйти из Account Switcher"
+            case .activeAccountPrefix: return "Активный аккаунт"
+            case .noActiveAccount: return "Нет активного аккаунта"
+            case .activeButton: return "Активен"
+            case .switchButtonShort: return "Сменить"
+            case .labelButton: return "Имя"
+            case .deleteButtonShort: return "Удал."
             }
         case .english:
             switch key {
@@ -282,6 +370,48 @@ enum LocalizedText {
             case .settingsNavigationHint: return "Opens a settings subsection"
             case .settingsToggleHint: return "Toggle switch"
             case .settingsNumericHint: return "Enter a value and press Return"
+            case .usageResetsTitle: return "Usage resets"
+            case .updatedPrefix: return "Updated"
+            case .useResetButton: return "Use"
+            case .redeemResetTooltip: return "Redeem this reset credit after confirmation"
+            case .displaySection: return "Display"
+            case .menuBarLabel: return "Menu bar"
+            case .weeklyOption: return "Weekly"
+            case .fiveHourOption: return "5H"
+            case .followAppsTitle: return "Follow Codex / ChatGPT"
+            case .followAppsDetail: return "Show only while either app is open"
+            case .usageReminderTitle: return "Usage reminder"
+            case .usageReminderDetail: return "Show when the threshold is reached"
+            case .creditExpiryTitle: return "Credit expiry"
+            case .creditExpiryDetail: return "Alert 3 days before reset credits expire"
+            case .autoSwitchTitle: return "Auto switch"
+            case .healthSection: return "Health"
+            case .settingsAddAccount: return "Add account"
+            case .settingsReminder: return "Reminder"
+            case .settingsRefreshRate: return "Refresh rate"
+            case .settingsCheckUpdate: return "Check update"
+            case .settingsSavePlugins: return "Save plugins"
+            case .accountsButton: return "Accounts"
+            case .resetVaultTitle: return "RESET VAULT"
+            case .checkingAccounts: return "Checking saved accounts"
+            case .unavailable: return "Unavailable"
+            case .checkingResetCredits: return "Checking reset credits…"
+            case .noAvailableResetCredits: return "No available reset credits"
+            case .toggleAccount: return "Toggle Account"
+            case .addAccountMenu: return "Add Account…"
+            case .accountLabelsMenu: return "Account Display Labels"
+            case .menuBarDisplayMenu: return "Menu Bar Display"
+            case .removeAccountMenu: return "Remove Account"
+            case .forceRefreshMenu: return "Force Usage Refresh"
+            case .checkUpdatesMenu: return "Check for Updates"
+            case .cleanBackupsMenu: return "Clean Account Backups"
+            case .quitAppMenu: return "Quit Account Switcher"
+            case .activeAccountPrefix: return "Active account"
+            case .noActiveAccount: return "No active account"
+            case .activeButton: return "Active"
+            case .switchButtonShort: return "Switch"
+            case .labelButton: return "Label"
+            case .deleteButtonShort: return "Del"
             }
         }
     }

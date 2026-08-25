@@ -3,7 +3,6 @@ import ApplicationServices
 import Charts
 import CryptoKit
 import Foundation
-import Security
 import SwiftUI
 import UserNotifications
 
@@ -308,10 +307,6 @@ final class AccountSwitcherPanelView: NSView {
     private let armedSwitchEmail: String?
     private let quitConfirmationArmed: Bool
     private let protectFrontmostCodex: Bool
-    private let apiModeActive: Bool
-    private let apiKeyConfigured: Bool
-    private let usageKeyConfigured: Bool
-    private let apiUsage: ApiUsageSnapshot
     private let resetCreditsByEmail: [String: ResetCreditsSnapshot]
     private let healthStatuses: [HealthStatus]
     private let usageMode: UsageDisplayMode
@@ -364,10 +359,6 @@ final class AccountSwitcherPanelView: NSView {
         armedSwitchEmail: String?,
         quitConfirmationArmed: Bool,
         protectFrontmostCodex: Bool,
-        apiModeActive: Bool,
-        apiKeyConfigured: Bool,
-        usageKeyConfigured: Bool,
-        apiUsage: ApiUsageSnapshot,
         resetCreditsByEmail: [String: ResetCreditsSnapshot],
         healthStatuses: [HealthStatus],
         usageMode: UsageDisplayMode,
@@ -413,10 +404,6 @@ final class AccountSwitcherPanelView: NSView {
         self.armedSwitchEmail = armedSwitchEmail
         self.quitConfirmationArmed = quitConfirmationArmed
         self.protectFrontmostCodex = protectFrontmostCodex
-        self.apiModeActive = apiModeActive
-        self.apiKeyConfigured = apiKeyConfigured
-        self.usageKeyConfigured = usageKeyConfigured
-        self.apiUsage = apiUsage
         self.resetCreditsByEmail = resetCreditsByEmail
         self.healthStatuses = healthStatuses
         self.usageMode = usageMode
@@ -519,8 +506,6 @@ final class AccountSwitcherPanelView: NSView {
             buildUsageContent()
         case .settings:
             buildSettingsContent()
-        case .api:
-            buildApiContent()
         case .resets:
             buildResetCreditsContent()
         }
@@ -714,11 +699,11 @@ final class AccountSwitcherPanelView: NSView {
 
     private func resetCreditsHeader(frame: NSRect) -> NSView {
         let header = FlippedContainerView(frame: frame)
-        header.addSubview(label("RESET VAULT", frame: NSRect(x: 2, y: 0, width: 130, height: 14), size: 9.5, weight: .bold, color: theme.tertiaryText))
-        header.addSubview(label("Usage resets", frame: NSRect(x: 2, y: 13, width: 190, height: 28), size: 24, weight: .bold, color: theme.primaryText))
+        header.addSubview(label(LocalizedText.value(.resetVaultTitle, language: language), frame: NSRect(x: 2, y: 0, width: 150, height: 14), size: 9.5, weight: .bold, color: theme.tertiaryText))
+        header.addSubview(label(LocalizedText.value(.usageResetsTitle, language: language), frame: NSRect(x: 2, y: 13, width: 210, height: 28), size: 24, weight: .bold, color: theme.primaryText))
         header.addSubview(label(resetCreditsHeaderSubtitle(), frame: NSRect(x: 196, y: 21, width: frame.width - 302, height: 15), size: 10.5, weight: .medium, color: theme.secondaryText, alignment: .right))
 
-        let back = SettingsActionButton(frame: NSRect(x: frame.width - 92, y: 7, width: 92, height: 30), title: "Accounts", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        let back = SettingsActionButton(frame: NSRect(x: frame.width - 92, y: 7, width: 92, height: 30), title: LocalizedText.value(.accountsButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
         back.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.usageView.rawValue)
         back.target = self
         back.action = #selector(settingsActionPressed(_:))
@@ -729,13 +714,13 @@ final class AccountSwitcherPanelView: NSView {
     private func resetCreditsHeaderSubtitle() -> String {
         let state = resetCreditsSummaryState()
         if state.knownAccounts == 0 {
-            return "Checking saved accounts"
+            return LocalizedText.value(.checkingAccounts, language: language)
         }
         if state.knownTotal == 0 {
-            return state.hasError ? "Some accounts could not be checked" : "No available reset credits"
+            return state.hasError ? LocalizedText.value(.unavailable, language: language) : LocalizedText.value(.noAvailableResetCredits, language: language)
         }
         let suffix = state.hasError ? " plus unchecked accounts" : ""
-        return state.knownTotal == 1 ? "1 available reset\(suffix)" : "\(state.knownTotal) available resets\(suffix)"
+            return "\(state.knownTotal) \(LocalizedText.value(.usageResetsTitle, language: language).lowercased())\(suffix)"
     }
 
     private func resetCreditAccountCard(_ account: CodexAccount, frame: NSRect) -> NSView {
@@ -743,9 +728,9 @@ final class AccountSwitcherPanelView: NSView {
         let count = snapshot?.displayCount
         let countText: String
         if let count {
-            countText = count == 1 ? "1 RESET" : "\(count) RESETS"
+            countText = "\(count) \(LocalizedText.value(.usageResetsTitle, language: language).uppercased())"
         } else {
-            countText = "CHECKING"
+            countText = LocalizedText.value(.checkingAccounts, language: language).uppercased()
         }
 
         let color = resetCreditsAccentColor(snapshot: snapshot)
@@ -769,20 +754,20 @@ final class AccountSwitcherPanelView: NSView {
         card.addSubview(divider)
 
         if let error = snapshot?.lastError {
-            card.addSubview(label("Unavailable", frame: NSRect(x: 16, y: 64, width: frame.width - 32, height: 18), size: 12, weight: .semibold, color: NSColor.systemOrange))
+            card.addSubview(label(LocalizedText.value(.unavailable, language: language), frame: NSRect(x: 16, y: 64, width: frame.width - 32, height: 18), size: 12, weight: .semibold, color: NSColor.systemOrange))
             card.addSubview(label(error, frame: NSRect(x: 16, y: 86, width: frame.width - 32, height: 36), size: 10, weight: .medium, color: theme.secondaryText))
             return card
         }
 
         guard let snapshot else {
-            card.addSubview(label("Checking reset credits...", frame: NSRect(x: 16, y: 72, width: frame.width - 32, height: 18), size: 11.5, weight: .semibold, color: theme.secondaryText))
+            card.addSubview(label(LocalizedText.value(.checkingResetCredits, language: language), frame: NSRect(x: 16, y: 72, width: frame.width - 32, height: 18), size: 11.5, weight: .semibold, color: theme.secondaryText))
             return card
         }
 
         let credits = sortedAvailableResetCredits(snapshot)
         if credits.isEmpty {
-            card.addSubview(label("No available reset credits", frame: NSRect(x: 16, y: 72, width: frame.width - 32, height: 18), size: 11.5, weight: .semibold, color: theme.secondaryText))
-            let updated = "Updated \(snapshot.lastUpdatedText)"
+            card.addSubview(label(LocalizedText.value(.noAvailableResetCredits, language: language), frame: NSRect(x: 16, y: 72, width: frame.width - 32, height: 18), size: 11.5, weight: .semibold, color: theme.secondaryText))
+            let updated = "\(LocalizedText.value(.updatedPrefix, language: language)) \(snapshot.lastUpdatedText)"
             card.addSubview(label(updated, frame: NSRect(x: 16, y: 94, width: frame.width - 32, height: 16), size: 10, weight: .medium, color: theme.tertiaryText))
             return card
         }
@@ -847,11 +832,11 @@ final class AccountSwitcherPanelView: NSView {
             row.addSubview(label(resetCreditGrantedText(credit), frame: NSRect(x: indexWidth, y: 17, width: frame.width - indexWidth - buttonWidth - 12, height: 14), size: 9.5, weight: .medium, color: theme.secondaryText))
         }
 
-        let redeem = SettingsActionButton(frame: NSRect(x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight), title: "Use", color: urgencyColor.withAlphaComponent(theme.isDark ? 0.42 : 0.22), textColor: urgencyColor)
+        let redeem = SettingsActionButton(frame: NSRect(x: buttonX, y: buttonY, width: buttonWidth, height: buttonHeight), title: LocalizedText.value(.useResetButton, language: language), color: urgencyColor.withAlphaComponent(theme.isDark ? 0.42 : 0.22), textColor: urgencyColor)
         redeem.identifier = NSUserInterfaceItemIdentifier(resetCreditActionPayload(email: account.email, creditID: credit.id))
         redeem.target = self
         redeem.action = #selector(resetCreditRedeemPressed(_:))
-        redeem.toolTip = "Redeem this reset credit after confirmation"
+        redeem.toolTip = LocalizedText.value(.redeemResetTooltip, language: language)
         row.addSubview(redeem)
         return row
     }
@@ -908,105 +893,15 @@ final class AccountSwitcherPanelView: NSView {
         }
     }
 
-    private func buildApiContent() {
-        let contentWidth = bounds.width - (outerInset * 2)
-        addSubview(apiHeader(frame: NSRect(x: outerInset, y: outerInset, width: contentWidth, height: 44)))
-        addSubview(apiUsageCard(frame: NSRect(x: outerInset, y: 74, width: contentWidth, height: 258)))
-        addSubview(apiActionBar(frame: NSRect(x: outerInset, y: 342, width: contentWidth, height: 46)))
-        addSubview(apiFooter(frame: NSRect(x: outerInset, y: bounds.height - outerInset - bottomBarHeight, width: contentWidth, height: bottomBarHeight)))
-    }
-
     private func settingsHeader(frame: NSRect) -> NSView {
         let header = FlippedContainerView(frame: frame)
-        header.addSubview(label("Settings", frame: NSRect(x: 2, y: 14, width: 160, height: 28), size: 24, weight: .bold, color: theme.primaryText))
-        let back = SettingsActionButton(frame: NSRect(x: frame.width - 86, y: 13, width: 86, height: 30), title: "Back", color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        header.addSubview(label(LocalizedText.value(.settingsTitle, language: language), frame: NSRect(x: 2, y: 14, width: 160, height: 28), size: 24, weight: .bold, color: theme.primaryText))
+        let back = SettingsActionButton(frame: NSRect(x: frame.width - 86, y: 13, width: 86, height: 30), title: LocalizedText.value(.backButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
         back.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.usageView.rawValue)
         back.target = self
         back.action = #selector(settingsActionPressed(_:))
         header.addSubview(back)
         return header
-    }
-
-    private func apiHeader(frame: NSRect) -> NSView {
-        let header = FlippedContainerView(frame: frame)
-        header.addSubview(label("API Mode", frame: NSRect(x: 2, y: 1, width: 160, height: 26), size: 22, weight: .semibold, color: theme.primaryText))
-        let status = apiModeActive ? "Active OpenAI API login" : "Codex account login active"
-        header.addSubview(label(status, frame: NSRect(x: 2, y: 28, width: 220, height: 14), size: 10.5, weight: .medium, color: apiModeActive ? NSColor.systemGreen : theme.secondaryText))
-
-        let back = SettingsActionButton(frame: NSRect(x: frame.width - 78, y: 4, width: 78, height: 28), title: "Usage", color: theme.inactiveButtonFill, textColor: theme.primaryText)
-        back.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.usageView.rawValue)
-        back.target = self
-        back.action = #selector(settingsActionPressed(_:))
-        header.addSubview(back)
-        return header
-    }
-
-    private func apiUsageCard(frame: NSRect) -> NSView {
-        let percent = apiUsage.usedPercent
-        let color = apiColor(for: percent)
-        let card = RoundedPanelView(frame: frame, fillColor: apiModeActive ? cardFillColor(isActive: true) : cardFillColor(isActive: false), borderColor: apiModeActive ? color.withAlphaComponent(0.45) : cardBorderColor(isActive: false))
-
-        card.addSubview(label(apiModeActive ? "ACTIVE" : "READY", frame: NSRect(x: 18, y: 18, width: 74, height: 22), size: 12, weight: .semibold, color: apiModeActive ? color : theme.secondaryText))
-        card.addSubview(label("Daily complimentary tokens", frame: NSRect(x: 18, y: 42, width: frame.width - 36, height: 18), size: 12, weight: .medium, color: theme.secondaryText))
-
-        let ringSize: CGFloat = 138
-        let ringX = (frame.width - ringSize) / 2
-        let ringY: CGFloat = 70
-        card.addSubview(UsageRingView(frame: NSRect(x: ringX, y: ringY, width: ringSize, height: ringSize), color: color, trackColor: theme.ringTrack, percent: CGFloat(percent) / 100.0, isActive: true))
-        card.addSubview(PercentCenterLabelView(frame: NSRect(x: ringX + 8, y: ringY + 31, width: ringSize - 16, height: 46), percent: percent, color: color))
-        card.addSubview(label("USED", frame: NSRect(x: ringX + 12, y: ringY + 73, width: ringSize - 24, height: 16), size: 9.5, weight: .medium, color: theme.secondaryText, alignment: .center))
-
-        let used = tokenText(apiUsage.usedTokens)
-        let limit = tokenText(apiUsage.limitTokens)
-        card.addSubview(label("\(used) / \(limit)", frame: NSRect(x: 24, y: 214, width: frame.width - 48, height: 18), size: 13, weight: .semibold, color: theme.primaryText, alignment: .center))
-
-        let detail = apiUsage.lastError ?? "Updated \(apiUsage.lastUpdatedText) · alert at \(apiUsage.warningPercent)%"
-        card.addSubview(label(detail, frame: NSRect(x: 24, y: 235, width: frame.width - 48, height: 16), size: 10, weight: .medium, color: apiUsage.lastError == nil ? theme.secondaryText : NSColor.systemOrange, alignment: .center))
-        return card
-    }
-
-    private func apiActionBar(frame: NSRect) -> NSView {
-        let bar = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 14)
-        let setup = SettingsActionButton(frame: NSRect(x: 12, y: 10, width: 68, height: 26), title: apiKeyConfigured ? "Keys" : "Setup", color: theme.inactiveButtonFill, textColor: theme.primaryText)
-        setup.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.setupApiMode.rawValue)
-        setup.target = self
-        setup.action = #selector(settingsActionPressed(_:))
-        bar.addSubview(setup)
-
-        let switchButton = SettingsActionButton(frame: NSRect(x: 90, y: 10, width: 96, height: 26), title: apiModeActive ? "API Active" : "Use API", color: apiModeActive ? NSColor.systemGreen : theme.inactiveButtonFill, textColor: apiModeActive ? .white : theme.primaryText)
-        switchButton.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.switchApiMode.rawValue)
-        switchButton.target = self
-        switchButton.action = #selector(settingsActionPressed(_:))
-        switchButton.isEnabled = !apiModeActive
-        bar.addSubview(switchButton)
-
-        let limit = SettingsActionButton(frame: NSRect(x: 196, y: 10, width: 58, height: 26), title: "Limit", color: theme.inactiveButtonFill, textColor: theme.primaryText)
-        limit.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.editApiLimit.rawValue)
-        limit.target = self
-        limit.action = #selector(settingsActionPressed(_:))
-        bar.addSubview(limit)
-
-        let test = SettingsActionButton(frame: NSRect(x: frame.width - 70, y: 10, width: 58, height: 26), title: "Test", color: theme.bottomBarFill, textColor: theme.primaryText)
-        test.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.testApiReminder.rawValue)
-        test.target = self
-        test.action = #selector(settingsActionPressed(_:))
-        bar.addSubview(test)
-        return bar
-    }
-
-    private func apiFooter(frame: NSRect) -> NSView {
-        let footer = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 14)
-        let api = iconButton(symbol: "server.rack", frame: NSRect(x: 16, y: 9, width: 24, height: 24), action: #selector(apiPressed(_:)), toolTip: "API mode")
-        footer.addSubview(api)
-
-        let centerText = apiModeActive ? "switch back from account card" : "switch API on when ready"
-        footer.addSubview(CenteredTextView(frame: NSRect(x: 68, y: 10, width: frame.width - 136, height: 22), text: centerText, size: 12.5, weight: .medium, color: theme.primaryText, alignment: .center))
-
-        let refreshButton = iconButton(symbol: "arrow.clockwise", frame: NSRect(x: frame.width - 86, y: 9, width: 24, height: 24), action: #selector(apiRefreshPressed), toolTip: "Refresh API token usage")
-        footer.addSubview(refreshButton)
-        let closeButton = iconButton(symbol: "xmark", frame: NSRect(x: frame.width - 40, y: 9, width: 24, height: 24), action: #selector(closePressed), toolTip: "Quit Account Switcher")
-        footer.addSubview(closeButton)
-        return footer
     }
 
     private func settingsSection(frame: NSRect, title: String) -> NSView {
@@ -1016,7 +911,7 @@ final class AccountSwitcherPanelView: NSView {
     }
 
     private func healthSection(frame: NSRect) -> NSView {
-        let section = settingsSection(frame: frame, title: "Health")
+        let section = settingsSection(frame: frame, title: LocalizedText.value(.healthSection, language: language))
         let rows = Array(healthStatuses.prefix(6))
         let badgeWidth = (frame.width - 40) / 2
         for (index, status) in rows.enumerated() {
@@ -1044,20 +939,21 @@ final class AccountSwitcherPanelView: NSView {
         row.addSubview(label(labelForAccount(account), frame: NSRect(x: 0, y: 0, width: 42, height: 24), size: 14, weight: .semibold, color: accent, alignment: .center))
         row.addSubview(label(compactSettingsEmail(account.email), frame: NSRect(x: 48, y: 2, width: 126, height: 20), size: 11.5, weight: .medium, color: theme.primaryText))
 
-        let switchButton = SettingsActionButton(frame: NSRect(x: frame.width - 150, y: 1, width: 58, height: 22), title: account.isActive ? "Active" : "Switch", color: account.isActive ? NSColor.systemGreen : theme.inactiveButtonFill, textColor: account.isActive ? .white : theme.primaryText)
+        let switchTitle = account.isActive ? LocalizedText.value(.activeButton, language: language) : LocalizedText.value(.switchButtonShort, language: language)
+        let switchButton = SettingsActionButton(frame: NSRect(x: frame.width - 150, y: 1, width: 58, height: 22), title: switchTitle, color: account.isActive ? NSColor.systemGreen : theme.inactiveButtonFill, textColor: account.isActive ? .white : theme.primaryText)
         switchButton.identifier = NSUserInterfaceItemIdentifier("switch|\(account.email)")
         switchButton.target = self
         switchButton.action = #selector(accountSettingsActionPressed(_:))
         switchButton.isEnabled = !account.isActive && !isSwitching
         row.addSubview(switchButton)
 
-        let labelButton = SettingsActionButton(frame: NSRect(x: frame.width - 84, y: 1, width: 40, height: 22), title: "Label", color: theme.bottomBarFill, textColor: theme.primaryText)
+        let labelButton = SettingsActionButton(frame: NSRect(x: frame.width - 84, y: 1, width: 40, height: 22), title: LocalizedText.value(.labelButton, language: language), color: theme.bottomBarFill, textColor: theme.primaryText)
         labelButton.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.editLabels.rawValue)
         labelButton.target = self
         labelButton.action = #selector(settingsActionPressed(_:))
         row.addSubview(labelButton)
 
-        let removeButton = SettingsActionButton(frame: NSRect(x: frame.width - 38, y: 1, width: 38, height: 22), title: "Del", color: theme.bottomBarFill, textColor: NSColor.systemRed)
+        let removeButton = SettingsActionButton(frame: NSRect(x: frame.width - 38, y: 1, width: 38, height: 22), title: LocalizedText.value(.deleteButtonShort, language: language), color: theme.bottomBarFill, textColor: NSColor.systemRed)
         removeButton.identifier = NSUserInterfaceItemIdentifier("remove|\(account.email)")
         removeButton.target = self
         removeButton.action = #selector(accountSettingsActionPressed(_:))
@@ -1099,12 +995,12 @@ final class AccountSwitcherPanelView: NSView {
     private func settingsFooter(frame: NSRect) -> NSView {
         let footer = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 18, shadowOpacity: 0.06)
         let actions: [(String, SettingsPanelAction)] = [
-            ("Add account", .addAccount),
-            ("Reminder", .editUsageReminder),
-            ("Refresh rate", .editRefresh),
-            ("Check update", .checkUpdates),
-            ("Save plugins", .saveReferencePlugins),
-            ("Diagnostics", .diagnostics)
+            (LocalizedText.value(.settingsAddAccount, language: language), .addAccount),
+            (LocalizedText.value(.settingsReminder, language: language), .editUsageReminder),
+            (LocalizedText.value(.settingsRefreshRate, language: language), .editRefresh),
+            (LocalizedText.value(.settingsCheckUpdate, language: language), .checkUpdates),
+            (LocalizedText.value(.settingsSavePlugins, language: language), .saveReferencePlugins),
+            (LocalizedText.value(.diagnosticsButton, language: language), .diagnostics)
         ]
         let inset: CGFloat = 10
         let gap: CGFloat = 8
@@ -1132,7 +1028,7 @@ final class AccountSwitcherPanelView: NSView {
         let title = label("Codex Control", frame: NSRect(x: 98, y: 23, width: 250, height: 28), size: 22, weight: .semibold, color: .white.withAlphaComponent(0.94))
         view.addSubview(title)
 
-        let subtitleText = activeAccount.map { "Active account \(labelForAccount($0))" } ?? (lastError ?? "No active account")
+        let subtitleText = activeAccount.map { LocalizedText.activeAccount(labelForAccount($0), language: language) } ?? (lastError ?? LocalizedText.value(.noActiveAccount, language: language))
         let subtitle = label(subtitleText, frame: NSRect(x: 99, y: 52, width: 260, height: 19), size: 13, weight: .medium, color: activeAccount == nil ? .systemOrange : .white.withAlphaComponent(0.58))
         subtitle.lineBreakMode = .byTruncatingTail
         view.addSubview(subtitle)
@@ -1581,24 +1477,6 @@ final class AccountSwitcherPanelView: NSView {
         usageStatusColor(for: percent)
     }
 
-    private func apiColor(for percent: Int) -> NSColor {
-        if percent >= apiUsage.warningPercent { return .systemRed }
-        if percent >= max(1, apiUsage.warningPercent - 20) { return .systemOrange }
-        return .systemBlue
-    }
-
-    private func tokenText(_ value: Int) -> String {
-        if value >= 1_000_000 {
-            let millions = Double(value) / 1_000_000.0
-            return String(format: "%.1fM", millions)
-        }
-        if value >= 1_000 {
-            let thousands = Double(value) / 1_000.0
-            return String(format: "%.1fk", thousands)
-        }
-        return "\(value)"
-    }
-
     private func statusBarColor(for remaining: Int?) -> NSColor {
         guard let remaining else {
             return theme.secondaryText.withAlphaComponent(0.6)
@@ -1681,14 +1559,6 @@ final class AccountSwitcherPanelView: NSView {
         performSettingsAction(.addAccount)
     }
 
-    @objc private func apiPressed(_ sender: NSButton) {
-        performSettingsAction(.apiView)
-    }
-
-    @objc private func apiRefreshPressed() {
-        performSettingsAction(.refreshApiUsage)
-    }
-
     @objc private func closePressed() {
         close()
     }
@@ -1745,13 +1615,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let idleRefreshIntervalDefaultsKey = "idleRefreshIntervalSeconds"
     private let protectFrontmostCodexDefaultsKey = "protectFrontmostCodex"
     private let resetHistoryDefaultsKey = "resetHistoryV1"
-    private let apiDailyLimitDefaultsKey = "apiDailyLimitTokens"
-    private let apiWarningPercentDefaultsKey = "apiWarningPercent"
-    private let apiUsageNotificationDefaultsKey = "apiUsageNotificationEnabled"
-    private let apiModeActiveDefaultsKey = "apiModeActive"
-    private let apiTokenUsageService = "com.mohamedfuad.codexaccountswitcher.openai"
-    private let apiCodexKeyAccount = "codex-api-key"
-    private let apiUsageKeyAccount = "usage-api-key"
     private let autoSwitchNotificationCategory = "AUTO_SWITCH_CONFIRM"
     private let switchNowActionIdentifier = "SWITCH_NOW"
     private let launchAgentIdentifier = "com.mohamedfuad.codexaccountswitcher"
@@ -1775,6 +1638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastError: String?
     private var lastUpdatedAt: Date?
     private var lastRefreshStartedAt: Date?
+    private var refreshGeneration = 0
     private var lastResetCreditsRefreshAt: Date?
     private var lastDirectUsageRefreshAt: Date?
     private var resetChanceForecast: ResetChanceForecast?
@@ -1803,7 +1667,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let switchAnimationFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     private var notifiedLowUsageKeys = Set<String>()
     private var notifiedAutoSwitchPauseKeys = Set<String>()
-    private var notifiedApiUsageKeys = Set<String>()
     private var settingsMenu = NSMenu()
     private weak var accountLabelDialogField: NSTextField?
     private weak var accountLabelDialogPopup: NSPopUpButton?
@@ -1940,46 +1803,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             UserDefaults.standard.set(newValue.rawValue, forKey: "usageDisplayMode")
         }
     }
-    private var apiDailyLimit: Int {
-        get {
-            let stored = UserDefaults.standard.integer(forKey: apiDailyLimitDefaultsKey)
-            return stored == 0 ? 50_000 : max(1_000, stored)
-        }
-        set {
-            UserDefaults.standard.set(max(1_000, newValue), forKey: apiDailyLimitDefaultsKey)
-        }
-    }
-    private var apiWarningPercent: Int {
-        get {
-            let stored = UserDefaults.standard.integer(forKey: apiWarningPercentDefaultsKey)
-            return stored == 0 ? 80 : max(1, min(99, stored))
-        }
-        set {
-            UserDefaults.standard.set(max(1, min(99, newValue)), forKey: apiWarningPercentDefaultsKey)
-        }
-    }
-    private var apiUsageNotificationsEnabled: Bool {
-        get {
-            if UserDefaults.standard.object(forKey: apiUsageNotificationDefaultsKey) == nil {
-                return true
-            }
-            return UserDefaults.standard.bool(forKey: apiUsageNotificationDefaultsKey)
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: apiUsageNotificationDefaultsKey)
-        }
-    }
-    private var apiModeActive: Bool {
-        get { false }
-        set {
-            if !newValue {
-                UserDefaults.standard.set(false, forKey: apiModeActiveDefaultsKey)
-            }
-        }
-    }
-    private var apiUsedTokens: Int = 0
-    private var apiUsageLastError: String?
-    private var apiUsageUpdatedAt: Date?
     private var demoMode: Bool {
         ProcessInfo.processInfo.environment["CODEX_ACCOUNT_SWITCHER_DEMO"] == "1"
     }
@@ -1991,15 +1814,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var showResetsOnLaunch: Bool {
         ProcessInfo.processInfo.environment["CODEX_ACCOUNT_SWITCHER_SHOW_RESETS"] == "1"
-    }
-
-    private func disableApiMode() {
-        UserDefaults.standard.set(false, forKey: apiModeActiveDefaultsKey)
-        deleteKeychainSecret(account: apiCodexKeyAccount)
-        deleteKeychainSecret(account: apiUsageKeyAccount)
-        apiUsedTokens = 0
-        apiUsageLastError = nil
-        apiUsageUpdatedAt = nil
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -2030,7 +1844,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSApp.terminate(nil)
             return
         }
-        disableApiMode()
         DispatchQueue.global(qos: .utility).async {
             let accountsDirectory = URL(fileURLWithPath: NSHomeDirectory())
                 .appendingPathComponent(".codex/accounts", isDirectory: true)
@@ -2230,6 +2043,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         isRefreshing = true
+        refreshGeneration += 1
+        let refreshGeneration = self.refreshGeneration
         lastRefreshStartedAt = Date()
         let shouldRefreshResets = !isRefreshingResetCredits && ResetRefreshPolicy.shouldRefresh(
             lastRefresh: lastResetCreditsRefreshAt,
@@ -2267,6 +2082,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 let (resetResults, directUsageResults) = await (resetTask, directUsageTask)
                 await MainActor.run {
+                guard self.refreshGeneration == refreshGeneration else { return }
                 self.isRefreshing = false
                 if shouldRefreshResets {
                     self.isRefreshingResetCredits = false
@@ -2325,10 +2141,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func refreshApiUsage(force: Bool = false) {
-        disableApiMode()
-    }
-
     // MARK: - Pool pace sampling
 
     /// Records one pool-wide sample from freshly fetched wham/usage data.
@@ -2343,7 +2155,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard PoolHistoryStore.shouldRecord(lastSample: history.last, poolAverage: average, now: now) else {
             return
         }
-        try? PoolHistoryStore.write(history + [sample], to: url, now: now)
+        do {
+            try PoolHistoryStore.write(history + [sample], to: url, now: now)
+        } catch {
+            NSLog("Codex Account Switcher pool-history write failed: %@", error.localizedDescription)
+            return
+        }
         lastPoolSampleAt = now
         if accountPanel?.isVisible == true {
             refreshAccountPanelContent()
@@ -2399,6 +2216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func rebuildMenu() {
         let menu = NSMenu()
+        let language = languageStore.load()
 
         if let active = accounts.first(where: { $0.isActive }) {
             if !isSwitching {
@@ -2435,24 +2253,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         menu.addItem(.separator())
 
-        let toggle = NSMenuItem(title: "Toggle Account", action: #selector(toggleAccount), keyEquivalent: "")
+        let toggle = NSMenuItem(title: LocalizedText.value(.toggleAccount, language: language), action: #selector(toggleAccount), keyEquivalent: "")
         toggle.target = self
         toggle.isEnabled = accounts.count == 2 && !isSwitching
         menu.addItem(toggle)
 
         menu.addItem(.separator())
 
-        let addAccount = NSMenuItem(title: "Add Account...", action: #selector(addAccountBrowser), keyEquivalent: "")
+        let addAccount = NSMenuItem(title: LocalizedText.value(.addAccountMenu, language: language), action: #selector(addAccountBrowser), keyEquivalent: "")
         addAccount.target = self
         addAccount.isEnabled = !isSwitching
         menu.addItem(addAccount)
 
         if !accounts.isEmpty {
-            let labelsItem = NSMenuItem(title: "Account Display Labels", action: #selector(showAccountDisplayLabelsDialog), keyEquivalent: "")
+            let labelsItem = NSMenuItem(title: LocalizedText.value(.accountLabelsMenu, language: language), action: #selector(showAccountDisplayLabelsDialog), keyEquivalent: "")
             labelsItem.target = self
             menu.addItem(labelsItem)
 
-            let removeItem = NSMenuItem(title: "Remove Account", action: #selector(showRemoveAccountDialog), keyEquivalent: "")
+            let displayItem = NSMenuItem(title: LocalizedText.value(.menuBarDisplayMenu, language: language), action: #selector(showMenuBarDisplayDialog), keyEquivalent: "")
+            displayItem.target = self
+            menu.addItem(displayItem)
+
+            let removeItem = NSMenuItem(title: LocalizedText.value(.removeAccountMenu, language: language), action: #selector(showRemoveAccountDialog), keyEquivalent: "")
             removeItem.target = self
             removeItem.isEnabled = !isSwitching
             menu.addItem(removeItem)
@@ -2466,22 +2288,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         refreshSettings.target = self
         menu.addItem(refreshSettings)
 
-        let refresh = NSMenuItem(title: "Force Usage Refresh", action: #selector(refreshNow), keyEquivalent: "")
+        let refresh = NSMenuItem(title: LocalizedText.value(.forceRefreshMenu, language: language), action: #selector(refreshNow), keyEquivalent: "")
         refresh.target = self
         refresh.toolTip = "Refreshes live usage for all saved accounts."
         refresh.isEnabled = !isSwitching
         menu.addItem(refresh)
 
-        let updates = NSMenuItem(title: "Check for Updates", action: #selector(checkForUpdatesMenu), keyEquivalent: "")
+        let updates = NSMenuItem(title: LocalizedText.value(.checkUpdatesMenu, language: language), action: #selector(checkForUpdatesMenu), keyEquivalent: "")
         updates.target = self
         menu.addItem(updates)
 
-        let cleanBackups = NSMenuItem(title: "Clean Account Backups", action: #selector(cleanAccountBackups), keyEquivalent: "")
+        let cleanBackups = NSMenuItem(title: LocalizedText.value(.cleanBackupsMenu, language: language), action: #selector(cleanAccountBackups), keyEquivalent: "")
         cleanBackups.target = self
         cleanBackups.isEnabled = !isSwitching
         menu.addItem(cleanBackups)
 
-        let quit = NSMenuItem(title: "Quit Account Switcher", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        let quit = NSMenuItem(title: LocalizedText.value(.quitAppMenu, language: language), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         menu.addItem(quit)
 
         settingsMenu = menu
@@ -2615,16 +2437,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         rebuildMenu()
         return true
     }
-
-    @objc private func showApiModePanel() {
-        showAccountPanel()
-    }
-
-    @objc private func switchToApiModeFromMenu() {
-        disableApiMode()
-        showAccountPanel()
-    }
-
     private func makeAccountPanel() -> NSPanel {
         let panel = AccountFloatingPanel(
             contentRect: NSRect(origin: .zero, size: currentAccountPanelSize()),
@@ -2682,10 +2494,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             armedSwitchEmail: armedSwitchEmail,
             quitConfirmationArmed: quitConfirmationArmed,
             protectFrontmostCodex: protectFrontmostCodex,
-            apiModeActive: apiModeActive,
-            apiKeyConfigured: apiKeyConfigured(),
-            usageKeyConfigured: usageKeyConfigured(),
-            apiUsage: apiUsageSnapshot(),
             resetCreditsByEmail: resetCreditsByEmail,
             healthStatuses: healthStatusRows(),
             usageMode: usageMode,
@@ -2916,22 +2724,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .resetCreditsView:
             accountPanelMode = .resets
             refreshResetCreditsIfNeeded(force: false)
-        case .apiView:
-            accountPanelMode = .usage
         case .addAccount:
             addAccountBrowser()
-        case .setupApiMode:
-            disableApiMode()
-            showAlert(title: "API mode removed", message: "This build only switches between saved ChatGPT accounts.")
-        case .switchApiMode:
-            disableApiMode()
-            showAlert(title: "API mode removed", message: "This build only switches between saved ChatGPT accounts.")
-        case .editApiLimit:
-            disableApiMode()
-        case .refreshApiUsage:
-            disableApiMode()
-        case .testApiReminder:
-            disableApiMode()
         case .editLabels:
             showAccountDisplayLabelsDialog()
         case .removeAccount:
@@ -2978,7 +2772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func setLanguage(_ language: AppLanguage) {
         languageStore.select(language) { [weak self] in
-            self?.rebuildAccountPanelContentIfVisible()
+            self?.rebuildMenu()
         }
     }
 
@@ -3034,6 +2828,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func showResetCreditsMenu(from sender: NSView) {
         let menu = NSMenu()
+        let language = languageStore.load()
         let header = NSMenuItem(title: resetCreditsMenuHeader(), action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
@@ -3051,14 +2846,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             menu.addItem(accountHeader)
 
             if let error = snapshot?.lastError {
-                let item = NSMenuItem(title: "Unavailable: \(error)", action: nil, keyEquivalent: "")
+                let item = NSMenuItem(title: "\(LocalizedText.value(.unavailable, language: language)): \(error)", action: nil, keyEquivalent: "")
                 item.isEnabled = false
                 menu.addItem(item)
                 continue
             }
 
             guard let snapshot else {
-                let item = NSMenuItem(title: "Checking reset credits...", action: nil, keyEquivalent: "")
+                let item = NSMenuItem(title: LocalizedText.value(.checkingResetCredits, language: language), action: nil, keyEquivalent: "")
                 item.isEnabled = false
                 menu.addItem(item)
                 continue
@@ -3078,7 +2873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             if credits.isEmpty {
-                let item = NSMenuItem(title: "No available reset credits", action: nil, keyEquivalent: "")
+                let item = NSMenuItem(title: LocalizedText.value(.noAvailableResetCredits, language: language), action: nil, keyEquivalent: "")
                 item.isEnabled = false
                 menu.addItem(item)
             } else {
@@ -3087,7 +2882,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     let item = NSMenuItem(title: title, action: #selector(redeemResetCreditMenuItem(_:)), keyEquivalent: "")
                     item.target = self
                     item.representedObject = resetCreditActionPayload(email: account.email, creditID: credit.id)
-                    item.toolTip = "Redeem this reset credit after confirmation"
+                    item.toolTip = LocalizedText.value(.redeemResetTooltip, language: language)
                     menu.addItem(item)
                 }
             }
@@ -3657,32 +3452,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return [active]
         }
         return sortedAccounts.prefix(1).map { $0 }
-    }
-
-    private func apiUsageSnapshot() -> ApiUsageSnapshot {
-        ApiUsageSnapshot(
-            usedTokens: apiUsedTokens,
-            limitTokens: apiDailyLimit,
-            warningPercent: apiWarningPercent,
-            lastUpdatedText: apiUsageLastUpdatedText(),
-            lastError: apiUsageLastError
-        )
-    }
-
-    private func apiUsageLastUpdatedText() -> String {
-        guard let apiUsageUpdatedAt else { return "never" }
-        let elapsed = max(0, Int(Date().timeIntervalSince(apiUsageUpdatedAt)))
-        if elapsed < 15 { return "just now" }
-        if elapsed < 60 { return "\(elapsed)s ago" }
-        let minutes = elapsed / 60
-        if minutes < 60 { return "\(minutes)m ago" }
-        return "\(minutes / 60)h ago"
-    }
-
-    private func apiStatusColor(for percent: Int) -> NSColor {
-        if percent >= apiWarningPercent { return .systemRed }
-        if percent >= max(1, apiWarningPercent - 20) { return .systemOrange }
-        return .systemBlue
     }
 
     private func toolbarSortPriority(for account: CodexAccount) -> Int {
@@ -4294,110 +4063,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func showApiSetupDialog() {
-        let codexField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 440, height: 28))
-        codexField.placeholderString = apiKeyConfigured() ? "Codex API key already saved" : "OpenAI project API key"
-
-        let usageField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 440, height: 28))
-        usageField.placeholderString = usageKeyConfigured() ? "Usage/Admin key already saved" : "Usage/Admin API key"
-
-        let codexLabel = NSTextField(labelWithString: "Codex API key")
-        codexLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        let usageLabel = NSTextField(labelWithString: "Usage meter key")
-        usageLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-
-        let stack = NSStackView(views: [
-            codexLabel,
-            codexField,
-            usageLabel,
-            usageField
-        ])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 7
-        stack.frame = NSRect(x: 0, y: 0, width: 440, height: 94)
-
-        let alert = NSAlert()
-        alert.messageText = "API token mode"
-        alert.informativeText = "Keys are saved in macOS Keychain. The usage meter key is optional unless you want the daily token count."
-        alert.accessoryView = stack
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Clear Keys")
-        alert.addButton(withTitle: "Cancel")
-
-        let response = alert.runModal()
-        if response == .alertSecondButtonReturn {
-            deleteKeychainSecret(account: apiCodexKeyAccount)
-            deleteKeychainSecret(account: apiUsageKeyAccount)
-            apiModeActive = false
-            apiUsedTokens = 0
-            apiUsageLastError = "API keys cleared"
-            rebuildMenu()
-            return
-        }
-        guard response == .alertFirstButtonReturn else { return }
-
-        let codexKey = codexField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let usageKey = usageField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !codexKey.isEmpty {
-            saveKeychainSecret(codexKey, account: apiCodexKeyAccount)
-        }
-        if !usageKey.isEmpty {
-            saveKeychainSecret(usageKey, account: apiUsageKeyAccount)
-        }
-        refreshApiUsage(force: true)
-        rebuildMenu()
-    }
-
-    private func showApiLimitDialog() {
-        let limitField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
-        limitField.stringValue = "\(apiDailyLimit)"
-        let warningField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
-        warningField.stringValue = "\(apiWarningPercent)"
-        let notifyCheck = NSButton(checkboxWithTitle: "Notify when approaching the daily token limit", target: nil, action: nil)
-        notifyCheck.state = apiUsageNotificationsEnabled ? .on : .off
-
-        let stack = NSStackView(views: [
-            settingsRow(label: "Daily limit", control: limitField),
-            settingsRow(label: "Alert %", control: warningField),
-            notifyCheck
-        ])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 8
-        stack.frame = NSRect(x: 0, y: 0, width: 330, height: 96)
-
-        let alert = NSAlert()
-        alert.messageText = "API token warning"
-        alert.informativeText = "Set the daily token allowance you want this app to watch."
-        alert.accessoryView = stack
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let limit = Int(limitField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
-        let warning = Int(warningField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard let limit, limit >= 1_000, let warning, (1...99).contains(warning) else {
-            showAlert(title: "Invalid API limit", message: "Use a daily limit of at least 1,000 tokens and an alert percentage from 1 to 99.")
-            return
-        }
-        apiDailyLimit = limit
-        apiWarningPercent = warning
-        apiUsageNotificationsEnabled = notifyCheck.state == .on
-        notifiedApiUsageKeys.removeAll()
-        checkApiUsageReminder()
-        rebuildMenu()
-    }
-
-    private func testApiUsageReminder() {
-        sendApiUsageReminder(reportResult: true)
-    }
-
-    private func switchToApiMode() {
-        disableApiMode()
-        showAlert(title: "API mode removed", message: "This build only switches between saved ChatGPT accounts.")
-    }
-
     @objc private func addAccountBrowser() {
         runAccountMaintenance(title: "Adding account", args: ["login"], restartAfterSuccess: true)
     }
@@ -4600,7 +4265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         refreshAccountPanelContentIfVisible()
 
         DispatchQueue.global(qos: .userInitiated).async {
-            if !self.apiModeActive, let syncError = self.syncActiveAuthSnapshot() {
+            if let syncError = self.syncActiveAuthSnapshot() {
                 DispatchQueue.main.async {
                     self.isSwitching = false
                     self.endStatusAnimation()
@@ -4643,7 +4308,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             DispatchQueue.main.sync {
-                self.apiModeActive = false
                 self.refreshAccounts(force: true)
             }
 
@@ -4812,29 +4476,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             body: autoSwitchEnabled
                 ? "\(account.email) is at or below \(reminderThreshold)%. Auto-switch is enabled at \(autoSwitchThreshold)% for 5hr usage."
                 : "\(account.email) is at or below \(reminderThreshold)%. Switch to another saved account from the menu bar when you are ready.",
-            reportResult: reportResult
-        )
-    }
-
-    private func checkApiUsageReminder() {
-        guard apiUsageNotificationsEnabled, apiModeActive, apiDailyLimit > 0 else { return }
-        let percent = apiUsageSnapshot().usedPercent
-        let key = "\(DateFormatter.apiDayKey.string(from: Date()))|\(apiWarningPercent)"
-        if percent >= apiWarningPercent {
-            guard !notifiedApiUsageKeys.contains(key) else { return }
-            notifiedApiUsageKeys.insert(key)
-            sendApiUsageReminder()
-        } else {
-            notifiedApiUsageKeys.remove(key)
-        }
-    }
-
-    private func sendApiUsageReminder(reportResult: Bool = false) {
-        let snapshot = apiUsageSnapshot()
-        sendNotification(
-            title: "OpenAI API token usage",
-            subtitle: "\(snapshot.usedPercent)% of \(snapshot.limitTokens) tokens",
-            body: "\(snapshot.usedTokens) tokens used today. Switch back to a normal Codex account from the account cards when you are ready.",
             reportResult: reportResult
         )
     }
@@ -5069,10 +4710,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard FileManager.default.fileExists(atPath: activeAuthURL.path) else {
                 return "Active auth file does not exist at \(activeAuthURL.path)."
             }
-            if activeAuthUsesApiKey(activeAuthURL) {
-                return nil
-            }
-
             let backupURL = accountAuthURL.deletingLastPathComponent().appendingPathComponent(
                 accountAuthURL.lastPathComponent + ".bak.\(Int(Date().timeIntervalSince1970))"
             )
@@ -5086,15 +4723,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } catch {
             return error.localizedDescription
         }
-    }
-
-    private func activeAuthUsesApiKey(_ authURL: URL) -> Bool {
-        guard let data = try? Data(contentsOf: authURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let authMode = json["auth_mode"] as? String else {
-            return false
-        }
-        return authMode.localizedCaseInsensitiveCompare("apikey") == .orderedSame
     }
 
     private func runAccountMaintenance(title: String, args: [String], restartAfterSuccess: Bool = false) {
@@ -5630,10 +5258,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private static func firstPercent(in token: String) -> Int? {
         let digits = token.prefix { $0.isNumber }
         return digits.isEmpty ? nil : Int(digits)
-    }
-
-    private func fetchApiUsage() -> ApiUsageFetchResult {
-        .failure("API mode disabled")
     }
 
     private func fetchResetCreditsForRefresh(
@@ -6208,78 +5832,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func apiKeyConfigured() -> Bool {
-        false
-    }
-
-    private func usageKeyConfigured() -> Bool {
-        false
-    }
-
-    private func saveKeychainSecret(_ secret: String, account: String) {
-        let data = Data(secret.utf8)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: apiTokenUsageService,
-            kSecAttrAccount as String: account
-        ]
-        SecItemDelete(query as CFDictionary)
-        var addQuery = query
-        addQuery[kSecValueData as String] = data
-        SecItemAdd(addQuery as CFDictionary, nil)
-    }
-
-    private func readKeychainSecret(account: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: apiTokenUsageService,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let secret = String(data: data, encoding: .utf8),
-              !secret.isEmpty else {
-            return nil
-        }
-        return secret
-    }
-
-    private func deleteKeychainSecret(account: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: apiTokenUsageService,
-            kSecAttrAccount as String: account
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
-
-    private func backupActiveAuthBeforeApiMode() -> String? {
-        let home = NSHomeDirectory()
-        let authURL = URL(fileURLWithPath: "\(home)/.codex/auth.json")
-        guard FileManager.default.fileExists(atPath: authURL.path) else { return nil }
-        let backupDir = URL(fileURLWithPath: "\(home)/.codex/auth-backups")
-        do {
-            try FileManager.default.createDirectory(at: backupDir, withIntermediateDirectories: true)
-            let stamp = DateFormatter.apiBackupStamp.string(from: Date())
-            let backupURL = backupDir.appendingPathComponent("auth.chatgpt-before-api-\(stamp).json")
-            try FileManager.default.copyItem(at: authURL, to: backupURL)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
-            return nil
-        } catch {
-            return error.localizedDescription
-        }
-    }
-
-    private func runCodexLoginWithApiKey(_ apiKey: String) -> CommandResult {
-        let bundledCodex = "\(codexDesktopResourcesPath)/codex"
-        let codexPath = FileManager.default.isExecutableFile(atPath: bundledCodex) ? bundledCodex : "codex"
-        return runWithInput(codexPath, ["login", "--with-api-key"], input: apiKey)
-    }
-
     private func runCodexAuth(_ args: [String]) -> CommandResult {
         guard let path = codexAuthPath() else {
             return CommandResult(status: 127, output: "codex-auth was not found in known locations.")
@@ -6340,16 +5892,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             environment["CODEX_CLI_PATH"] = bundledCodex
         }
         return ProcessRunner.run(executable, args, environment: environment, timeout: commandTimeout(for: executable, arguments: args))
-    }
-
-    private func runWithInput(_ executable: String, _ args: [String], input: String) -> CommandResult {
-        ProcessRunner.run(
-            executable,
-            args,
-            environment: augmentedEnvironment(),
-            input: input.data(using: .utf8),
-            timeout: 90
-        )
     }
 
     private func commandTimeout(for executable: String, arguments: [String]) -> TimeInterval {

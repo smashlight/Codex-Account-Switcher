@@ -53,6 +53,7 @@ struct InfrastructureTests {
         testToolbarStatusFormatting()
         testAppLanguagePreference()
         testLocalizedTextCompleteness()
+        testRemovedAPIModeHasNoProductionSurface()
         testPoolChartLocalization()
         testLocalizedIntervalFormatting()
         testPoolVerdictPresentation()
@@ -203,6 +204,31 @@ struct InfrastructureTests {
         expect(rebuildCount == 0, "an unchanged language should not rebuild the panel")
         expect(store.select(.english) { rebuildCount += 1 }, "selecting another language should report a change")
         expect(rebuildCount == 1, "a changed language should rebuild exactly once")
+    }
+
+    private static func testRemovedAPIModeHasNoProductionSurface() {
+        let testsURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let root = testsURL.deletingLastPathComponent()
+        let sourceURLs = ["Models.swift", "main.swift"].map {
+            root.appendingPathComponent("Sources").appendingPathComponent($0)
+        }
+        let source = sourceURLs
+            .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
+            .joined(separator: "\n")
+        let removedSymbols = [
+            "apiModeActive",
+            "apiUsageSnapshot",
+            "showApiSetupDialog",
+            "switchToApiMode",
+            "apiCodexKeyAccount",
+            "apiUsageKeyAccount",
+            "case api",
+            "case .apiView",
+            "case .setupApiMode"
+        ]
+        for symbol in removedSymbols {
+            expect(!source.contains(symbol), "removed API mode symbol must stay absent: \(symbol)")
+        }
     }
 
     private static func testLocalizedTextCompleteness() {

@@ -1056,6 +1056,8 @@ final class SettingsActionButton: NSButton {
         self.title = title
         bezelStyle = .rounded
         isBordered = false
+        cell?.lineBreakMode = .byTruncatingTail
+        cell?.usesSingleLineMode = true
         font = .systemFont(ofSize: min(12, max(10, frame.height * 0.42)), weight: .semibold)
         contentTintColor = textColor
         focusRingType = .exterior
@@ -1135,19 +1137,4 @@ extension DateFormatter {
         return formatter
     }()
 
-    static let apiDayKey: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        return formatter
-    }()
-
-    static let apiBackupStamp: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        return formatter
-    }()
 }
