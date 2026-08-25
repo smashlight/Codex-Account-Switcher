@@ -2,7 +2,7 @@
 
 Status: complete
 
-Commit hash: pending until commit
+Commit hash: 5ddc15c
 
 Test command: `./run-tests.sh`
 
