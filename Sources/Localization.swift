@@ -85,6 +85,39 @@ enum LocalizedTextKey: CaseIterable {
     case enoughAccessibility
     case notEnoughAccessibility
     case collectingAccessibility
+    // SwiftUI settings surface
+    case settingsTitle
+    case settingsSubtitle
+    case doneButton
+    case backButton
+    case generalSection
+    case automationSection
+    case advancedSection
+    case followCodexToggle
+    case usageReminderToggle
+    case creditExpiryToggle
+    case autoSwitchRow
+    case advancedRow
+    case advancedTitle
+    case advancedSubtitle
+    case refreshSection
+    case reminderThresholdLabel
+    case creditExpiryLeadDaysLabel
+    case activeRefreshLabel
+    case idleRefreshLabel
+    case maintenanceSection
+    case checkUpdatesButton
+    case pluginsButton
+    case diagnosticsButton
+    case percentSuffix
+    case daysSuffix
+    case invalidReminderThreshold
+    case invalidCreditExpiryLeadDays
+    case settingsBackAccessibility
+    case settingsDoneAccessibility
+    case settingsNavigationHint
+    case settingsToggleHint
+    case settingsNumericHint
 }
 
 enum LocalizedText {
@@ -137,6 +170,38 @@ enum LocalizedText {
             case .enoughAccessibility: return "Запаса хватит до сброса"
             case .notEnoughAccessibility: return "Запас закончится до сброса"
             case .collectingAccessibility: return "Собираем историю для прогноза"
+            case .settingsTitle: return "Настройки"
+            case .settingsSubtitle: return "Управляйте автоматизацией и обновлением данных"
+            case .doneButton: return "Готово"
+            case .backButton: return "Назад"
+            case .generalSection: return "Основные"
+            case .automationSection: return "Автоматизация"
+            case .advancedSection: return "Дополнительно"
+            case .followCodexToggle: return "Следовать за Codex / ChatGPT"
+            case .usageReminderToggle: return "Напоминание об остатке"
+            case .creditExpiryToggle: return "Истечение сбросов"
+            case .autoSwitchRow: return "Автопереключение"
+            case .advancedRow: return "Расширенные настройки"
+            case .advancedTitle: return "Расширенные настройки"
+            case .advancedSubtitle: return "Порог напоминания, обновление и обслуживание"
+            case .refreshSection: return "Обновление данных"
+            case .reminderThresholdLabel: return "Порог напоминания"
+            case .creditExpiryLeadDaysLabel: return "Предупредить об истечении за"
+            case .activeRefreshLabel: return "Обновление при активности"
+            case .idleRefreshLabel: return "Обновление в простое"
+            case .maintenanceSection: return "Обслуживание"
+            case .checkUpdatesButton: return "Проверить обновления"
+            case .pluginsButton: return "Сохранить эталонные плагины"
+            case .diagnosticsButton: return "Диагностика"
+            case .percentSuffix: return "%"
+            case .daysSuffix: return "дн."
+            case .invalidReminderThreshold: return "Введите число от 1 до 99"
+            case .invalidCreditExpiryLeadDays: return "Введите число от 1 до 30"
+            case .settingsBackAccessibility: return "Назад к настройкам"
+            case .settingsDoneAccessibility: return "Закрыть настройки"
+            case .settingsNavigationHint: return "Открывает подраздел настроек"
+            case .settingsToggleHint: return "Переключатель"
+            case .settingsNumericHint: return "Введите значение и нажмите Return"
             }
         case .english:
             switch key {
@@ -185,6 +250,38 @@ enum LocalizedText {
             case .enoughAccessibility: return "Capacity lasts until reset"
             case .notEnoughAccessibility: return "Capacity runs out before reset"
             case .collectingAccessibility: return "Collecting history for a forecast"
+            case .settingsTitle: return "Settings"
+            case .settingsSubtitle: return "Control automation and data refresh"
+            case .doneButton: return "Done"
+            case .backButton: return "Back"
+            case .generalSection: return "General"
+            case .automationSection: return "Automation"
+            case .advancedSection: return "Advanced"
+            case .followCodexToggle: return "Follow Codex / ChatGPT"
+            case .usageReminderToggle: return "Usage reminder"
+            case .creditExpiryToggle: return "Reset-credit expiry"
+            case .autoSwitchRow: return "Auto switch"
+            case .advancedRow: return "Advanced settings"
+            case .advancedTitle: return "Advanced settings"
+            case .advancedSubtitle: return "Reminder threshold, refresh, and maintenance"
+            case .refreshSection: return "Data refresh"
+            case .reminderThresholdLabel: return "Reminder threshold"
+            case .creditExpiryLeadDaysLabel: return "Warn before expiry"
+            case .activeRefreshLabel: return "Refresh while active"
+            case .idleRefreshLabel: return "Refresh while idle"
+            case .maintenanceSection: return "Maintenance"
+            case .checkUpdatesButton: return "Check for updates"
+            case .pluginsButton: return "Save reference plugins"
+            case .diagnosticsButton: return "Diagnostics"
+            case .percentSuffix: return "%"
+            case .daysSuffix: return "days"
+            case .invalidReminderThreshold: return "Enter a number from 1 to 99"
+            case .invalidCreditExpiryLeadDays: return "Enter a number from 1 to 30"
+            case .settingsBackAccessibility: return "Back to settings"
+            case .settingsDoneAccessibility: return "Close settings"
+            case .settingsNavigationHint: return "Opens a settings subsection"
+            case .settingsToggleHint: return "Toggle switch"
+            case .settingsNumericHint: return "Enter a value and press Return"
             }
         }
     }
