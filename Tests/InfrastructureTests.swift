@@ -634,7 +634,7 @@ struct InfrastructureTests {
 
     private static func testUsagePanelLayoutMetrics() {
         expect(UsagePanelLayoutMetrics.verdictCardHeight == 108, "compact verdict height should be exact")
-        expect(UsagePanelLayoutMetrics.verdictResetGap == 12, "verdict and reset chance need breathing room")
+        expect(UsagePanelLayoutMetrics.verdictResetGap == 10, "verdict and reset chance should use the shared ten-point gap")
         expect(UsagePanelLayoutMetrics.refreshButtonWidth == 68, "Refresh should gain horizontal padding")
         expect(UsagePanelLayoutMetrics.quitButtonWidth == 50, "Quit should gain horizontal padding")
         expect(UsagePanelLayoutMetrics.footerButtonHeight == 26, "footer height should stay stable")
@@ -1303,10 +1303,16 @@ struct InfrastructureTests {
         expect(DailyPoolSpendBand.classify(14.31) == .aboveReference, "spend above the daily reference should warn")
         expect(DailyPoolSpendBand.classify(25) == .aboveReference, "25% should remain in the warning band")
         expect(DailyPoolSpendBand.classify(25.01) == .high, "spend above 25% should be high")
+        expect(abs(PoolChartVisualScale.barHeight(for: DailyPoolSpendBand.dailyReferencePercent) - 50) < 0.001, "the daily reference should occupy half the chart visually")
+        expect(PoolChartVisualScale.barHeight(for: 19) > 50, "19% spend should render above the visual guide")
+        expect(PoolChartVisualScale.barHeight(for: 0) == 0, "zero spend should have no visible fill")
         expect(PoolChartHoverPolicy.nearestIndex(to: 4.6, count: 14) == 5, "hover should choose the nearest stable slot")
         expect(PoolChartHoverPolicy.nearestIndex(to: -2, count: 14) == 0, "hover should clamp to the first slot")
         expect(PoolChartHoverPolicy.nearestIndex(to: 20, count: 14) == 13, "hover should clamp to the final slot")
         expect(PoolChartHoverPolicy.nearestIndex(to: 2, count: 0) == nil, "an empty chart should not select a slot")
+        expect(!PoolChartPopoverPolicy.shouldPlaceLeft(index: 8, count: 14), "earlier bars should place the popover on the right")
+        expect(PoolChartPopoverPolicy.shouldPlaceLeft(index: 9, count: 14), "the last five bars should place the popover on the left")
+        expect(PoolChartPopoverPolicy.shouldPlaceLeft(index: 0, count: 3), "all bars should place left when fewer than five are visible")
 
         let leadingPlacement = PoolChartPopoverPolicy.placement(
             anchorX: 4,

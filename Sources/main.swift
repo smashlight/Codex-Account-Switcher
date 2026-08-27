@@ -23,7 +23,7 @@ private enum AccountPanelLayout {
     static let verdictResetGap = CGFloat(UsagePanelLayoutMetrics.verdictResetGap)
     static var verdictSectionHeight: CGFloat { verdictTopGap + verdictCardHeight + verdictResetGap }
     static var paceSectionHeight: CGFloat { paceChartHeight }
-    static let resetChanceTopGap: CGFloat = 8
+    static let resetChanceTopGap: CGFloat = 10
     static let resetChanceHeight = controlBarHeight
     static var resetChanceSectionHeight: CGFloat {
         resetChanceTopGap + resetChanceHeight
@@ -50,13 +50,15 @@ struct PoolPaceChartView: View {
 
     let data: PoolPaceChartData
     @State private var hoveredIndex: Int?
+    @State private var hoverLocation: CGPoint?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let maxDailyBars = 14
     private static let maxAxisLabels = 4
-    private static let dailyBarWidth: CGFloat = 12
+    private static let dailyBarWidth: CGFloat = 18
     private static let popoverWidth = CGFloat(PoolChartPopoverMetrics.width)
     private static let popoverHeight = CGFloat(PoolChartPopoverMetrics.minimumHeight)
+    private static let popoverGap: CGFloat = 12
 
     private var bars: [Bar] {
         Array(data.points.suffix(Self.maxDailyBars)).enumerated().map { offset, point in
@@ -87,7 +89,7 @@ struct PoolPaceChartView: View {
                     BarMark(
                         x: .value(semanticLabels.index, Double(bar.index)),
                         yStart: .value(semanticLabels.base, 0),
-                        yEnd: .value(semanticLabels.pool, min(100, spentPercent)),
+                        yEnd: .value(semanticLabels.pool, PoolChartVisualScale.barHeight(for: spentPercent)),
                         width: .fixed(Self.dailyBarWidth)
                     )
                     .foregroundStyle(barStyle(for: spentPercent))
@@ -98,7 +100,7 @@ struct PoolPaceChartView: View {
                         BarMark(
                             x: .value(semanticLabels.index, Double(bar.index)),
                             yStart: .value(semanticLabels.base, 0),
-                            yEnd: .value(semanticLabels.pool, min(100, spentPercent)),
+                            yEnd: .value(semanticLabels.pool, PoolChartVisualScale.barHeight(for: spentPercent)),
                             width: .fixed(Self.dailyBarWidth + 4)
                         )
                         .foregroundStyle(barStyle(for: spentPercent))
@@ -107,10 +109,10 @@ struct PoolPaceChartView: View {
                     }
                 }
             }
-            RuleMark(y: .value(semanticLabels.pool, DailyPoolSpendBand.dailyReferencePercent))
+            RuleMark(y: .value(semanticLabels.pool, PoolChartVisualScale.guidePercent))
                 .foregroundStyle(Color(.nativeGold).opacity(0.38))
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                .accessibilityLabel(PoolChartLocalization.dailyReferenceAccessibility(language: data.language))
+                .accessibilityHidden(true)
         }
         .chartXScale(domain: -0.5...(Double(bars.count) - 0.5))
         .chartYScale(domain: 0...100)
@@ -119,7 +121,7 @@ struct PoolPaceChartView: View {
             AxisMarks(values: axisIndexes) { axisValue in
                 AxisGridLine().foregroundStyle(Color.clear)
                 AxisTick().foregroundStyle(Color.clear)
-                AxisValueLabel {
+                AxisValueLabel(collisionResolution: .disabled) {
                     if let raw = axisValue.as(Double.self) {
                         let index = Int(raw.rounded())
                         if bars.indices.contains(index) {
@@ -140,6 +142,7 @@ struct PoolPaceChartView: View {
                         .onContinuousHover { phase in
                             switch phase {
                             case .active(let location):
+                                hoverLocation = location
                                 guard let plotFrame = proxy.plotFrame else { return }
                                 let frame = geometry[plotFrame]
                                 let x = location.x - frame.minX
@@ -147,6 +150,7 @@ struct PoolPaceChartView: View {
                                 hoveredIndex = PoolChartHoverPolicy.nearestIndex(to: xValue, count: bars.count)
                             case .ended:
                                 hoveredIndex = nil
+                                hoverLocation = nil
                             }
                         }
 
@@ -156,10 +160,7 @@ struct PoolPaceChartView: View {
                             proxy: proxy,
                             geometry: geometry
                         )
-                        hoverPopover(
-                            for: bars[hoveredIndex].point,
-                            caretOffsetX: placement.caretOffsetX
-                        )
+                        hoverPopover(for: bars[hoveredIndex].point)
                             .position(x: placement.centerX, y: placement.centerY)
                             .allowsHitTesting(false)
                     }
@@ -209,7 +210,7 @@ struct PoolPaceChartView: View {
         return indexes.sorted().map(Double.init)
     }
 
-    private func hoverPopover(for point: DailyPoolSpendPoint, caretOffsetX: Double) -> some View {
+    private func hoverPopover(for point: DailyPoolSpendPoint) -> some View {
         let lines = PoolChartLocalization.detailLines(for: point, language: data.language)
         return VStack(alignment: .leading, spacing: 3) {
             if let date = lines.first {
@@ -244,13 +245,6 @@ struct PoolPaceChartView: View {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .stroke(data.gridLine.opacity(0.65), lineWidth: 1)
         }
-        .overlay(alignment: .bottom) {
-            Image(systemName: "arrowtriangle.down.fill")
-                .font(.system(size: 7, weight: .semibold))
-                .foregroundStyle(data.gridLine.opacity(0.9))
-                .offset(x: caretOffsetX, y: 5)
-                .accessibilityHidden(true)
-        }
         .shadow(color: .black.opacity(0.24), radius: 8, y: 4)
     }
 
@@ -271,10 +265,13 @@ struct PoolPaceChartView: View {
         }
         let frame = geometry[plotFrame]
         let plotX = proxy.position(forX: Double(bar.index)) ?? frame.width / 2
-        let plotY = proxy.position(forY: min(100, bar.point.spentPercent ?? 0)) ?? frame.height
+        let barCenterX = frame.minX + plotX
+        let cursor = hoverLocation ?? CGPoint(x: barCenterX, y: frame.midY)
+        let placeLeft = PoolChartPopoverPolicy.shouldPlaceLeft(index: bar.index, count: bars.count)
+        let horizontalOffset = Self.dailyBarWidth / 2 + Self.popoverGap + Self.popoverWidth / 2
         return PoolChartPopoverPolicy.placement(
-            anchorX: frame.minX + plotX,
-            preferredCenterY: frame.minY + plotY - 26,
+            anchorX: barCenterX + (placeLeft ? -horizontalOffset : horizontalOffset),
+            preferredCenterY: cursor.y,
             containerWidth: geometry.size.width,
             containerHeight: geometry.size.height,
             popoverWidth: Self.popoverWidth,
@@ -1293,7 +1290,10 @@ final class AccountSwitcherPanelView: NSView {
     // MARK: - Reset chance section
 
     private func resetChanceSection(frame: NSRect) -> NSView {
-        let card = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 16)
+        let card = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 16, clickAction: {
+            guard let url = URL(string: "https://codex-reset.com") else { return }
+            NSWorkspace.shared.open(url)
+        })
         let iconSize: CGFloat = 16
         let icon = SymbolIconView(frame: NSRect(x: 14, y: (frame.height - iconSize) / 2, width: iconSize, height: iconSize), symbol: "bolt.fill", color: NSColor.systemYellow.withAlphaComponent(0.9))
         card.addSubview(icon)

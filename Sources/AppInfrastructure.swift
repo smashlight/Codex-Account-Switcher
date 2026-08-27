@@ -116,7 +116,7 @@ enum AccountRemovalPolicy {
 
 enum UsagePanelLayoutMetrics {
     static let verdictCardHeight = 108.0
-    static let verdictResetGap = 12.0
+    static let verdictResetGap = 10.0
     static let refreshButtonWidth = 68.0
     static let quitButtonWidth = 50.0
     static let footerButtonHeight = 26.0
@@ -2435,6 +2435,15 @@ enum DailyPoolSpendBand: Equatable {
     }
 }
 
+enum PoolChartVisualScale {
+    static let guidePercent = 50.0
+
+    static func barHeight(for spentPercent: Double) -> Double {
+        guard spentPercent.isFinite, spentPercent > 0 else { return 0 }
+        return min(100, spentPercent / DailyPoolSpendBand.dailyReferencePercent * guidePercent)
+    }
+}
+
 enum PoolChartHoverPolicy {
     static func nearestIndex(to xValue: Double, count: Int) -> Int? {
         guard count > 0 else { return nil }
@@ -2458,6 +2467,11 @@ enum PoolChartPopoverMetrics {
 }
 
 enum PoolChartPopoverPolicy {
+    static func shouldPlaceLeft(index: Int, count: Int, trailingCount: Int = 5) -> Bool {
+        guard count > 0, trailingCount > 0 else { return false }
+        return index >= max(0, count - trailingCount)
+    }
+
     static func placement(
         anchorX: Double,
         preferredCenterY: Double,
