@@ -4733,8 +4733,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
     private func runAccountMaintenance(title: String, args: [String], restartAfterSuccess: Bool = false) {
         guard !isSwitching else { return }
         isSwitching = true
-        statusItem.button?.attributedTitle = NSAttributedString(string: "")
-        statusItem.button?.title = title
+        let maintenanceStatusAnimationGeneration = beginStatusAnimation(title: title)
         rebuildMenu()
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -4745,6 +4744,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
             }
             DispatchQueue.main.async {
                 self.isSwitching = false
+                self.endStatusAnimation(expectedGeneration: maintenanceStatusAnimationGeneration)
+                self.updateStatusTitle()
                 if result.status != 0 {
                     self.showAlert(title: "\(title) failed", message: result.output)
                 } else if let restartResult, restartResult.status != 0 {
