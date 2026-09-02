@@ -4886,7 +4886,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
 
     private nonisolated func openCodexAndVerify(label: String, transcript: inout [String]) -> CommandResult? {
         transcript.append(label)
-        let openResult = run("/usr/bin/open", [codexDesktopAppPath])
+        let openResult = run(
+            "/usr/bin/open",
+            DesktopRelaunchPolicy.openArguments(appPath: codexDesktopAppPath)
+        )
         if openResult.status != 0 {
             return CommandResult(
                 status: openResult.status,

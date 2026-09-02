@@ -128,6 +128,7 @@ struct InfrastructureTests {
         try testReferencePluginTransactionPreservesBackupWhenRollbackIsUnsafe()
         testPluginSyncStabilityTracker()
         testProcessLookupPolicy()
+        testDesktopRelaunchUsesFreshLaunchServicesInstance()
 
         if failures.isEmpty {
             print("Infrastructure tests passed (\(assertionCount) assertions).")
@@ -2877,5 +2878,13 @@ struct InfrastructureTests {
         if case .failed = ProcessLookupPolicy.parse(status: 2, output: "usage error") {} else {
             expect(false, "pgrep errors should not be treated as no matches")
         }
+    }
+
+    private static func testDesktopRelaunchUsesFreshLaunchServicesInstance() {
+        expect(
+            DesktopRelaunchPolicy.openArguments(appPath: "/Applications/ChatGPT.app")
+                == ["-n", "/Applications/ChatGPT.app"],
+            "desktop relaunch should bypass stale LaunchServices running state"
+        )
     }
 }

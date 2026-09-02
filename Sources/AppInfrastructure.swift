@@ -1496,6 +1496,12 @@ enum ProcessLookupPolicy {
     }
 }
 
+enum DesktopRelaunchPolicy {
+    static func openArguments(appPath: String) -> [String] {
+        ["-n", appPath]
+    }
+}
+
 struct PluginSyncStabilityTracker {
     private struct Observation: Equatable {
         let inventory: [String]
