@@ -1500,6 +1500,10 @@ enum DesktopRelaunchPolicy {
     static func openArguments(appPath: String) -> [String] {
         ["-n", appPath]
     }
+
+    static func activationArguments(bundleIdentifier: String) -> [String] {
+        ["-e", "tell application id \"\(bundleIdentifier)\" to activate"]
+    }
 }
 
 struct PluginSyncStabilityTracker {

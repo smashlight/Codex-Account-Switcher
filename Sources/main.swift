@@ -3489,6 +3489,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         URL(fileURLWithPath: codexDesktopAppPath).deletingPathExtension().lastPathComponent
     }
 
+    private nonisolated var codexDesktopBundleIdentifier: String {
+        "com.openai.codex"
+    }
+
     private nonisolated var codexDesktopResourcesPath: String {
         "\(codexDesktopAppPath)/Contents/Resources"
     }
@@ -4903,6 +4907,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
                 ["-e", "application \"\(codexDesktopAppName)\" is running"]
             )
             if runningResult.output.trimmingCharacters(in: .whitespacesAndNewlines) == "true" {
+                let activationResult = run(
+                    "/usr/bin/osascript",
+                    DesktopRelaunchPolicy.activationArguments(
+                        bundleIdentifier: codexDesktopBundleIdentifier
+                    )
+                )
+                if activationResult.status != 0 {
+                    transcript.append("\(codexDesktopAppName) launched but could not be activated.")
+                    return CommandResult(
+                        status: activationResult.status,
+                        output: transcript.joined(separator: "\n") + "\n" + activationResult.output
+                    )
+                }
                 return nil
             }
         }

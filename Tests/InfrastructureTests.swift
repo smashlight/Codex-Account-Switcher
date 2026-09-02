@@ -129,6 +129,7 @@ struct InfrastructureTests {
         testPluginSyncStabilityTracker()
         testProcessLookupPolicy()
         testDesktopRelaunchUsesFreshLaunchServicesInstance()
+        testDesktopRelaunchActivatesLaunchedApplication()
 
         if failures.isEmpty {
             print("Infrastructure tests passed (\(assertionCount) assertions).")
@@ -2885,6 +2886,14 @@ struct InfrastructureTests {
             DesktopRelaunchPolicy.openArguments(appPath: "/Applications/ChatGPT.app")
                 == ["-n", "/Applications/ChatGPT.app"],
             "desktop relaunch should bypass stale LaunchServices running state"
+        )
+    }
+
+    private static func testDesktopRelaunchActivatesLaunchedApplication() {
+        expect(
+            DesktopRelaunchPolicy.activationArguments(bundleIdentifier: "com.openai.codex")
+                == ["-e", "tell application id \"com.openai.codex\" to activate"],
+            "desktop relaunch should bring the launched application to the foreground"
         )
     }
 }
