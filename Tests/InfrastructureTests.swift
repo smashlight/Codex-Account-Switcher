@@ -51,6 +51,7 @@ struct InfrastructureTests {
         testInlineQuitConfirmationPolicy()
         testLastKnownGoodSnapshotPolicy()
         testToolbarStatusFormatting()
+        testStatusAnimationPolicy()
         testAppLanguagePreference()
         testLocalizedTextCompleteness()
         testRemovedAPIModeHasNoProductionSurface()
@@ -694,6 +695,21 @@ struct InfrastructureTests {
         expect(ToolbarStatusFormatter.text(label: "A", usage: "89%") == "A89%", "single-character labels should keep the compact menu-bar format")
         expect(ToolbarStatusFormatter.text(label: "1287", usage: "100%") == "1287 100%", "multi-character labels should be separated from usage")
         expect(ToolbarStatusFormatter.text(label: "1287", usage: "100") == "1287 100", "compact usage should also be separated from multi-character labels")
+    }
+
+    private static func testStatusAnimationPolicy() {
+        expect(
+            StatusAnimationPolicy.shouldContinue(isSwitching: true, isRedeemingReset: false),
+            "a switch must keep its progress status"
+        )
+        expect(
+            StatusAnimationPolicy.shouldContinue(isSwitching: false, isRedeemingReset: true),
+            "a reset redemption must keep its progress status"
+        )
+        expect(
+            !StatusAnimationPolicy.shouldContinue(isSwitching: false, isRedeemingReset: false),
+            "an orphaned progress status must be cleared"
+        )
     }
 
     private static func testComputerUsePluginDiscovery() throws {

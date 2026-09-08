@@ -4362,6 +4362,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         switchAnimationTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                guard StatusAnimationPolicy.shouldContinue(
+                    isSwitching: self.isSwitching,
+                    isRedeemingReset: self.isRedeemingReset
+                ) else {
+                    self.endStatusAnimation()
+                    self.updateStatusTitle()
+                    return
+                }
                 self.switchAnimationFrame += 1
                 self.updateStatusAnimationTitle()
             }

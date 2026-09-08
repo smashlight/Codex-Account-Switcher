@@ -281,6 +281,12 @@ enum ToolbarStatusFormatter {
     }
 }
 
+enum StatusAnimationPolicy {
+    static func shouldContinue(isSwitching: Bool, isRedeemingReset: Bool) -> Bool {
+        isSwitching || isRedeemingReset
+    }
+}
+
 enum ComputerUsePluginLocator {
     static func latestApp(in versionsRoot: URL, fileManager: FileManager = .default) -> URL? {
         guard let versionDirectories = try? fileManager.contentsOfDirectory(
