@@ -261,6 +261,7 @@ enum DirectUsageFetchResult {
 }
 
 struct SavedAccountAuth {
+    let accountKey: String
     let email: String
     let accessToken: String
     let accountID: String

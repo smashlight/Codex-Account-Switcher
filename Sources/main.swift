@@ -5381,6 +5381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         case .success(let payload):
             writeBackRefreshedTokens(auth: auth, payload: payload)
             return SavedAccountAuth(
+                accountKey: auth.accountKey,
                 email: auth.email,
                 accessToken: payload.accessToken,
                 accountID: auth.accountID,
@@ -5411,7 +5412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
 
     private func writeBackRefreshedTokens(auth: SavedAccountAuth, payload: CodexTokenRefreshPayload) {
         let root = URL(fileURLWithPath: "\(NSHomeDirectory())/.codex/accounts")
-        guard let fileURL = authFileURL(forAccountID: auth.accountID, root: root) else { return }
+        guard let fileURL = SavedAccountAuthFilePolicy.fileURL(accountKey: auth.accountKey, expectedAccountID: auth.accountID, root: root) else { return }
         guard CodexAuthTokenWriter.applyTokenUpdate(
             to: fileURL,
             expectedAccountID: auth.accountID,
@@ -5421,10 +5422,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         ) == nil else {
             return
         }
-        mirrorActiveAuthIfNeeded(accountID: auth.accountID, payload: payload)
+        mirrorActiveAuthIfNeeded(accountKey: auth.accountKey, accountID: auth.accountID, payload: payload)
     }
 
-    private func mirrorActiveAuthIfNeeded(accountID: String, payload: CodexTokenRefreshPayload) {
+    private func mirrorActiveAuthIfNeeded(accountKey: String, accountID: String, payload: CodexTokenRefreshPayload) {
         let home = NSHomeDirectory()
         let registryURL = URL(fileURLWithPath: "\(home)/.codex/accounts/registry.json")
         let activeAuthURL = URL(fileURLWithPath: "\(home)/.codex/auth.json")
@@ -5432,7 +5433,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
             let registryData = try? Data(contentsOf: registryURL),
             let registry = try? JSONSerialization.jsonObject(with: registryData) as? [String: Any],
             let activeKey = registry["active_account_key"] as? String,
-            !activeKey.isEmpty
+            SavedAccountAuthFilePolicy.shouldMirror(activeAccountKey: activeKey, refreshedAccountKey: accountKey)
         else {
             return
         }
@@ -5817,13 +5818,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
             let registry = try? JSONSerialization.jsonObject(with: registryData) as? [String: Any],
             let registryAccounts = registry["accounts"] as? [[String: Any]],
             let registryAccount = registryAccounts.first(where: { ($0["email"] as? String) == email }),
+            let accountKey = registryAccount["account_key"] as? String,
+            !accountKey.isEmpty,
             let expectedAccountID = registryAccount["chatgpt_account_id"] as? String,
             !expectedAccountID.isEmpty
         else {
             return .failure("saved account registry was not readable")
         }
 
-        guard let authURL = authFileURL(forAccountID: expectedAccountID, root: root) else {
+        guard let authURL = SavedAccountAuthFilePolicy.fileURL(accountKey: accountKey, expectedAccountID: expectedAccountID, root: root) else {
             return .failure("saved account auth file was not found")
         }
         guard
@@ -5839,31 +5842,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         }
 
         return .success(SavedAccountAuth(
+            accountKey: accountKey,
             email: email,
             accessToken: accessToken,
             accountID: accountID,
             refreshToken: tokens["refresh_token"] as? String,
             lastRefresh: CodexAuthDate.parseLastRefresh(tokens["last_refresh"] as? String)
         ))
-    }
-
-    private nonisolated func authFileURL(forAccountID accountID: String, root: URL) -> URL? {
-        guard let urls = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else {
-            return nil
-        }
-        for url in urls where url.lastPathComponent.hasSuffix(".auth.json") {
-            guard
-                let data = try? Data(contentsOf: url),
-                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                let tokens = object["tokens"] as? [String: Any],
-                let candidate = tokens["account_id"] as? String,
-                candidate == accountID
-            else {
-                continue
-            }
-            return url
-        }
-        return nil
     }
 
     private nonisolated func runCodexAuth(_ args: [String]) -> CommandResult {

@@ -38,6 +38,7 @@ struct InfrastructureTests {
     private static var assertionCount = 0
 
     static func main() throws {
+        try testSavedAccountAuthFilePolicy()
         testSettingsNumericPolicy()
         testResetRefreshPolicy()
         testUsageRefreshPolicy()
@@ -564,6 +565,40 @@ struct InfrastructureTests {
         expect(!AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 10), "ten rows should not scroll on a tall screen")
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 11, availableRowCapacity: 10), "eleven rows should scroll")
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 6), "short screens should scroll earlier")
+    }
+
+    private static func testSavedAccountAuthFilePolicy() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstKey = "user-one::shared-workspace"
+        let secondKey = "user-two::shared-workspace"
+        func writeFixture(_ key: String, token: String) throws -> URL {
+            let name = Data(key.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+            let url = root.appendingPathComponent("\(name).auth.json")
+            let data = try JSONSerialization.data(withJSONObject: [
+                "tokens": ["account_id": "shared-workspace", "access_token": token]
+            ])
+            try data.write(to: url)
+            return url
+        }
+        let first = try writeFixture(firstKey, token: "fixture-first")
+        let second = try writeFixture(secondKey, token: "fixture-second")
+        expect(SavedAccountAuthFilePolicy.fileURL(accountKey: firstKey, expectedAccountID: "shared-workspace", root: root) == first, "first workspace member should select their own auth file")
+        let resolved = SavedAccountAuthFilePolicy.fileURL(accountKey: secondKey, expectedAccountID: "shared-workspace", root: root)
+        expect(resolved == second, "second workspace member must not reuse first member auth")
+        expect(SavedAccountAuthFilePolicy.fileURL(accountKey: "missing", expectedAccountID: "shared-workspace", root: root) == nil, "missing identity must not fall back to another workspace member")
+        expect(SavedAccountAuthFilePolicy.fileURL(accountKey: secondKey, expectedAccountID: "other-workspace", root: root) == nil, "mismatched workspace must be rejected")
+        expect(!SavedAccountAuthFilePolicy.shouldMirror(activeAccountKey: firstKey, refreshedAccountKey: secondKey), "refreshing another workspace member must not replace active auth")
+        expect(SavedAccountAuthFilePolicy.shouldMirror(activeAccountKey: secondKey, refreshedAccountKey: secondKey), "active member refresh should be mirrored")
+        let originalFirst = try Data(contentsOf: first)
+        if let resolved {
+            expect(CodexAuthTokenWriter.applyTokenUpdate(to: resolved, expectedAccountID: "shared-workspace", accessToken: "fixture-refreshed", refreshToken: nil, lastRefresh: Date()) == nil, "selected member refresh should succeed")
+        }
+        let unchangedFirst = try Data(contentsOf: first)
+        expect(originalFirst == unchangedFirst, "refresh must preserve the other member's file")
+        let updated = try JSONSerialization.jsonObject(with: Data(contentsOf: second)) as? [String: Any]
+        expect((updated?["tokens"] as? [String: Any])?["access_token"] as? String == "fixture-refreshed", "refresh should update the selected member")
     }
 
     private static func testAccountUsagePresentationPolicy() {

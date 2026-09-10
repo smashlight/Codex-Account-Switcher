@@ -1742,6 +1742,25 @@ enum CodexAuthDate {
     }
 }
 
+enum SavedAccountAuthFilePolicy {
+    // Workspace IDs can be shared by different users. The registry key identifies
+    // the user's exact file and must also be retained for token refresh writes.
+    static func fileURL(accountKey: String, expectedAccountID: String, root: URL) -> URL? {
+        guard !accountKey.isEmpty, !expectedAccountID.isEmpty else { return nil }
+        let encoded = Data(accountKey.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let url = root.appendingPathComponent("\(encoded).auth.json")
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tokens = object["tokens"] as? [String: Any],
+              tokens["account_id"] as? String == expectedAccountID else { return nil }
+        return url
+    }
+
+    static func shouldMirror(activeAccountKey: String, refreshedAccountKey: String) -> Bool {
+        !refreshedAccountKey.isEmpty && activeAccountKey == refreshedAccountKey
+    }
+}
+
 enum CodexAuthTokenWriter {
     /// Atomically updates `tokens` in a Codex account auth file. Returns nil on
     /// success or a failure description. Aborts when the stored `account_id` no
