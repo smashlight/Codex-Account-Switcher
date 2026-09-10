@@ -33,7 +33,7 @@ Codex Account Switcher is a native macOS menu bar companion for people who use m
 - **Reset-credit tracking** across saved accounts, grouped by expiry urgency.
 - **Optional auto-switching** when the active account reaches a chosen threshold.
 - **Optional task continuation** after a successful automatic switch.
-- **ChatGPT lifecycle following** so the companion opens and closes with the desktop app.
+- **Desktop companion auto-launch** when Codex or ChatGPT opens. The switcher stays running when the desktop app closes, including during account switching and plugin repair.
 - **Local diagnostics** that omit credentials, account IDs, and private usage snapshots.
 
 <p align="center">
