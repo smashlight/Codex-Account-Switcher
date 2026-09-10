@@ -107,6 +107,7 @@ enum AccountPanelMode {
 }
 
 enum SettingsPanelAction: String {
+    case warmupLimits
     case usageView
     case settingsView
     case resetCreditsView

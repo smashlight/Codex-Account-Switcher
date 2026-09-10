@@ -38,6 +38,7 @@ struct InfrastructureTests {
     private static var assertionCount = 0
 
     static func main() throws {
+        try testLimitWarmupRequestAndResponse()
         try testSavedAccountAuthFilePolicy()
         testSettingsNumericPolicy()
         testResetRefreshPolicy()
@@ -565,6 +566,37 @@ struct InfrastructureTests {
         expect(!AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 10), "ten rows should not scroll on a tall screen")
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 11, availableRowCapacity: 10), "eleven rows should scroll")
         expect(AccountListPresentationPolicy.requiresScrolling(accountCount: 10, availableRowCapacity: 6), "short screens should scroll earlier")
+    }
+
+    private static func testLimitWarmupRequestAndResponse() throws {
+        func payload(_ status: Int, _ body: String) -> HTTPPayload {
+            HTTPPayload(data: Data(body.utf8), statusCode: status)
+        }
+        expect(CodexLimitWarmupClient.resultState(nil) == .networkFailure, "missing response is connection failure")
+        expect(CodexLimitWarmupClient.resultState(payload(401, "")) == .loginExpired, "401 requests login")
+        expect(CodexLimitWarmupClient.resultState(payload(429, "")) == .rateLimited, "429 alone does not prove exhausted quota")
+        expect(CodexLimitWarmupClient.resultState(payload(429, #"{"error":{"type":"usage_limit_reached"}}"#)) == .quotaExceeded, "structured quota error")
+        expect(CodexLimitWarmupClient.resultState(payload(200, #"data: {"type":"response.failed","response":{"error":{"code":"usage_limit_reached"}}}"#)) == .quotaExceeded, "stream quota error")
+        expect(CodexLimitWarmupClient.resultState(payload(200, #"data: {"type":"error","code":"token_expired"}"#)) == .loginExpired, "stream expired login")
+        expect(CodexLimitWarmupClient.resultState(payload(503, "")) == .serverFailure, "server failure")
+        expect(CodexLimitWarmupClient.resultState(payload(403, "")) == .accessDenied, "403 not confused with login")
+        expect(LimitWarmupState.quotaExceeded.isFailure && LimitWarmupState.loginExpired.isFailure && LimitWarmupState.failed.isFailure, "errors have red presentation")
+        expect(!LimitWarmupState.completed.isFailure && !LimitWarmupState.running.isFailure, "normal statuses are not red")
+        let auth = SavedAccountAuth(accountKey: "unique-key", email: "test@example.com", accessToken: "fake-token", accountID: "fake-workspace", refreshToken: nil, lastRefresh: nil)
+        let request = try CodexLimitWarmupClient.makeRequest(using: auth)
+        let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+        expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer fake-token", "warmup uses the selected account token")
+        expect(request.value(forHTTPHeaderField: "ChatGPT-Account-ID") == "fake-workspace", "warmup keeps the selected workspace")
+        expect(body["model"] as? String == "gpt-5.6-luna", "warmup selects Luna")
+        expect((body["reasoning"] as? [String: String])?["effort"] == "low", "warmup selects the supported light effort")
+        expect(body["stream"] as? Bool == true && body["store"] as? Bool == false, "Codex requires streaming without storage")
+        expect(body["max_output_tokens"] == nil, "Codex rejects the normal Responses token cap")
+        let complete = "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+        expect(CodexLimitWarmupClient.completed(HTTPPayload(data: Data(complete.utf8), statusCode: 200)), "terminal completion succeeds")
+        for invalid in ["", "data: [DONE]", "data: {\"type\":\"response.created\"}", "data: {\"type\":\"response.failed\"}", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"failed\"}}", complete + "data: {\"type\":\"error\"}"] {
+            expect(!CodexLimitWarmupClient.completed(HTTPPayload(data: Data(invalid.utf8), statusCode: 200)), "HTTP 200 without a successful stream must not report success")
+        }
+        expect(!CodexLimitWarmupClient.completed(HTTPPayload(data: Data(complete.utf8), statusCode: 401)), "auth rejection is not success")
     }
 
     private static func testSavedAccountAuthFilePolicy() throws {

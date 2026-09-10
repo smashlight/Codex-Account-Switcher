@@ -1611,6 +1611,115 @@ enum CodexHTTPClient {
     }
 }
 
+enum LimitWarmupState: Equatable {
+    case waiting, running, refreshing, completed, failed
+    case quotaExceeded, loginExpired, networkFailure, serverFailure, rateLimited, accessDenied
+
+    var isFailure: Bool {
+        switch self {
+        case .waiting, .running, .refreshing, .completed: return false
+        default: return true
+        }
+    }
+
+    func text(language: AppLanguage) -> String {
+        let key: LocalizedTextKey
+        switch self {
+        case .waiting: key = .warmupWaiting
+        case .running: key = .warmupRunning
+        case .refreshing: key = .warmupRefreshing
+        case .completed: key = .warmupCompleted
+        case .failed: key = .warmupFailed
+        case .quotaExceeded: key = .warmupQuota
+        case .loginExpired: key = .warmupLogin
+        case .networkFailure: key = .warmupNetwork
+        case .serverFailure: key = .warmupServer
+        case .rateLimited: key = .warmupRate
+        case .accessDenied: key = .warmupAccess
+        }
+        return LocalizedText.value(key, language: language)
+    }
+}
+
+enum CodexLimitWarmupClient {
+    static let model = "gpt-5.6-luna"
+    static let endpoint = URL(string: "https://chatgpt.com/backend-api/codex/responses")!
+
+    static func makeRequest(using auth: SavedAccountAuth) throws -> URLRequest {
+        var request = URLRequest(url: endpoint, timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(auth.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(auth.accountID, forHTTPHeaderField: "ChatGPT-Account-ID")
+        request.setValue("responses=experimental", forHTTPHeaderField: "OpenAI-Beta")
+        request.setValue("codex_cli_rs", forHTTPHeaderField: "originator")
+        request.setValue(UUID().uuidString, forHTTPHeaderField: "session_id")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        // Codex's request transformer removes max_output_tokens. Keep the prompt tiny instead.
+        let body: [String: Any] = [
+            "model": model,
+            "instructions": "Reply only with OK.",
+            "input": [["role": "user", "content": [["type": "input_text", "text": "Reply only with OK."]]]],
+            "reasoning": ["effort": "low"],
+            "store": false,
+            "stream": true
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    static func completed(_ payload: HTTPPayload) -> Bool {
+        guard payload.statusCode == 200, let text = String(data: payload.data, encoding: .utf8) else { return false }
+        var completed = false
+        for line in text.components(separatedBy: .newlines) where line.hasPrefix("data:") {
+            let data = Data(line.dropFirst(5).trimmingCharacters(in: .whitespaces).utf8)
+            guard let event = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
+            let type = event["type"] as? String
+            if type == "error" || type == "response.failed" || type == "response.incomplete" { return false }
+            if type == "response.completed",
+               let response = event["response"] as? [String: Any],
+               response["status"] as? String == "completed" { completed = true }
+        }
+        return completed
+    }
+
+    static func resultState(_ payload: HTTPPayload?) -> LimitWarmupState {
+        guard let payload else { return .networkFailure }
+        if completed(payload) { return .completed }
+        if payload.statusCode == 401 { return .loginExpired }
+        if payload.statusCode >= 500 { return .serverFailure }
+        // Read structured error identifiers only; never expose raw server messages or account data.
+        var identifiers = Set<String>()
+        func collect(_ value: Any) {
+            guard let object = value as? [String: Any] else { return }
+            for key in ["code", "type"] {
+                if let identifier = object[key] as? String { identifiers.insert(identifier.lowercased()) }
+            }
+            for key in ["error", "response"] {
+                if let nested = object[key] { collect(nested) }
+            }
+        }
+        if let json = try? JSONSerialization.jsonObject(with: payload.data) { collect(json) }
+        if let text = String(data: payload.data, encoding: .utf8) {
+            for line in text.components(separatedBy: .newlines) where line.hasPrefix("data:") {
+                let data = Data(line.dropFirst(5).trimmingCharacters(in: .whitespaces).utf8)
+                if let json = try? JSONSerialization.jsonObject(with: data) { collect(json) }
+            }
+        }
+        if !identifiers.isDisjoint(with: ["usage_limit_reached", "insufficient_quota", "quota_exceeded", "usage_limit_exceeded"]) { return .quotaExceeded }
+        if !identifiers.isDisjoint(with: ["token_expired", "invalid_token", "invalid_api_key", "authentication_error", "session_expired", "unauthorized"]) { return .loginExpired }
+        if payload.statusCode == 429 || identifiers.contains("rate_limit_exceeded") { return .rateLimited }
+        if payload.statusCode == 403 { return .accessDenied }
+        if !identifiers.isDisjoint(with: ["server_error", "internal_server_error"]) { return .serverFailure }
+        return .failed
+    }
+
+    static func run(using auth: SavedAccountAuth) async -> HTTPPayload? {
+        // Never replay an ambiguous inference request after timeout or a server error.
+        try? await CodexHTTPClient.send(makeRequest(using: auth), retries: 0)
+    }
+}
+
 struct CodexTokenRefreshPayload {
     let accessToken: String
     let refreshToken: String?

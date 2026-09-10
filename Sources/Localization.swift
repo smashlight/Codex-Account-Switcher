@@ -40,6 +40,19 @@ struct AppLanguagePreferenceStore {
 }
 
 enum LocalizedTextKey: CaseIterable {
+    case warmupButton
+    case warmupTooltip
+    case warmupWaiting
+    case warmupRunning
+    case warmupRefreshing
+    case warmupCompleted
+    case warmupQuota
+    case warmupLogin
+    case warmupNetwork
+    case warmupServer
+    case warmupRate
+    case warmupAccess
+    case warmupFailed
     case poolHistoryCollecting
     case noAccountsTitle
     case noAccountsDetail
@@ -180,6 +193,21 @@ enum LocalizedText {
             case .addTooltip: return "Добавить аккаунт"
             case .refreshButton: return "Обновить"
             case .refreshTooltip: return "Обновить данные всех сохранённых аккаунтов"
+            case .warmupButton: return "Старт лимитов"
+            case .warmupTooltip: return "Один запрос на аккаунт • GPT 5.6 Luna low"
+            case .warmupWaiting: return "В очереди"
+            case .warmupRunning: return "Отправка…"
+            case .warmupRefreshing: return "Обновление токена…"
+            case .warmupCompleted: return "Запрос выполнен"
+            case .warmupFailed: return "Ошибка запроса"
+            case .warmupQuota: return "Лимит исчерпан"
+            case .warmupLogin: return "Войдите снова"
+            case .warmupNetwork: return "Нет связи / таймаут"
+            case .warmupServer: return "Ошибка сервера"
+            case .warmupRate: return "Слишком часто"
+            case .warmupAccess: return "Нет доступа"
+
+
             case .quitButton: return "Выйти"
             case .quitConfirmButton: return "Выйти?"
             case .quitTooltip: return "Выйти из Codex Account Switcher"
@@ -302,6 +330,21 @@ enum LocalizedText {
             case .addTooltip: return "Add account"
             case .refreshButton: return "Refresh"
             case .refreshTooltip: return "Refresh usage for all saved accounts"
+            case .warmupButton: return "Start limits"
+            case .warmupTooltip: return "One request per account • GPT 5.6 Luna low"
+            case .warmupWaiting: return "Waiting"
+            case .warmupRunning: return "Sending…"
+            case .warmupRefreshing: return "Refreshing token…"
+            case .warmupCompleted: return "Request completed"
+            case .warmupFailed: return "Request failed"
+            case .warmupQuota: return "Quota exhausted"
+            case .warmupLogin: return "Sign in again"
+            case .warmupNetwork: return "Connection / timeout"
+            case .warmupServer: return "Server error"
+            case .warmupRate: return "Too many requests"
+            case .warmupAccess: return "Access denied"
+
+
             case .quitButton: return "Quit"
             case .quitConfirmButton: return "Quit?"
             case .quitTooltip: return "Quit Codex Account Switcher"

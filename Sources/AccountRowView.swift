@@ -27,6 +27,7 @@ struct AccountRowView: View {
     let isArmed: Bool
     let language: AppLanguage
     let theme: PanelTheme
+    var warmupState: LimitWarmupState? = nil
     let onCancel: () -> Void
     let onSwitch: () -> Void
 
@@ -169,9 +170,9 @@ struct AccountRowView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(account.email)
-            Text(weeklyResetText)
+            Text(warmupState?.text(language: language) ?? weeklyResetText)
                 .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundStyle(Color(nsColor: theme.tertiaryText))
+                .foregroundStyle(Color(nsColor: warmupState?.isFailure == true ? .nativeRed : theme.tertiaryText))
                 .lineLimit(1)
         }
     }

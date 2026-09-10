@@ -287,6 +287,8 @@ struct PaceDisplayState {
 
 final class AccountSwitcherPanelView: NSView {
     private let accounts: [CodexAccount]
+    private let warmupStates: [String: LimitWarmupState]
+    private let isWarmingUp: Bool
     private let activeAccount: CodexAccount?
     private let mode: AccountPanelMode
     private let language: AppLanguage
@@ -339,6 +341,8 @@ final class AccountSwitcherPanelView: NSView {
 
     init(
         accounts: [CodexAccount],
+        warmupStates: [String: LimitWarmupState] = [:],
+        isWarmingUp: Bool = false,
         activeAccount: CodexAccount?,
         mode: AccountPanelMode,
         language: AppLanguage,
@@ -383,6 +387,8 @@ final class AccountSwitcherPanelView: NSView {
         resetChance: ResetChanceForecast?,
         maximumPanelHeight: CGFloat
     ) {
+        self.warmupStates = warmupStates
+        self.isWarmingUp = isWarmingUp
         self.accounts = accounts
         self.activeAccount = activeAccount
         self.mode = mode
@@ -1050,6 +1056,7 @@ final class AccountSwitcherPanelView: NSView {
             isArmed: isArmed,
             language: language,
             theme: theme,
+            warmupState: warmupStates[account.email],
             onCancel: { [weak self] in self?.cancelSwitchConfirmation() },
             onSwitch: { [weak self] in self?.switchAccount(account.email) }
         )
@@ -1347,9 +1354,7 @@ final class AccountSwitcherPanelView: NSView {
         let bar = RoundedPanelView(frame: frame, fillColor: theme.bottomBarFill, borderColor: theme.inactiveCardBorder, cornerRadius: 16)
         let toolbarInset: CGFloat = 12
         let iconSize: CGFloat = 28
-        let clockSize: CGFloat = 16
         let iconY = (frame.height - iconSize) / 2
-        let clockY = (frame.height - clockSize) / 2
 
         let settingsButton = iconButton(symbol: "gearshape", frame: NSRect(x: toolbarInset, y: iconY, width: iconSize, height: iconSize), action: #selector(settingsPressed(_:)), toolTip: LocalizedText.value(.settingsTooltip, language: language), pointSize: 17)
         bar.addSubview(settingsButton)
@@ -1377,12 +1382,15 @@ final class AccountSwitcherPanelView: NSView {
         let rightDividerX = refreshX - 10
         let resetWidth: CGFloat = 94
         let resetX = rightDividerX - resetWidth - 10
-        let clockX = leftDividerX + 12
-        let clock = SymbolIconView(frame: NSRect(x: clockX, y: clockY, width: clockSize, height: clockSize), symbol: "clock", color: theme.iconTint)
-        bar.addSubview(clock)
-        let updatedX = clockX + clockSize + 6
-        let updatedWidth = max(46, resetX - updatedX - 8)
-        bar.addSubview(CenteredTextView(frame: NSRect(x: updatedX, y: (frame.height - 20) / 2, width: updatedWidth, height: 20), text: lastUpdatedText, size: 11.2, weight: .medium, color: theme.secondaryText, alignment: .left))
+        let warmupX = leftDividerX + 8
+        let warmupButton = SettingsActionButton(frame: NSRect(x: warmupX, y: actionButtonY, width: resetX - warmupX - 8, height: actionButtonHeight), title: LocalizedText.value(isWarmingUp ? .warmupRunning : .warmupButton, language: language), color: theme.inactiveButtonFill, textColor: theme.primaryText)
+        warmupButton.identifier = NSUserInterfaceItemIdentifier(SettingsPanelAction.warmupLimits.rawValue)
+        warmupButton.target = self
+        warmupButton.action = #selector(settingsActionPressed(_:))
+        warmupButton.toolTip = LocalizedText.value(.warmupTooltip, language: language) + " • " + lastUpdatedText
+        warmupButton.setAccessibilityLabel(LocalizedText.value(.warmupButton, language: language))
+        warmupButton.isEnabled = !isWarmingUp && !isSwitching && !accounts.isEmpty
+        bar.addSubview(warmupButton)
 
         let resetButton = SettingsActionButton(frame: NSRect(x: resetX, y: 7, width: resetWidth, height: 26), title: resetCreditsButtonTitle(), color: resetCreditsButtonColor(), textColor: resetCreditsButtonTextColor())
         resetButton.target = self
@@ -1537,6 +1545,7 @@ final class AccountSwitcherPanelView: NSView {
         refresh()
     }
 
+
     @objc private func resetCreditsPressed(_ sender: NSButton) {
         showResetCredits()
     }
@@ -1649,6 +1658,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
     private var isRefreshingResetCredits = false
     private var pendingForceRefresh = false
     private var isSwitching = false
+    private var isWarmingUp = false
+    private var warmupStates: [String: LimitWarmupState] = [:]
+    private var warmupStatusClearTask: Task<Void, Never>?
     private var isRedeemingReset = false
     private var resetStatusText: String?
     private var directUsageSnapshotsByEmail: [String: DirectUsageSnapshot] = [:]
@@ -2480,6 +2492,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         let language = languageStore.load()
         let panel = AccountSwitcherPanelView(
             accounts: toolbarAccounts(),
+            warmupStates: warmupStates,
+            isWarmingUp: isWarmingUp,
             activeAccount: accounts.first(where: { $0.isActive }),
             mode: accountPanelMode,
             language: language,
@@ -2729,6 +2743,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
             refreshResetCreditsIfNeeded(force: false)
         case .addAccount:
             addAccountBrowser()
+        case .warmupLimits:
+            warmupLimits()
         case .editLabels:
             showAccountDisplayLabelsDialog()
         case .removeAccount:
@@ -2771,6 +2787,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         if accountPanel?.isVisible == true {
             refreshAccountPanelContentIfVisible()
         }
+    }
+
+    private func warmupLimits() {
+        guard !isWarmingUp, !isSwitching, !accounts.isEmpty else { return }
+        let currentAccounts = accounts
+        isWarmingUp = true
+        warmupStatusClearTask?.cancel()
+        warmupStatusClearTask = nil
+        warmupStates = Dictionary(currentAccounts.map { ($0.email, .waiting) }, uniquingKeysWith: { first, _ in first })
+        refreshAccountPanelContentIfVisible()
+        Task {
+            for start in stride(from: 0, to: currentAccounts.count, by: 4) {
+                let batch = Array(currentAccounts[start..<min(start + 4, currentAccounts.count)])
+                await withTaskGroup(of: Void.self) { group in
+                    for account in batch {
+                        group.addTask { await self.warmupAccount(email: account.email) }
+                    }
+                }
+            }
+            isWarmingUp = false
+            refreshAccountPanelContentIfVisible()
+            refreshAccounts(force: true)
+            warmupStatusClearTask = Task { [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: 12_000_000_000)
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                self.warmupStates = [:]
+                self.warmupStatusClearTask = nil
+                self.refreshAccountPanelContentIfVisible()
+            }
+
+        }
+    }
+
+    private func warmupAccount(email: String) async {
+        warmupStates[email] = .running
+        refreshAccountPanelContentIfVisible()
+        guard case .success(let saved) = savedAuth(forEmail: email) else {
+            warmupStates[email] = .failed
+            refreshAccountPanelContentIfVisible()
+            return
+        }
+        if CodexTokenRefresher.shouldRefresh(lastRefresh: saved.lastRefresh) {
+            warmupStates[email] = .refreshing
+            refreshAccountPanelContentIfVisible()
+        }
+        var auth = await maybeRefreshAuth(saved)
+        warmupStates[email] = .running
+        refreshAccountPanelContentIfVisible()
+        var payload = await CodexLimitWarmupClient.run(using: auth)
+        // Retry only a definite auth rejection, using the exact saved account.
+        if payload?.statusCode == 401, let token = auth.refreshToken {
+            warmupStates[email] = .refreshing
+            refreshAccountPanelContentIfVisible()
+            let refreshed = await performTokenRefresh(auth: auth, refreshToken: token)
+            if refreshed.accessToken != auth.accessToken {
+                auth = refreshed
+                payload = await CodexLimitWarmupClient.run(using: auth)
+            }
+        }
+        warmupStates[email] = CodexLimitWarmupClient.resultState(payload)
+        refreshAccountPanelContentIfVisible()
     }
 
     private func setLanguage(_ language: AppLanguage) {
