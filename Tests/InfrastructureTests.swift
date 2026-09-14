@@ -757,9 +757,9 @@ struct InfrastructureTests {
     }
 
     private static func testToolbarStatusFormatting() {
-        expect(ToolbarStatusFormatter.text(label: "A", usage: "89%") == "A89%", "single-character labels should keep the compact menu-bar format")
-        expect(ToolbarStatusFormatter.text(label: "1287", usage: "100%") == "1287 100%", "multi-character labels should be separated from usage")
-        expect(ToolbarStatusFormatter.text(label: "1287", usage: "100") == "1287 100", "compact usage should also be separated from multi-character labels")
+        expect(ToolbarStatusFormatter.text(usage: "89%") == "89%", "menu-bar status should show only the remaining percentage")
+        expect(ToolbarStatusFormatter.text(usage: "100%") == "100%", "full remaining usage should have no account prefix")
+        expect(ToolbarStatusFormatter.text(usage: "0%") == "0%", "exhausted usage should have no account prefix")
     }
 
     private static func testStatusAnimationPolicy() {

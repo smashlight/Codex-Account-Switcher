@@ -3491,10 +3491,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
     }
 
     private func toolbarStatusText(for account: CodexAccount) -> String {
-        let label = toolbarLabel(for: account)
         let percent = toolbarUsagePercent(for: account)
         return ToolbarStatusFormatter.text(
-            label: label,
             usage: remainingPercentText(fromUsed: percent)
         )
     }

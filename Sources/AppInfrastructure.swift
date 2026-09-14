@@ -276,8 +276,8 @@ enum LastKnownGoodSnapshotPolicy {
 }
 
 enum ToolbarStatusFormatter {
-    static func text(label: String, usage: String) -> String {
-        "\(label)\(label.count > 1 ? " " : "")\(usage)"
+    static func text(usage: String) -> String {
+        usage
     }
 }
 
