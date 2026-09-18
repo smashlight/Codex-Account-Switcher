@@ -11,6 +11,11 @@ struct CodexAccount: Equatable {
     let weeklyUsedPercent: Int?
     let lastActivity: String
     let isActive: Bool
+    var hasFiveHourWindow: Bool = true
+
+    var toolbarRemainingPercent: Int? {
+        hasFiveHourWindow ? fiveHourUsedPercent : weeklyUsedPercent
+    }
 }
 
 struct HealthStatus {
@@ -71,6 +76,7 @@ struct UsageLimitWindowSnapshot: Equatable {
 struct DirectUsageSnapshot: Equatable {
     let fiveHour: UsageLimitWindowSnapshot
     let weekly: UsageLimitWindowSnapshot
+    var hasFiveHourWindow: Bool = true
 }
 
 struct ResetConsumeReceipt {

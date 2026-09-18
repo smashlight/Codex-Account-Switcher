@@ -3254,12 +3254,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
                 selector: account.selector,
                 email: account.email,
                 plan: account.plan,
-                fiveHourUsage: directUsageText(usage.fiveHour, weekly: false),
+                fiveHourUsage: usage.hasFiveHourWindow ? directUsageText(usage.fiveHour, weekly: false) : "--",
                 weeklyUsage: directUsageText(usage.weekly, weekly: true),
-                fiveHourUsedPercent: usage.fiveHour.remainingPercent,
+                fiveHourUsedPercent: usage.hasFiveHourWindow ? usage.fiveHour.remainingPercent : nil,
                 weeklyUsedPercent: usage.weekly.remainingPercent,
                 lastActivity: account.lastActivity,
-                isActive: account.isActive
+                isActive: account.isActive,
+                hasFiveHourWindow: usage.hasFiveHourWindow
             )
         }
     }
@@ -3271,12 +3272,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
                 selector: account.selector,
                 email: account.email,
                 plan: account.plan,
-                fiveHourUsage: directUsageText(snapshot.fiveHour, weekly: false),
+                fiveHourUsage: snapshot.hasFiveHourWindow ? directUsageText(snapshot.fiveHour, weekly: false) : "--",
                 weeklyUsage: directUsageText(snapshot.weekly, weekly: true),
-                fiveHourUsedPercent: snapshot.fiveHour.remainingPercent,
+                fiveHourUsedPercent: snapshot.hasFiveHourWindow ? snapshot.fiveHour.remainingPercent : nil,
                 weeklyUsedPercent: snapshot.weekly.remainingPercent,
                 lastActivity: account.lastActivity,
-                isActive: account.isActive
+                isActive: account.isActive,
+                hasFiveHourWindow: snapshot.hasFiveHourWindow
             )
         }
     }
@@ -3476,7 +3478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
             return "reset|\(resetStatusText)"
         }
         return toolbarStatusAccounts().first.map { account in
-            "\(account.email)|\(account.fiveHourUsedPercent ?? -1)|\(account.isActive ? "active" : "inactive")|\(accountNeedsLogin(account) ? "login" : "ok")"
+            "\(account.email)|\(account.toolbarRemainingPercent ?? -1)|\(account.isActive ? "active" : "inactive")|\(accountNeedsLogin(account) ? "login" : "ok")"
         } ?? "empty"
     }
 
@@ -3514,7 +3516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
     }
 
     private func toolbarUsagePercent(for account: CodexAccount) -> Int? {
-        return account.fiveHourUsedPercent
+        return account.toolbarRemainingPercent
     }
 
     private func toolbarAccounts() -> [CodexAccount] {
@@ -5606,7 +5608,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
 
         return .success(DirectUsageSnapshot(
             fiveHour: fiveHour,
-            weekly: weekly
+            weekly: weekly,
+            hasFiveHourWindow: !(
+                ["team", "business"].contains((object["plan_type"] as? String ?? "").lowercased())
+                && secondary == nil && (primary?.duration ?? 0) >= 86_400
+            )
         ))
     }
 
@@ -5646,6 +5652,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
             postResetUsage.weekly.remainingPercent == 100
         else {
             return "Reset logic self-test FAILED: post-reset missing window"
+        }
+
+        var businessFixture = postResetUsageFixture
+        businessFixture["plan_type"] = "team"
+        businessFixture["rate_limit"] = [
+            "primary_window": ["used_percent": 31, "limit_window_seconds": 604_800],
+            "secondary_window": NSNull()
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: businessFixture),
+              case .success(let business) = parseDirectUsageResponse(data),
+              !business.hasFiveHourWindow,
+              business.weekly.remainingPercent == 69 else {
+            return "Reset logic self-test FAILED: Business weekly-only window"
+        }
+
+        var dualWindowBusinessFixture = usageFixture
+        dualWindowBusinessFixture["plan_type"] = "team"
+        guard let data = try? JSONSerialization.data(withJSONObject: dualWindowBusinessFixture),
+              case .success(let business) = parseDirectUsageResponse(data),
+              business.hasFiveHourWindow,
+              business.fiveHour.remainingPercent == 99 else {
+            return "Reset logic self-test FAILED: Business with both windows"
         }
 
         let consumeFixture: [String: Any] = ["code": "reset", "windows_reset": 2]

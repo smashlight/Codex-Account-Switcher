@@ -53,6 +53,13 @@ struct InfrastructureTests {
         testInlineQuitConfirmationPolicy()
         testLastKnownGoodSnapshotPolicy()
         testToolbarStatusFormatting()
+        let business = CodexAccount(selector: "1", email: "test@example.com", plan: "Business",
+            fiveHourUsage: "--", weeklyUsage: "69%", fiveHourUsedPercent: nil,
+            weeklyUsedPercent: 69, lastActivity: "Now", isActive: true, hasFiveHourWindow: false)
+        expect(business.toolbarRemainingPercent == 69, "Weekly-only account uses weekly toolbar percentage")
+        var standard = business
+        standard.hasFiveHourWindow = true
+        expect(standard.toolbarRemainingPercent == nil, "Standard missing five-hour usage stays unknown")
         testStatusAnimationPolicy()
         testAppLanguagePreference()
         testLocalizedTextCompleteness()
