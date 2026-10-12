@@ -37,7 +37,22 @@ struct InfrastructureTests {
     private static var failures: [String] = []
     private static var assertionCount = 0
 
+    static func testDesktopCLIResolution() {
+        let app = "/Applications/ChatGPT.app"
+        let modern = app + "/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"
+        let legacy = app + "/Contents/Resources/codex"
+        expect(DesktopCLIResolver.executable(appPath: app, isExecutable: { $0 == modern }) == modern,
+               "Resolve CLI in current ChatGPT nested bundle")
+        expect(DesktopCLIResolver.executable(appPath: app, isExecutable: { $0 == legacy }) == legacy,
+               "Keep legacy desktop CLI support")
+        expect(DesktopCLIResolver.executable(appPath: app, isExecutable: { _ in true }) == modern,
+               "Prefer current bundle when both paths exist")
+        expect(DesktopCLIResolver.executable(appPath: app, isExecutable: { _ in false }) == nil,
+               "Missing CLI must not resolve to a nonexistent executable")
+    }
+
     static func main() throws {
+        testDesktopCLIResolution()
         try testLimitWarmupRequestAndResponse()
         try testSavedAccountAuthFilePolicy()
         testSettingsNumericPolicy()

@@ -3574,6 +3574,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         "\(codexDesktopAppPath)/Contents/Resources"
     }
 
+    private nonisolated var bundledCodexCLIPath: String? {
+        DesktopCLIResolver.executable(appPath: codexDesktopAppPath)
+    }
+
     private func isCodexDesktopApplication(_ app: NSRunningApplication) -> Bool {
         let name = app.localizedName?.lowercased() ?? ""
         let bundleIdentifier = app.bundleIdentifier?.lowercased() ?? ""
@@ -5043,8 +5047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
                 return .success
             },
             operation: {
-                let bundledCodex = "\(self.codexDesktopResourcesPath)/codex"
-                guard FileManager.default.isExecutableFile(atPath: bundledCodex) else {
+                guard let bundledCodex = self.bundledCodexCLIPath else {
                     return "reference plugin reconciliation failed: bundled codex CLI not found"
                 }
                 let marketplaceOutcome = ReferenceMarketplacePluginReconciler.reconcile(
@@ -5153,8 +5156,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
                 changed = true
             }
 
-            if let computerUseApp = ComputerUsePluginLocator.latestApp(homeDirectory: home) {
-                let codePathLine = "CODEX_CLI_PATH = \"\(codexDesktopResourcesPath)/codex\""
+            if let computerUseApp = ComputerUsePluginLocator.latestApp(homeDirectory: home),
+               let bundledCodex = bundledCodexCLIPath {
+                let codePathLine = "CODEX_CLI_PATH = \"\(bundledCodex)\""
                 let servicePathLine = "SKY_CUA_SERVICE_PATH = \"\(computerUseApp.path)\""
                 let pattern = #"(?m)^SKY_CUA_SERVICE_PATH = ".*"$"#
                 if let regex = try? NSRegularExpression(pattern: pattern),
@@ -5195,11 +5199,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
     }
 
     private nonisolated func ensureBundledPluginsHealthy() -> BundledMarketplaceRepairer.RepairOutcome {
-        let bundledCodex = "\(codexDesktopResourcesPath)/codex"
         let outcome = BundledMarketplaceRepairer.repairIfNeeded(
             homeDirectory: NSHomeDirectory(),
             appPath: codexDesktopAppPath,
-            codexExecutable: FileManager.default.isExecutableFile(atPath: bundledCodex) ? bundledCodex : nil,
+            codexExecutable: bundledCodexCLIPath,
             pluginRunner: { executable, arguments, _ in
                 self.run(executable, arguments)
             }
@@ -5993,8 +5996,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         if FileManager.default.isExecutableFile(atPath: bundledNode) {
             environment["CODEX_AUTH_NODE_EXECUTABLE"] = bundledNode
         }
-        let bundledCodex = "\(codexDesktopResourcesPath)/codex"
-        if FileManager.default.isExecutableFile(atPath: bundledCodex) {
+        if let bundledCodex = bundledCodexCLIPath {
             environment["CODEX_CLI_PATH"] = bundledCodex
         }
         return ProcessRunner.run(executable, args, environment: environment, timeout: commandTimeout(for: executable, arguments: args))
@@ -6017,9 +6019,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
 
     private nonisolated func augmentedPath(from currentPath: String?) -> String {
         let home = NSHomeDirectory()
-        let candidates = [
+        let nodeRoot = URL(fileURLWithPath: "\(home)/.nvm/versions/node")
+        let nodePaths = ((try? FileManager.default.contentsOfDirectory(at: nodeRoot, includingPropertiesForKeys: nil)) ?? [])
+            .sorted { $0.lastPathComponent.compare($1.lastPathComponent, options: .numeric) == .orderedDescending }
+            .map { $0.appendingPathComponent("bin").path }
+        let cliPaths = bundledCodexCLIPath.map { [URL(fileURLWithPath: $0).deletingLastPathComponent().path] } ?? []
+        let candidates = cliPaths + nodePaths + [
             codexDesktopResourcesPath,
-            "\(home)/.nvm/versions/node/v20.11.0/bin",
             "\(home)/.local/bin",
             "/opt/homebrew/bin",
             "/usr/local/bin",
@@ -6046,8 +6052,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         if FileManager.default.isExecutableFile(atPath: bundledNode) {
             commands.append("export CODEX_AUTH_NODE_EXECUTABLE=\(shellEscaped(bundledNode))")
         }
-        let bundledCodex = "\(codexDesktopResourcesPath)/codex"
-        if FileManager.default.isExecutableFile(atPath: bundledCodex) {
+        if let bundledCodex = bundledCodexCLIPath {
             commands.append("export CODEX_CLI_PATH=\(shellEscaped(bundledCodex))")
         }
         return commands.joined(separator: "; ")

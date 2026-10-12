@@ -2,6 +2,19 @@ import Darwin
 import Foundation
 import CryptoKit
 
+enum DesktopCLIResolver {
+    static func executable(
+        appPath: String,
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> String? {
+        let resources = appPath + "/Contents/Resources"
+        return [
+            resources + "/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+            resources + "/codex"
+        ].first(where: isExecutable)
+    }
+}
+
 enum SettingsNumericValidationError: Error, Equatable {
     case invalidDraft
     case outOfRange

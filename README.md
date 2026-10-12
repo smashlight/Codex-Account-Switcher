@@ -65,6 +65,20 @@ codex-auth login
 
 Repeat `codex-auth login` for each account you want to use.
 
+On current ChatGPT desktop builds, the bundled CLI lives inside
+`ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS`.
+The switcher's **Add Account** action discovers it automatically, with support
+for older desktop layouts. If terminal login reports that `codex` cannot be
+found, use the current bundled CLI directory for that command:
+
+```bash
+PATH="/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS:$PATH" codex-auth login
+```
+
+A stale `/usr/local/bin/codex` symlink may still point at the old
+`Contents/Resources/codex` location. It is not used by the switcher's resolved CLI.
+
+
 The release is ad-hoc signed and includes a SHA-256 checksum. It is not Apple-notarized, so macOS may show the standard warning for independently distributed software.
 
 ## Requirements
