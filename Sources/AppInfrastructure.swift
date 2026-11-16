@@ -50,6 +50,100 @@ struct CommandResult {
     let output: String
 }
 
+enum BrowserAccountLogin {
+    static func run(
+        executable: String,
+        environment: [String: String],
+        language: AppLanguage,
+        timeout: TimeInterval = 180,
+        openURL: (URL) -> CommandResult
+    ) -> CommandResult {
+        func failure(_ key: LocalizedTextKey, status: Int32 = 1) -> CommandResult {
+            CommandResult(status: status, output: LocalizedText.value(key, language: language))
+        }
+        let process = Process()
+        let input = Pipe()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: executable)
+        // Keep credentials in auth.json so codex-auth can import the completed login.
+        process.arguments = ["app-server", "-c", "cli_auth_credentials_store=\"file\""]
+        process.environment = environment
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return failure(.browserLoginFailed)
+        }
+        try? input.fileHandleForReading.close()
+        try? output.fileHandleForWriting.close()
+        defer {
+            try? input.fileHandleForWriting.close()
+            if process.isRunning { process.terminate() }
+            let deadline = Date().addingTimeInterval(0.5)
+            while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
+            if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
+            process.waitUntilExit()
+            try? output.fileHandleForReading.close()
+        }
+        func send(_ message: [String: Any]) throws {
+            var data = try JSONSerialization.data(withJSONObject: message)
+            data.append(0x0A)
+            try input.fileHandleForWriting.write(contentsOf: data)
+        }
+        do {
+            try send(["id": 1, "method": "initialize", "params": [
+                "clientInfo": ["name": "codex_account_switcher", "version": "1.8.5"]
+            ]])
+            let deadline = Date().addingTimeInterval(timeout)
+            var buffer = Data()
+            var loginID: String?
+            var initialized = false
+            while Date() < deadline {
+                var descriptor = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+                guard poll(&descriptor, 1, 100) > 0 else { continue }
+                let chunk = output.fileHandleForReading.availableData
+                guard !chunk.isEmpty else { return failure(.browserLoginFailed) }
+                buffer.append(chunk)
+                guard buffer.count <= 1_048_576 else { return failure(.browserLoginFailed) }
+                while let newline = buffer.firstIndex(of: 0x0A) {
+                    let line = buffer[..<newline]
+                    buffer.removeSubrange(...newline)
+                    guard let message = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+                        return failure(.browserLoginFailed)
+                    }
+                    // Never include RPC payloads or authorization URLs in error output.
+                    if message["error"] != nil { return failure(.browserLoginFailed) }
+                    let id = message["id"] as? Int
+                    if id == 1 && !initialized {
+                        initialized = true
+                        try send(["method": "initialized"])
+                        try send(["id": 2, "method": "account/login/start", "params": ["type": "chatgpt"]])
+                    } else if id == 2 && initialized && loginID == nil {
+                        guard let result = message["result"] as? [String: Any],
+                              let newLoginID = result["loginId"] as? String, !newLoginID.isEmpty,
+                              let rawURL = result["authUrl"] as? String,
+                              let url = URL(string: rawURL), url.scheme == "https", url.host != nil else {
+                            return failure(.browserLoginFailed)
+                        }
+                        loginID = newLoginID
+                        guard openURL(url).status == 0 else { return failure(.chromeLaunchFailed) }
+                    } else if message["method"] as? String == "account/login/completed",
+                              let params = message["params"] as? [String: Any],
+                              let loginID, params["loginId"] as? String == loginID {
+                        return params["success"] as? Bool == true
+                            ? CommandResult(status: 0, output: "") : failure(.browserLoginFailed)
+                    }
+                }
+            }
+            return failure(.browserLoginTimedOut, status: 124)
+        } catch {
+            return failure(.browserLoginFailed)
+        }
+    }
+}
+
 enum WeeklyRemainingBand: Equatable {
     case unknown
     case healthy

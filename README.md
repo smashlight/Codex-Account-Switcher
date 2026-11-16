@@ -68,7 +68,10 @@ Repeat `codex-auth login` for each account you want to use.
 On current ChatGPT desktop builds, the bundled CLI lives inside
 `ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS`.
 The switcher's **Add Account** action discovers it automatically, with support
-for older desktop layouts. If terminal login reports that `codex` cannot be
+for older desktop layouts. **Add Account** opens sign-in in a Google Chrome
+Incognito tab (Google Chrome must be installed), then saves the completed login
+with `codex-auth import`. An existing Incognito window can be reused.
+If terminal login reports that `codex` cannot be
 found, use the current bundled CLI directory for that command:
 
 ```bash

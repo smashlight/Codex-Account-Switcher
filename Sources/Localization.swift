@@ -40,6 +40,10 @@ struct AppLanguagePreferenceStore {
 }
 
 enum LocalizedTextKey: CaseIterable {
+    case chromeRequired
+    case chromeLaunchFailed
+    case browserLoginFailed
+    case browserLoginTimedOut
     case warmupButton
     case warmupTooltip
     case warmupWaiting
@@ -184,6 +188,10 @@ enum LocalizedText {
         switch language {
         case .russian:
             switch key {
+            case .chromeRequired: return "Для добавления аккаунта установите Google Chrome."
+            case .chromeLaunchFailed: return "Не удалось открыть Google Chrome в режиме инкогнито."
+            case .browserLoginFailed: return "Не удалось завершить вход. Попробуйте добавить аккаунт ещё раз."
+            case .browserLoginTimedOut: return "Время ожидания входа истекло. Попробуйте добавить аккаунт ещё раз."
             case .poolHistoryCollecting: return "История пула набирается…"
             case .noAccountsTitle: return "Нет доступных аккаунтов"
             case .noAccountsDetail: return "Откройте настройки, чтобы добавить аккаунт."
@@ -321,6 +329,10 @@ enum LocalizedText {
             }
         case .english:
             switch key {
+            case .chromeRequired: return "Install Google Chrome to add an account."
+            case .chromeLaunchFailed: return "Could not open Google Chrome in Incognito mode."
+            case .browserLoginFailed: return "Could not complete sign-in. Try adding the account again."
+            case .browserLoginTimedOut: return "Sign-in timed out. Try adding the account again."
             case .poolHistoryCollecting: return "Collecting pool history…"
             case .noAccountsTitle: return "No accounts available"
             case .noAccountsDetail: return "Open settings to add an account."

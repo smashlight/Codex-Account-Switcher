@@ -53,6 +53,7 @@ struct InfrastructureTests {
 
     static func main() throws {
         testDesktopCLIResolution()
+        try testBrowserAccountLogin()
         try testLimitWarmupRequestAndResponse()
         try testSavedAccountAuthFilePolicy()
         testSettingsNumericPolicy()
@@ -829,6 +830,56 @@ struct InfrastructureTests {
         expect(remaining.contains("account.auth.json.bak.5"), "backup pruning should keep newest backup")
         expect(remaining.contains("account.auth.json.bak.4"), "backup pruning should keep requested backup count")
         expect(remaining.contains("account.auth.json"), "backup pruning should preserve active auth snapshot")
+    }
+
+    private static func testBrowserAccountLogin() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("browser-login-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let server = root.appendingPathComponent("codex")
+        func run(_ response: String, timeout: TimeInterval = 2, openerStatus: Int32 = 0) throws -> (CommandResult, [URL]) {
+            let script = """
+            #!/bin/sh
+            [ "$1" = app-server ] || exit 1
+            [ "$3" = 'cli_auth_credentials_store="file"' ] || exit 1
+            IFS= read -r request
+            case "$request" in *initialize*) ;; *) exit 1;; esac
+            printf '%s\\n' '{"id":1,"result":{}}'
+            IFS= read -r request
+            case "$request" in *initialized*) ;; *) exit 1;; esac
+            IFS= read -r request
+            case "$request" in *login*start*) ;; *) exit 1;; esac
+            \(response)
+            IFS= read -r request
+            """
+            try script.write(to: server, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: server.path)
+            var urls: [URL] = []
+            let result = BrowserAccountLogin.run(executable: server.path, environment: ProcessInfo.processInfo.environment,
+                                                language: .english, timeout: timeout) { url in
+                urls.append(url)
+                return CommandResult(status: openerStatus, output: "")
+            }
+            return (result, urls)
+        }
+        let start = #"printf '%s\n' '{"id":2,"result":{"loginId":"expected","authUrl":"https://auth.openai.com/oauth/authorize?state=test"}}'"#
+        let success = #"printf '%s\n' '{"method":"account/login/completed","params":{"loginId":"expected","success":true}}'"#
+        let wrongID = #"printf '%s\n' '{"method":"account/login/completed","params":{"loginId":"other","success":false}}'"#
+        let completed = try run([start, wrongID, success].joined(separator: "\n"))
+        expect(completed.0.status == 0, "Browser login waits for the matching completion")
+        expect(completed.1.map(\.host) == ["auth.openai.com"], "Browser login opens the returned URL exactly once")
+        let failed = try run(start + "\n" + #"printf '%s\n' '{"method":"account/login/completed","params":{"loginId":"expected","success":false,"error":"private payload"}}'"#)
+        expect(failed.0.status != 0 && !failed.0.output.contains("private payload"), "Failed login does not expose RPC payloads")
+        let invalidURL = try run(#"printf '%s\n' '{"id":2,"result":{"loginId":"expected","authUrl":"file:///tmp/auth"}}'"#)
+        expect(invalidURL.0.status != 0 && invalidURL.1.isEmpty, "Browser login rejects non-HTTPS URLs")
+        let openerFailure = try run(start, openerStatus: 1)
+        expect(openerFailure.0.status != 0 && openerFailure.0.output.contains("Chrome"), "Browser launch failure ends login")
+        let timedOut = try run(start, timeout: 0.2)
+        expect(timedOut.0.status == 124, "Browser login has a bounded timeout and stops the server")
+        let broken = try run(#"printf '%s\n' '{broken'"#)
+        expect(broken.0.status != 0, "Malformed server output fails login")
+        let rpcError = try run(#"printf '%s\n' '{"id":2,"error":{"message":"private payload"}}'"#)
+        expect(rpcError.0.status != 0 && !rpcError.0.output.contains("private payload"), "RPC errors are sanitized")
     }
 
     private static func testProcessRunner() {

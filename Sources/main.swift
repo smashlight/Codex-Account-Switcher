@@ -4152,7 +4152,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
     }
 
     @objc private func addAccountBrowser() {
-        runAccountMaintenance(title: "Adding account", args: ["login"], restartAfterSuccess: true)
+        let language = languageStore.load()
+        guard let chrome = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") else {
+            showAlert(title: LocalizedText.value(.addButton, language: language),
+                      message: LocalizedText.value(.chromeRequired, language: language))
+            return
+        }
+        runAccountMaintenance(title: "Adding account", args: ["login"], restartAfterSuccess: true, loginBrowser: chrome)
     }
 
     @objc private func toggleUsageReminder() {
@@ -4823,14 +4829,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @MainActor UNUserNotif
         }
     }
 
-    private func runAccountMaintenance(title: String, args: [String], restartAfterSuccess: Bool = false) {
+    private func runAccountMaintenance(title: String, args: [String], restartAfterSuccess: Bool = false, loginBrowser: URL? = nil) {
         guard !isSwitching else { return }
+        let language = languageStore.load()
         isSwitching = true
         let maintenanceStatusAnimationGeneration = beginStatusAnimation(title: title)
         rebuildMenu()
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = self.runCodexAuth(args)
+            let result: CommandResult
+            if let loginBrowser {
+                if let cli = self.bundledCodexCLIPath, let auth = self.codexAuthPath() {
+                    let login = BrowserAccountLogin.run(executable: cli, environment: self.augmentedEnvironment(), language: language) { url in
+                        self.run("/usr/bin/open", ["-n", "-a", loginBrowser.path, "--args", "--incognito", url.absoluteString])
+                    }
+                    result = login.status == 0
+                        ? self.run(auth, ["import", "\(NSHomeDirectory())/.codex/auth.json"]) : login
+                } else {
+                    result = CommandResult(status: 127, output: LocalizedText.value(.browserLoginFailed, language: language))
+                }
+            } else {
+                result = self.runCodexAuth(args)
+            }
             var restartResult: CommandResult?
             if result.status == 0, restartAfterSuccess {
                 restartResult = self.restartCodexApp()
